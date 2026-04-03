@@ -3,7 +3,7 @@
 import { Bell, Menu, Download } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/hooks/useAppRedux";
 import { toggleSidebar, toggleNotifPanel, closeNotifPanel } from "@/store/uiSlice";
-import { NotifPanel } from "@/components/layout/NotifPanel";
+import { NotifPanel } from "./NotifPanel";
 import { useEffect, useRef } from "react";
 
 export function Topbar() {

@@ -15,7 +15,7 @@ export default function HeatNumbersPage() {
           <div><strong>{quarantine.length} heat number(s) in QUARANTINE</strong> — MTR (Mill Test Report) not yet received. Parts with {quarantine.map((h) => h.heat_number).join(", ")} must not enter fabrication until released by QC.</div>
         </div>
       )}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card primary"><div className="stat-label">Total Heats</div><div className="stat-value">{HEAT_NUMBERS.length}</div></div>
         <div className="stat-card green"><div className="stat-label">Released</div><div className="stat-value">{HEAT_NUMBERS.filter(h => h.status === "Released").length}</div></div>
         <div className="stat-card red"><div className="stat-label">Quarantine</div><div className="stat-value">{quarantine.length}</div></div>

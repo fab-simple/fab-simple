@@ -10,7 +10,7 @@ export default function PaintInspectionPage() {
 
   return (
     <PageWrapper title="Paint & Coating Inspection">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card primary"><div className="stat-label">Total Inspections</div><div className="stat-value">{PAINT_INSPECTIONS.length}</div></div>
         <div className="stat-card green"><div className="stat-label">Pass</div><div className="stat-value">{passing}</div></div>
         <div className="stat-card red"><div className="stat-label">Fail / Rework</div><div className="stat-value">{failing}</div></div>

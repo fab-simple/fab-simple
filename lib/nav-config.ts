@@ -34,7 +34,7 @@ export interface NavItem {
   key: string;
   label: string;
   href: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number | string }>;
   badge?: string;
   badgeClass?: string;
   section?: string;

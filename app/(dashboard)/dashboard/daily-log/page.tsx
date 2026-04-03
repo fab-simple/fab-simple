@@ -23,7 +23,7 @@ export default function DailyLogPage() {
         <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Log Entry</button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card green"><div className="stat-label">Parts Completed</div><div className="stat-value">{totalParts}</div><div className="stat-sub">Budget: {budgetParts}</div></div>
         <div className="stat-card blue"><div className="stat-label">Stations Active</div><div className="stat-value">{DAILY_LOGS.length}</div></div>
         <div className="stat-card primary"><div className="stat-label">Total Hours</div><div className="stat-value">{DAILY_LOGS.reduce((s, d) => s + d.hours_worked, 0)}</div></div>
@@ -62,7 +62,7 @@ export default function DailyLogPage() {
       </div>
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title="Log Daily Production Entry" size="md">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid-2" style={{ gap: 12 }}>
           <div className="fld"><label>Date</label><input type="date" defaultValue="2026-03-23" /></div>
           <div className="fld"><label>Station *</label><select><option>Beam Line / CNC</option><option>Welding Station 1</option><option>Welding Station 2</option><option>Paint Booth</option><option>Touch-up / Shipping Prep</option></select></div>
           <div className="fld"><label>Operators</label><input placeholder="Names" /></div>

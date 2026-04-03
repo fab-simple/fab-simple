@@ -45,7 +45,7 @@ export default function PartDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid-2 gap-md">
         {/* Left: Part Info */}
         <div className="flex flex-col gap-5">
           <div className="card">
@@ -53,7 +53,7 @@ export default function PartDetailPage() {
               <div className="card-title">Part Information</div>
             </div>
             <div className="card-body">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid-2" style={{ gap: 12 }}>
                 {[
                   { label: "Part ID", value: part.part_id, mono: true },
                   { label: "Assembly ID", value: part.assembly_id, mono: true },
@@ -83,7 +83,7 @@ export default function PartDetailPage() {
                 <StatusPill status={paint.result} />
               </div>
               <div className="card-body">
-                <div className="grid grid-cols-3 gap-3 mb-3">
+                <div className="grid-3" style={{ gap: 12, marginBottom: 12 }}>
                   <div className="info-cell text-center">
                     <div className="info-cell-label">Primer DFT</div>
                     <div className="info-cell-value font-mono">{paint.primer_dft} mil</div>

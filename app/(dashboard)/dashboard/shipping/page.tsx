@@ -17,7 +17,7 @@ export default function ShippingPage() {
         <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Create Load Ticket</button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card teal"><div className="stat-label">Delivered</div><div className="stat-value">{SHIPMENTS.filter(s => s.status === "Delivered").length}</div></div>
         <div className="stat-card blue"><div className="stat-label">Scheduled</div><div className="stat-value">{SHIPMENTS.filter(s => s.status === "Scheduled").length}</div></div>
         <div className="stat-card amber"><div className="stat-label">Draft</div><div className="stat-value">{SHIPMENTS.filter(s => s.status === "Draft").length}</div></div>
@@ -104,7 +104,7 @@ export default function ShippingPage() {
       )}
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title="Create Load Ticket" size="md">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid-2" style={{ gap: 12 }}>
           <div className="fld"><label>Project</label><select><option>Dallas Skyline Tower</option><option>Houston Refinery</option></select></div>
           <div className="fld"><label>Ship Date</label><input type="date" /></div>
           <div className="fld"><label>Carrier</label><input placeholder="J&amp;L Trucking" /></div>

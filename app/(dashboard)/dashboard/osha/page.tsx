@@ -50,7 +50,7 @@ export default function OSHAPage() {
 
   return (
     <PageWrapper title="OSHA Safety Checklist">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card primary"><div className="stat-label">Total Items</div><div className="stat-value">{items.length}</div></div>
         <div className="stat-card green"><div className="stat-label">Done</div><div className="stat-value">{done}</div></div>
         <div className="stat-card red"><div className="stat-label">Holds</div><div className="stat-value">{holds}</div></div>

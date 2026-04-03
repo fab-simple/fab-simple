@@ -65,7 +65,7 @@ export default function IntegrationsPage() {
 
   return (
     <PageWrapper title="Integrations">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid-3" style={{ gap: 16 }}>
         {INTEGRATIONS.map((intg) => {
           const connected = statuses[intg.id] === "connected";
           return (

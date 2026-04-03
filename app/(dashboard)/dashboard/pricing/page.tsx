@@ -40,7 +40,7 @@ export default function PricingPage() {
         <p className="text-[14px]" style={{ color: "var(--muted)" }}>No per-seat surprises. Everything you need to run a steel fabrication shop.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl mx-auto">
+      <div className="grid-3" style={{ gap: 20 }}>
         {PLANS.map((plan) => (
           <div
             key={plan.id}

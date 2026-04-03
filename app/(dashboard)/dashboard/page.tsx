@@ -52,7 +52,7 @@ export default function DashboardPage() {
   return (
     <PageWrapper title="Dashboard">
       {/* Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4" style={{ gap: 20, marginBottom: 32 }}>
         {STATS.map((s) => (
           <div key={s.label} className={`stat-card ${s.cls}`}>
             <div className="stat-label">{s.label}</div>
@@ -62,7 +62,7 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+      <div className="grid-3" style={{ gap: 24, marginBottom: 32 }}>
         {/* Doughnut Chart */}
         <div className="card">
           <div className="card-header">
@@ -100,7 +100,7 @@ export default function DashboardPage() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="grid grid-cols-2 gap-1 mt-2">
+            <div className="grid-2" style={{ gap: 6, marginTop: 8 }}>
               {STATUS_COUNTS.map((s) => (
                 <div key={s.name} className="flex items-center gap-2 text-[11px]" style={{ color: "var(--text-2)" }}>
                   <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: s.color }} />
@@ -161,7 +161,7 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+            <div className="grid-3" style={{ gap: 8, marginTop: 12 }} style={{ borderTop: "1px solid var(--border)" }}>
               {DAILY_LOGS.map((d) => (
                 <div key={d.id} className="text-center">
                   <div className="text-[10px] font-mono font-bold" style={{ color: "var(--muted)" }}>{d.station.split("/")[0].trim()}</div>
@@ -175,7 +175,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Bottom row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid-2 gap-md">
         {/* Activity Feed */}
         <div className="card">
           <div className="card-header">
@@ -240,7 +240,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Quick Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5">
+      <div className="grid-4" style={{ gap: 20, marginTop: 32 }}>
         <div className="card-body card" style={{ borderTop: "3px solid #D97706" }}>
           <div className="stat-label">Open Change Orders</div>
           <div className="stat-value" style={{ fontSize: 22 }}>3</div>

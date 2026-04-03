@@ -12,7 +12,7 @@ export default function JobCostPage() {
 
   return (
     <PageWrapper title="Job Cost Tracker">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card primary"><div className="stat-label">Total Budget</div><div className="stat-value" style={{ fontSize: 18 }}>{formatCurrency(totalBudget)}</div></div>
         <div className="stat-card blue"><div className="stat-label">Total Actual</div><div className="stat-value" style={{ fontSize: 18 }}>{formatCurrency(totalActual)}</div></div>
         <div className={`stat-card ${totalActual <= totalBudget ? "green" : "red"}`}>

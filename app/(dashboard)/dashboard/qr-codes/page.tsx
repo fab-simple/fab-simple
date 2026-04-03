@@ -19,7 +19,7 @@ export default function QRCodesPage() {
         <button className="btn btn-primary no-print" onClick={() => window.print()}>Print All QR Codes</button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+      <div className="grid-6" style={{ gap: 12 }}>
         {filtered.map((p) => (
           <div key={p.id} className="card cursor-pointer">
             <div className="card-body text-center">

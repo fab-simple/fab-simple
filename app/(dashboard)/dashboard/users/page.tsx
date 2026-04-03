@@ -27,7 +27,7 @@ export default function UsersPage() {
   const [showModal, setShowModal] = useState(false);
   return (
     <PageWrapper title="Users & Roles">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+      <div className="grid-3 gap-md mb-section">
         <div className="lg:col-span-2">
           <div className="flex justify-between items-center mb-3">
             <h3 className="font-bold text-[14px]" style={{ color: "var(--text)" }}>Team Members</h3>

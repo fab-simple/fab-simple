@@ -11,7 +11,7 @@ export default function BillingPage() {
 
   return (
     <PageWrapper title="AIA G702 Billing — Schedule of Values">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card primary"><div className="stat-label">Total Claimed</div><div className="stat-value" style={{ fontSize: 18 }}>{formatCurrency(totalBilled)}</div></div>
         <div className="stat-card green"><div className="stat-label">Certified</div><div className="stat-value" style={{ fontSize: 18 }}>{formatCurrency(totalCertified)}</div></div>
         <div className="stat-card amber"><div className="stat-label">Retainage Held</div><div className="stat-value" style={{ fontSize: 18 }}>{formatCurrency(totalRetainage)}</div></div>

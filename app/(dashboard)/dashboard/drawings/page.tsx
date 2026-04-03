@@ -17,7 +17,7 @@ export default function DrawingsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card green"><div className="stat-label">Current</div><div className="stat-value">{DRAWINGS.filter((d) => d.status === "Current").length}</div></div>
         <div className="stat-card red"><div className="stat-label">Superseded</div><div className="stat-value">{superseded.length}</div></div>
         <div className="stat-card amber"><div className="stat-label">Draft</div><div className="stat-value">0</div></div>

@@ -38,7 +38,7 @@ export default function ProjectsPage() {
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4" style={{ gap: 20, marginBottom: 32 }}>
         <div className="stat-card blue">
           <div className="stat-label">Total Projects</div>
           <div className="stat-value">4</div>
@@ -66,7 +66,7 @@ export default function ProjectsPage() {
       </div>
 
       {/* Project Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div className="grid-2" style={{ gap: 24, marginBottom: 32 }}>
         {filtered.map((p) => (
           <div key={p.id} className="card" style={{ borderTop: `3px solid ${p.color}` }}>
             <div className="card-body">
@@ -80,7 +80,7 @@ export default function ProjectsPage() {
                 <StatusPill status={p.status} />
               </div>
 
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="grid-3" style={{ gap: 12, marginBottom: 16 }}>
                 <div className="info-cell text-center">
                   <div className="info-cell-label">Parts</div>
                   <div className="info-cell-value font-mono">{p.total_parts}</div>
@@ -162,7 +162,7 @@ export default function ProjectsPage() {
 
       {/* New Project Modal */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title="New Project" size="md">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid-2" style={{ gap: 12 }}>
           <div className="fld col-span-2">
             <label>Project Name *</label>
             <input placeholder="e.g. Houston Data Center Steel" />

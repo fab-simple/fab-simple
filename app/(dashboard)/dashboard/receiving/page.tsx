@@ -15,7 +15,7 @@ export default function ReceivingPage() {
           <div><strong>{awaitingMTR.length} receipt(s)</strong> awaiting MTR (Mill Test Report). Parts with heat numbers {awaitingMTR.map((r) => r.heat_number).join(", ")} are in quarantine until certs are received and on file.</div>
         </div>
       )}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card primary"><div className="stat-label">Total Receipts</div><div className="stat-value">{RECEIPTS.length}</div></div>
         <div className="stat-card green"><div className="stat-label">MTR On File</div><div className="stat-value">{RECEIPTS.filter(r => r.mtr_status === "On File").length}</div></div>
         <div className="stat-card amber"><div className="stat-label">Awaiting MTR</div><div className="stat-value">{awaitingMTR.length}</div></div>

@@ -7,7 +7,7 @@ import { Phone, Mail } from "lucide-react";
 export default function GCContactsPage() {
   return (
     <PageWrapper title="GC Contacts">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid-3" style={{ gap: 16 }}>
         {GC_CONTACTS.map((c) => (
           <div key={c.id} className="card">
             <div className="card-body">

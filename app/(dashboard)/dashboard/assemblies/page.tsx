@@ -7,7 +7,7 @@ import { ASSEMBLIES } from "@/lib/mock-data";
 export default function AssembliesPage() {
   return (
     <PageWrapper title="Assemblies">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card green"><div className="stat-label">Complete</div><div className="stat-value">2</div><div className="stat-sub">assemblies</div></div>
         <div className="stat-card blue"><div className="stat-label">In Progress</div><div className="stat-value">3</div><div className="stat-sub">assemblies</div></div>
         <div className="stat-card primary"><div className="stat-label">Total Parts</div><div className="stat-value">48</div><div className="stat-sub">across all</div></div>

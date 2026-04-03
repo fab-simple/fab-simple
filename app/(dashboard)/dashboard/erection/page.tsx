@@ -13,7 +13,7 @@ const DOT_COLORS: Record<string, string> = {
 export default function ErectionPage() {
   return (
     <PageWrapper title="Erection Sequence">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card green"><div className="stat-label">Complete</div><div className="stat-value">{ERECTION_SEQUENCES.filter(e => e.status === "Complete").length}</div></div>
         <div className="stat-card blue"><div className="stat-label">In Progress</div><div className="stat-value">{ERECTION_SEQUENCES.filter(e => e.status === "In Progress").length}</div></div>
         <div className="stat-card primary"><div className="stat-label">Queued</div><div className="stat-value">{ERECTION_SEQUENCES.filter(e => e.status === "Queued").length}</div></div>

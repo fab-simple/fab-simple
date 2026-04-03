@@ -21,7 +21,7 @@ export default function PurchaseOrdersPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card primary"><div className="stat-label">Total POs</div><div className="stat-value">{PURCHASE_ORDERS.length}</div></div>
         <div className="stat-card green"><div className="stat-label">Fully Received</div><div className="stat-value">{PURCHASE_ORDERS.filter(p => p.receiving_status === "Fully Received").length}</div></div>
         <div className="stat-card amber"><div className="stat-label">Partial / Open</div><div className="stat-value">{PURCHASE_ORDERS.filter(p => p.receiving_status !== "Fully Received").length}</div></div>
@@ -59,7 +59,7 @@ export default function PurchaseOrdersPage() {
       </div>
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title="New Purchase Order" size="md">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid-2" style={{ gap: 12 }}>
           <div className="fld col-span-2"><label>Supplier *</label><input placeholder="Nucor Steel TX" /></div>
           <div className="fld col-span-2"><label>Material *</label><input placeholder="W14×82, ASTM A992" /></div>
           <div className="fld"><label>Qty Ordered</label><input type="number" /></div>

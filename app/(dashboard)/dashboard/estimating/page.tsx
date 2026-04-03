@@ -29,14 +29,14 @@ export default function EstimatingPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card primary"><div className="stat-label">Total Bids</div><div className="stat-value">{total}</div></div>
         <div className="stat-card green"><div className="stat-label">Won</div><div className="stat-value">{won}</div><div className="stat-sub">Hit rate: {hitRate}%</div></div>
         <div className="stat-card blue"><div className="stat-label">Avg Margin</div><div className="stat-value">21%</div></div>
         <div className="stat-card amber"><div className="stat-label">Pipeline</div><div className="stat-value">{formatCurrency(ESTIMATES.reduce((s, e) => s + e.total_bid, 0))}</div></div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+      <div className="grid-3 gap-md mb-section">
         <div className="card lg:col-span-2">
           <div className="card-header"><div className="card-title">Win / Loss — Last 6 Months</div></div>
           <div className="card-body">
@@ -97,7 +97,7 @@ export default function EstimatingPage() {
       </div>
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title="New Estimate" size="lg">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid-2" style={{ gap: 12 }}>
           <div className="fld col-span-2"><label>Project Name *</label><input placeholder="e.g. Dallas Office Building" /></div>
           <div className="fld"><label>Client</label><input placeholder="Turner Construction" /></div>
           <div className="fld"><label>Project Type</label><select><option>Commercial Building</option><option>Industrial</option><option>Bridge / Infrastructure</option><option>Misc Metals Only</option></select></div>

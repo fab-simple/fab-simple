@@ -14,7 +14,7 @@ export default function WeldLogPage() {
 
   return (
     <PageWrapper title="AWS D1.1 Weld Log">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card primary"><div className="stat-label">Total Welds</div><div className="stat-value">{WELD_INSPECTIONS.length}</div></div>
         <div className="stat-card green"><div className="stat-label">Pass</div><div className="stat-value">{passing}</div></div>
         <div className="stat-card red"><div className="stat-label">Fail / Repair</div><div className="stat-value">{failing}</div></div>
@@ -53,7 +53,7 @@ export default function WeldLogPage() {
       </div>
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title="Log Weld Inspection" size="md">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid-2" style={{ gap: 12 }}>
           <div className="fld"><label>Part ID</label><input placeholder="W14×82-1044" /></div>
           <div className="fld"><label>Joint Type</label><select><option>CJP Groove</option><option>PJP Groove</option><option>Fillet</option><option>Plug / Slot</option></select></div>
           <div className="fld"><label>Weld Process</label><input placeholder="FCAW" /></div>

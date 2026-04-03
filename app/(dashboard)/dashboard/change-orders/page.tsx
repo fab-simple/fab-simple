@@ -17,7 +17,7 @@ export default function ChangeOrdersPage() {
 
   return (
     <PageWrapper title="Change Orders & RFI">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid-4 gap-md mb-section">
         <div className="stat-card amber"><div className="stat-label">Pending CO Value</div><div className="stat-value" style={{ fontSize: 18 }}>{formatCurrency(pendingValue)}</div><div className="stat-sub">awaiting approval</div></div>
         <div className="stat-card blue"><div className="stat-label">Total COs</div><div className="stat-value">{CHANGE_ORDERS.length}</div></div>
         <div className="stat-card red"><div className="stat-label">Open RFIs</div><div className="stat-value">{RFIS.filter((r) => r.status === "Open").length}</div></div>
@@ -95,7 +95,7 @@ export default function ChangeOrdersPage() {
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title={modalType === "co" ? "New Change Order" : "New RFI"} size="md">
         {modalType === "co" ? (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid-2" style={{ gap: 12 }}>
             <div className="fld"><label>Project</label><select><option>Dallas Skyline Tower</option><option>Houston Refinery</option></select></div>
             <div className="fld"><label>Drawing Rev</label><input placeholder="Rev D" /></div>
             <div className="fld col-span-2"><label>Description *</label><input placeholder="Describe the scope change" /></div>
@@ -106,7 +106,7 @@ export default function ChangeOrdersPage() {
             <div className="fld"><label>Total Value ($)</label><input type="number" readOnly placeholder="Auto-calculated" /></div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid-2" style={{ gap: 12 }}>
             <div className="fld"><label>Project</label><select><option>Dallas Skyline Tower</option><option>Houston Refinery</option></select></div>
             <div className="fld"><label>Drawing Reference</label><input placeholder="DS-104" /></div>
             <div className="fld col-span-2"><label>Question *</label><textarea rows={3} placeholder="Describe the RFI question clearly" /></div>
