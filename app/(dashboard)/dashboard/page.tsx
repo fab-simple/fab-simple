@@ -161,7 +161,7 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             </div>
 
-            <div className="grid-3" style={{ gap: 8, marginTop: 12 }} style={{ borderTop: "1px solid var(--border)" }}>
+            <div className="grid-3" style={{ gap: 8, marginTop: 12, borderTop: "1px solid var(--border)" }}>
               {DAILY_LOGS.map((d) => (
                 <div key={d.id} className="text-center">
                   <div className="text-[10px] font-mono font-bold" style={{ color: "var(--muted)" }}>{d.station.split("/")[0].trim()}</div>
