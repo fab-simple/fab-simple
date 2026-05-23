@@ -68,7 +68,7 @@ export function Topbar() {
             <Bell size={15} />
             <span
               className="absolute -top-1 -right-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white leading-none"
-              style={{ background: "#DC2626" }}
+              style={{ background: "var(--red)" }}
             >
               4
             </span>
