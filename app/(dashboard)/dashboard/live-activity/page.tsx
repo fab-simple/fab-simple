@@ -41,7 +41,13 @@ export default function LiveActivityPage() {
         <span className="pill pill-done" style={{ fontSize: 11, padding: "4px 10px" }}>● Live</span>
       </div>
 
-      {list.isLoading ? (
+      {list.error ? (
+        <div className="card" style={{ padding: 24, color: "var(--danger, #b91c1c)" }}>
+          <strong>Couldn&apos;t load the activity feed.</strong>
+          <div style={{ marginTop: 6, fontSize: 12 }}>{list.error.message}</div>
+          <button className="btn" style={{ marginTop: 12, height: 30 }} onClick={() => list.refetch()}>Retry</button>
+        </div>
+      ) : list.isLoading ? (
         <div className="card" style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
           <Loader2 size={18} className="animate-spin" style={{ display: "inline" }} /> Loading…
         </div>

@@ -95,8 +95,29 @@ export default function AiscPage() {
         <Stat label="N/A"    value={stats.na ?? 0}   color="#94A3B8" />
       </div>
 
-      {items.isLoading ? (
+      {items.error ? (
+        <div className="card" style={{ padding: 24, color: "var(--danger, #b91c1c)" }}>
+          <strong>Failed to load AISC checklist.</strong>
+          <div style={{ marginTop: 6, fontSize: 12 }}>{items.error.message}</div>
+          <button className="btn" style={{ marginTop: 12, height: 30 }} onClick={() => items.refetch()}>Retry</button>
+        </div>
+      ) : items.isLoading ? (
         <div className="card" style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>Loading…</div>
+      ) : total === 0 ? (
+        <div className="card" style={{ padding: 32, textAlign: "center" }}>
+          <Sparkles size={28} style={{ color: "var(--primary)", margin: "0 auto 12px" }} />
+          <div className="text-[16px] font-bold" style={{ color: "var(--text)", marginBottom: 6 }}>
+            No AISC items yet for this project
+          </div>
+          <div className="text-[13px]" style={{ color: "var(--muted)", marginBottom: 16 }}>
+            Seed the 24-item AISC 303-10 checklist to start the compliance binder. Items cover
+            Materials, Fabrication, Welding, Connections, Erection, Coatings, and Documentation.
+          </div>
+          <button className="btn btn-primary" onClick={handleSeed} disabled={seeding || !project} style={{ height: 36 }}>
+            {seeding ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            Seed catalogue (24 items)
+          </button>
+        </div>
       ) : Object.entries(grouped).map(([category, list]) => (
         <div className="card" key={category} style={{ marginBottom: 20 }}>
           <div className="card-header">

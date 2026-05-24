@@ -20,6 +20,7 @@ import {
 import { signUpload, signRead, listAttachments, deleteAttachment } from "./controllers/files.ts";
 import { copilot } from "./controllers/copilot.ts";
 import { signupBootstrap } from "./controllers/signup.ts";
+import { acceptInvite } from "./controllers/acceptInvite.ts";
 import { search } from "./controllers/search.ts";
 import { getOrganization, updateOrganization } from "./controllers/organization.ts";
 
@@ -60,6 +61,12 @@ Deno.serve(async (req) => {
   // Public: signup bootstrap (no JWT yet — uses one-shot auth_id verification)
   if (url.pathname.endsWith("/signup-bootstrap") && req.method === "POST") {
     return signupBootstrap(req);
+  }
+
+  // Public: accept-invite (no JWT yet — the invitee doesn't have one until
+  // they consume the invitation token and sign in for the first time).
+  if (url.pathname.endsWith("/accept-invite") && req.method === "POST") {
+    return acceptInvite(req);
   }
 
   // Authenticate

@@ -24,10 +24,24 @@ export default function SignInPage() {
   );
 }
 
+function safeNext(raw: string | null): string {
+  if (!raw) return "/dashboard";
+  if (!raw.startsWith("/")) return "/dashboard";
+  if (raw.startsWith("//")) return "/dashboard";
+  return raw;
+}
+
+// Only show the demo-credential card on demo deployments. Production builds
+// hide it so paying customers never see "Password is demo123!" on their
+// signin page.
+const SHOW_DEMO =
+  process.env.NEXT_PUBLIC_FAB_SHOW_DEMO === "1" ||
+  process.env.NEXT_PUBLIC_FAB_MODE === "demo";
+
 function SignInInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const nextPath = params.get("next") ?? "/dashboard";
+  const nextPath = safeNext(params.get("next"));
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -53,7 +67,14 @@ function SignInInner() {
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
-      <div className="w-full max-w-4xl grid gap-8" style={{ gridTemplateColumns: "1.1fr 1fr", padding: 24 }}>
+      <div
+        className="w-full grid gap-8"
+        style={{
+          maxWidth: SHOW_DEMO ? 896 : 440,
+          gridTemplateColumns: SHOW_DEMO ? "1.1fr 1fr" : "1fr",
+          padding: 24,
+        }}
+      >
         {/* Left — sign in form */}
         <div className="card">
           <div className="card-header">
@@ -72,7 +93,9 @@ function SignInInner() {
           <div className="card-body">
             <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Sign in to your account</h2>
             <p className="text-[12px]" style={{ color: "var(--muted)", marginBottom: 20 }}>
-              Use one of the demo accounts on the right, or your own credentials.
+              {SHOW_DEMO
+                ? "Use one of the demo accounts on the right, or your own credentials."
+                : "Welcome back to FabSimple."}
             </p>
 
             <form onSubmit={onSubmit} className="flex flex-col gap-4">
@@ -118,7 +141,8 @@ function SignInInner() {
           </div>
         </div>
 
-        {/* Right — demo accounts */}
+        {/* Right — demo accounts (hidden on production deployments) */}
+        {SHOW_DEMO && (
         <div className="card">
           <div className="card-header">
             <div>
@@ -149,6 +173,7 @@ function SignInInner() {
             ))}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

@@ -44,7 +44,32 @@ export default function PartsPage() {
     if (!confirm(`Update ${selected.size} part(s) to "${status}"?`)) return;
     setBulkBusy(true);
     try {
-      await Promise.all(Array.from(selected).map((id) => FabAPI.update("parts", id, { status })));
+      // allSettled so one rejection (RLS, validation, etc.) doesn't short-
+      // circuit the rest. We surface the actual outcome to the user
+      // instead of silently looking like a success.
+      const ids = Array.from(selected);
+      const results = await Promise.allSettled(
+        ids.map((id) => FabAPI.update("parts", id, { status })),
+      );
+      const failures = results
+        .map((r, i) => ({ id: ids[i], result: r }))
+        .filter((x) => x.result.status === "rejected");
+      const successCount = ids.length - failures.length;
+
+      if (failures.length === 0) {
+        alert(`Updated ${successCount} part(s) to "${status}".`);
+      } else if (successCount === 0) {
+        const firstErr = (failures[0].result as PromiseRejectedResult).reason;
+        const msg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+        alert(`No parts were updated.\n\nFirst error: ${msg}`);
+      } else {
+        const firstErr = (failures[0].result as PromiseRejectedResult).reason;
+        const msg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+        alert(
+          `${successCount} updated, ${failures.length} failed.\n\n` +
+          `First failure: ${msg}`,
+        );
+      }
     } finally {
       setBulkBusy(false);
       setSelected(new Set());

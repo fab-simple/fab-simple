@@ -161,7 +161,10 @@ export function generateQcReport(data: QcReportData): jsPDF {
     body: [
       ["Total weld inspections", `${data.welds.length} (${passWelds} pass / ${data.welds.length - passWelds} fail)`],
       ["Total paint inspections", `${data.paint.length} (${passPaint} pass / ${data.paint.length - passPaint} fail)`],
-      ["AISC checklist items", `${data.aisc.length} (${data.aisc.filter((a) => a.status === "complete").length} complete)`],
+      // AISC items use the `aisc_status` enum: 'open' | 'done' | 'hold' | 'na'.
+      // The signed-off items are 'done'. The old "complete" filter always
+      // returned 0 — the binder PDF was a permanent zero-progress lie.
+      ["AISC checklist items", `${data.aisc.length} (${data.aisc.filter((a) => a.status === "done").length} done, ${data.aisc.filter((a) => a.status === "open").length} open)`],
       ["Non-conformance reports", `${data.ncrs.length} (${openNcrs} open)`],
     ],
     theme: "grid",

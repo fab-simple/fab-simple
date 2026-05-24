@@ -6,6 +6,7 @@ const PUBLIC_PATHS = new Set([
   "/auth/signin",
   "/auth/signup",
   "/auth/forgot",
+  "/auth/update-password",
   "/auth/callback",
   "/auth/accept-invite",
 ]);
@@ -47,10 +48,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const role =
-    ((user.user_metadata?.role as string | undefined) ??
-      (user.app_metadata?.role as string | undefined) ??
-      "") as Role;
+  // SECURITY: read role from app_metadata ONLY. user_metadata is
+  // user-writable via supabase.auth.updateUser({ data: { role: ... } }),
+  // so trusting it would let any signed-in user spoof their role and
+  // bypass route gating.
+  const role = ((user.app_metadata?.role as string | undefined) ?? "") as Role;
 
   // Workers are exclusively allowed on /worker and a tiny allow-list of
   // dashboard surfaces required for QR-scan deep links (drawings, parts).

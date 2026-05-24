@@ -12,14 +12,16 @@ export function Sidebar() {
   const pathname = usePathname();
   const dispatch = useAppDispatch();
   const sidebarOpen = useAppSelector((s) => s.ui.sidebarOpen);
-  const { name, role, initials, avatarColor } = useAppSelector((s) => s.auth);
+  const { name, role, initials, avatarColor, loaded } = useAppSelector((s) => s.auth);
 
   const close = () => dispatch(setSidebarOpen(false));
 
   async function signOut() {
     const sb = createClient();
     await sb.auth.signOut();
-    window.location.href = "/auth/signin";
+    // Hard navigate so React-Query, Redux, and Supabase state are all cleared.
+    // Replace (not assign) so the dashboard URL isn't in browser history.
+    window.location.replace("/auth/signin");
   }
 
   return (
@@ -75,9 +77,22 @@ export function Sidebar() {
           </button>
         </div>
 
-        {/* Scrollable Nav */}
+        {/* Scrollable Nav — render a lightweight skeleton while AuthSync is
+            still resolving the role, so we never momentarily show nav items
+            from a stale/default role. */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
-          {NAV_SECTIONS.map((section, si) => {
+          {!loaded || !role ? (
+            <div className="space-y-2 px-3" aria-hidden>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-7 rounded-md"
+                  style={{ background: "rgba(255, 255, 255, 0.06)" }}
+                />
+              ))}
+            </div>
+          ) : null}
+          {loaded && role && NAV_SECTIONS.map((section, si) => {
             const visibleItems = section.items.filter((it) => !it.roles || it.roles.includes(role));
             if (visibleItems.length === 0) return null;
             return (
@@ -167,17 +182,26 @@ export function Sidebar() {
           >
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0 shadow-sm"
-              style={{ background: avatarColor }}
+              style={{ background: loaded && initials ? avatarColor : "rgba(255,255,255,0.1)" }}
             >
-              {initials}
+              {loaded ? initials : ""}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-medium text-white truncate leading-tight">
-                {name}
-              </div>
-              <div className="text-[11px] text-white/50 capitalize leading-tight mt-0.5">
-                {role}
-              </div>
+              {loaded && name ? (
+                <>
+                  <div className="text-[13px] font-medium text-white truncate leading-tight">
+                    {name}
+                  </div>
+                  <div className="text-[11px] text-white/50 capitalize leading-tight mt-0.5">
+                    {role}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="h-3 w-24 rounded-sm" style={{ background: "rgba(255,255,255,0.08)" }} />
+                  <div className="h-2.5 w-16 mt-1.5 rounded-sm" style={{ background: "rgba(255,255,255,0.06)" }} />
+                </>
+              )}
             </div>
             <button
               className="p-1.5 rounded-md text-white/50 group-hover:text-white group-hover:bg-white/10 transition-all border-none bg-transparent cursor-pointer"

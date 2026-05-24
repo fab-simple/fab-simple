@@ -82,22 +82,34 @@ export async function inviteUser(ctx: Ctx): Promise<Response> {
 
   // Trigger Supabase Auth invite (sends email)
   const inviteUrl = `${Deno.env.get("APP_URL") ?? ""}/auth/accept-invite?token=${token}`;
+  let emailSent = true;
   try {
     await ctx.sbAdmin.auth.admin.inviteUserByEmail(email, {
       data: { full_name: full_name ?? null, company_id: ctx.user.company_id, role, invite_token: token },
       redirectTo: inviteUrl,
     });
   } catch (e) {
+    emailSent = false;
     console.warn("auth invite send failed (continuing)", e);
   }
 
-  await writeAudit(ctx, { action: "rpc", table_name: "user_invitations", new_values: { email, role } });
+  await writeAudit(ctx, { action: "rpc", table_name: "user_invitations", new_values: { email, role, email_sent: emailSent } });
   await writeActivity(ctx, {
     action: `invited ${email} as ${role}`,
     entity_type: "users",
     entity_label: email,
   });
-  return ok({ invited: true, email, role, token });
+
+  // SECURITY: never echo the raw token in the API response. It only needs to
+  // travel out via the email we just sent. Echoing it puts the token into
+  // browser network logs / devtools and gives any compromised admin session
+  // a 7-day replayable credential for the invitee.
+  return ok({
+    invited: true,
+    email,
+    role,
+    email_sent: emailSent,
+  });
 }
 
 export async function archiveProject(ctx: Ctx, id: string): Promise<Response> {
@@ -148,9 +160,51 @@ export async function convertEstimate(ctx: Ctx): Promise<Response> {
     converted_project_id: project.id,
   }).eq("id", estimate_id);
 
-  await writeAudit(ctx, { action: "rpc", table_name: "projects", record_id: project.id as string, new_values: project });
-  await writeActivity(ctx, { action: "converted estimate to project", entity_type: "projects", entity_id: project.id as string, entity_label: project.name as string });
-  return ok(project);
+  // Carry estimate line items over to the new project's billing schedule of
+  // values so AIA G703 + job-cost rollups have something to point at on day 1.
+  let linesCarried = 0;
+  const { data: estLines } = await ctx.sb.from("estimate_line_items")
+    .select("description, quantity, unit, unit_cost, total_cost, sort_order")
+    .eq("estimate_id", estimate_id);
+
+  if (estLines && estLines.length > 0) {
+    const billingRows = estLines.map((line, idx) => ({
+      company_id: ctx.user.company_id,
+      project_id: project.id,
+      description: line.description ?? `Line ${idx + 1}`,
+      quantity: line.quantity ?? 1,
+      unit: line.unit ?? "ls",
+      unit_cost: line.unit_cost ?? 0,
+      total_cost: line.total_cost ?? 0,
+      sort_order: line.sort_order ?? idx,
+      source: "estimate_conversion",
+    }));
+    // billing_line_items may not exist on every deployment yet — degrade
+    // gracefully if the table is absent so the project conversion itself
+    // still succeeds.
+    const { error: liErr } = await ctx.sbAdmin
+      .from("billing_line_items")
+      .insert(billingRows);
+    if (!liErr) {
+      linesCarried = billingRows.length;
+    } else {
+      console.warn("convertEstimate: could not insert billing_line_items", liErr.message);
+    }
+  }
+
+  await writeAudit(ctx, {
+    action: "rpc",
+    table_name: "projects",
+    record_id: project.id as string,
+    new_values: { ...project, lines_carried: linesCarried },
+  });
+  await writeActivity(ctx, {
+    action: `converted estimate to project (${linesCarried} line items carried)`,
+    entity_type: "projects",
+    entity_id: project.id as string,
+    entity_label: project.name as string,
+  });
+  return ok({ ...project, lines_carried: linesCarried });
 }
 
 export async function qcReport(ctx: Ctx): Promise<Response> {
