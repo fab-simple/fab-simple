@@ -36,6 +36,18 @@ export function useDashboard() {
   });
 }
 
+// Current user's organization profile (company row). Cached for 5 minutes
+// since it changes rarely; the billing page, page headers, and any PDF
+// renderer that needs the contractor name/address all consume this.
+export function useOrganization() {
+  return useQuery({
+    queryKey: ["organization"],
+    queryFn: () => FabAPI.getOrganization(),
+    enabled: FAB_MODE === "live",
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useCreate<T = unknown>(table: string) {
   const qc = useQueryClient();
   return useMutation<T, FabApiError, unknown>({

@@ -21,6 +21,7 @@ import { signUpload, signRead, listAttachments, deleteAttachment } from "./contr
 import { copilot } from "./controllers/copilot.ts";
 import { signupBootstrap } from "./controllers/signup.ts";
 import { search } from "./controllers/search.ts";
+import { getOrganization, updateOrganization } from "./controllers/organization.ts";
 
 const TABLE_RE = /^\/api\/?([a-z_]+)(?:\/([0-9a-f-]{36}))?\/?$/i;
 
@@ -76,6 +77,8 @@ Deno.serve(async (req) => {
 
     // Specials first
     if (path === "/dashboard" && method === "GET") return dashboard(ctx);
+    if (path === "/organization" && method === "GET") return getOrganization(ctx);
+    if (path === "/organization" && method === "PATCH") return updateOrganization(ctx);
     if (path === "/import/csv" && method === "POST") return importCsv(ctx);
     if (path === "/cut-optimize" && method === "POST") return cutOptimize(ctx);
     if (path === "/seed-aisc" && method === "POST") return seedAisc(ctx);

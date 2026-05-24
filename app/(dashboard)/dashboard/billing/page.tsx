@@ -5,7 +5,7 @@ import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
-import { useResourceList, useCreate } from "@/hooks/useResource";
+import { useResourceList, useCreate, useOrganization } from "@/hooks/useResource";
 import { Plus, FileDown } from "lucide-react";
 import { generateAiaG702, type BillingApp } from "@/lib/pdf";
 
@@ -16,19 +16,26 @@ interface Bill {
   previous_billed: number; amount_due: number; pct_complete: number;
   status: string; project_id: string;
 }
-interface Project { id: string; name: string; }
+interface Project { id: string; name: string; number?: string; gc_name?: string | null; }
 
 const STATUSES = ["draft", "submitted", "certified", "paid"];
 
 export default function BillingPage() {
   const projects = useResourceList<Project>("projects", { limit: "100" });
+  const org = useOrganization();
   const [projectId, setProjectId] = useState<string>("");
   const project = projectId || projects.data?.[0]?.id;
+  const projectRow = projects.data?.find((p) => p.id === project);
   const list = useResourceList<Bill>("billing_applications", project ? { project_id: project, order_by: "application_number", dir: "asc" } : undefined);
   const create = useCreate<Bill>("billing_applications");
   const [showNew, setShowNew] = useState(false);
 
-  const projectName = projects.data?.find((p) => p.id === project)?.name ?? "";
+  const projectName = projectRow?.name ?? "";
+  const projectNumber = projectRow?.number ?? project ?? "";
+  const gcName = projectRow?.gc_name ?? "—";
+  // Legal entity name lives on the org profile; fall back to the display
+  // name only if the owner hasn't set a legal_name yet.
+  const contractorName = org.data?.legal_name ?? org.data?.name ?? "—";
 
   function downloadPdf(bill: Bill) {
     const data: BillingApp = {
@@ -46,9 +53,9 @@ export default function BillingPage() {
       less_previous: Number(bill.previous_billed),
       current_payment_due: Number(bill.amount_due),
       project_name: projectName,
-      project_number: project ?? "",
-      gc_name: "—",
-      contractor_name: "FabSimple Steel",
+      project_number: projectNumber,
+      gc_name: gcName,
+      contractor_name: contractorName,
       lines: [],
     };
     const doc = generateAiaG702(data);

@@ -162,6 +162,11 @@ export const FabAPI = {
 
   // Specials
   dashboard() { return call<DashboardData>("/dashboard", "GET"); },
+  getOrganization() { return call<Organization>("/organization", "GET"); },
+  updateOrganization(body: Partial<Omit<Organization,
+    "id" | "plan" | "aisc_cert" | "max_parts" | "max_projects" | "max_users" | "active">>) {
+    return call<Organization>("/organization", "PATCH", { body });
+  },
   importCsv(body: { project_id: string; rows: Record<string, string>[]; units?: "imperial" | "metric" | "auto" }) {
     return call("/import/csv", "POST", { body });
   },
@@ -252,6 +257,29 @@ export async function uploadFile(opts: {
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+export interface Organization {
+  id: string;
+  name: string;
+  legal_name: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  license_number: string | null;
+  tax_id: string | null;
+  logo_url: string | null;
+  plan: string;
+  aisc_cert: boolean;
+  max_parts: number;
+  max_projects: number;
+  max_users: number;
+  active: boolean;
+}
+
 export interface DashboardData {
   parts_by_status: Record<string, number>;
   total_parts: number;
