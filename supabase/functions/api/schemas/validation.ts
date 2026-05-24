@@ -256,9 +256,11 @@ export const Schemas = {
     total_amount: numeric.nonnegative().default(0),
     qty_ordered: numeric.optional(),
     qty_received: numeric.nonnegative().default(0),
+    receiving_status: z.string().max(40).optional(),
     status: z.enum(["draft", "issued", "partial", "received", "closed"]).default("draft"),
     issued_date: dateStr.optional(),
     expected_date: dateStr.optional(),
+    received_date: dateStr.optional(),
     notes: z.string().max(2000).optional(),
   }),
 
