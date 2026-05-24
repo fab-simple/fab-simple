@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
-import { useResourceList, useCreate, useUpdate } from "@/hooks/useResource";
+import { useResourceList, useResourcePaged, useCreate, useUpdate } from "@/hooks/useResource";
 import { useCsvExport } from "@/hooks/useCsvExport";
 import { FabAPI } from "@/lib/api";
 import { Plus, Search, Loader2, X } from "lucide-react";
@@ -32,6 +32,7 @@ interface Project { id: string; name: string; }
 const STATUS_OPTIONS = ["not_started", "in_progress", "complete", "shipped", "on_hold"];
 
 export default function PartsPage() {
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [showNew, setShowNew] = useState(false);
@@ -39,37 +40,65 @@ export default function PartsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
+  // Debounce the search input so we don't hit the API on every keystroke.
+  // Server-side ilike on 50k rows + RLS is ~150ms; per-keystroke would
+  // saturate the Edge Function and make the UI feel chatty.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Build the server-side filter set. Stable identity = stable query key.
+  const filters = useMemo(() => {
+    const f: Record<string, string | undefined> = {};
+    if (statusFilter) f.status = statusFilter;
+    if (search) f.part_mark__ilike = search;
+    return f;
+  }, [statusFilter, search]);
+
+  const list = useResourcePaged<Part>("parts", {
+    initialPerPage: 25,
+    initialOrderBy: "created_at",
+    initialDir: "desc",
+    filters,
+  });
+  const projects = useResourceList<Project>("projects", { per_page: 100 });
+  const create = useCreate<Part>("parts");
+  const update = useUpdate<Part>("parts");
+
+  // Reset to page 1 whenever the filter set changes. (useResourcePaged
+  // already resets on sort changes; filter changes are our responsibility
+  // since they're external state.)
+  useEffect(() => {
+    list.setPage(1);
+    setSelected(new Set());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, statusFilter]);
+
   async function bulkUpdateStatus(status: string) {
     if (selected.size === 0) return;
     if (!confirm(`Update ${selected.size} part(s) to "${status}"?`)) return;
     setBulkBusy(true);
     try {
-      // allSettled so one rejection (RLS, validation, etc.) doesn't short-
-      // circuit the rest. We surface the actual outcome to the user
-      // instead of silently looking like a success.
-      const ids = Array.from(selected);
-      const results = await Promise.allSettled(
-        ids.map((id) => FabAPI.update("parts", id, { status })),
-      );
-      const failures = results
-        .map((r, i) => ({ id: ids[i], result: r }))
-        .filter((x) => x.result.status === "rejected");
-      const successCount = ids.length - failures.length;
-
-      if (failures.length === 0) {
-        alert(`Updated ${successCount} part(s) to "${status}".`);
-      } else if (successCount === 0) {
-        const firstErr = (failures[0].result as PromiseRejectedResult).reason;
-        const msg = firstErr instanceof Error ? firstErr.message : String(firstErr);
-        alert(`No parts were updated.\n\nFirst error: ${msg}`);
+      const result = await FabAPI.bulkUpdate("parts", {
+        ids: Array.from(selected),
+        patch: { status },
+      });
+      if (result.failed === 0) {
+        alert(`Updated ${result.succeeded} part(s) to "${status}".`);
+      } else if (result.succeeded === 0) {
+        const firstErr = result.failures[0]?.error?.message ?? "unknown error";
+        alert(`No parts were updated.\n\nFirst error: ${firstErr}`);
       } else {
-        const firstErr = (failures[0].result as PromiseRejectedResult).reason;
-        const msg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+        const firstErr = result.failures[0]?.error?.message ?? "unknown error";
         alert(
-          `${successCount} updated, ${failures.length} failed.\n\n` +
-          `First failure: ${msg}`,
+          `${result.succeeded} updated, ${result.failed} failed.\n\n` +
+          `First failure: ${firstErr}`,
         );
       }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`Bulk update failed: ${msg}`);
     } finally {
       setBulkBusy(false);
       setSelected(new Set());
@@ -77,18 +106,13 @@ export default function PartsPage() {
     }
   }
 
-  const query: Record<string, string> = { order_by: "created_at", dir: "desc" };
-  if (statusFilter) query.status = statusFilter;
-  if (search) query.part_mark__ilike = search;
-
-  const list = useResourceList<Part>("parts", query);
-  const projects = useResourceList<Project>("projects", { limit: "100" });
-  const create = useCreate<Part>("parts");
-  const update = useUpdate<Part>("parts");
-
+  // CSV export operates on whatever the user is currently looking at.
+  // For "export all 50k", they should use the dedicated Reports / CSV-
+  // import-export tooling — exporting an entire table via the browser
+  // is what got us into the 1000-row truncation in the first place.
   useCsvExport({
     filename: "parts",
-    data: list.data,
+    data: list.data?.rows,
     transform: (p) => ({
       part_mark: p.part_mark, assembly_mark: p.assembly_mark, profile: p.profile,
       grade: p.grade, length_in: p.length, weight_lb: p.weight, quantity: p.quantity,
@@ -96,28 +120,36 @@ export default function PartsPage() {
     }),
   });
 
+  // Columns: client-side sortAccessor is kept as a fallback for the rare
+  // demo-mode usage; sortField is what the server-mode <DataTable> uses
+  // to drive the ORDER BY on the API call.
   const cols: Column<Part>[] = [
-    { key: "mark", label: "Part Mark", mono: true, sortAccessor: (r) => r.part_mark, render: (r) => r.part_mark },
-    { key: "asm", label: "Assembly", mono: true, sortAccessor: (r) => r.assembly_mark, render: (r) => r.assembly_mark ?? "—" },
-    { key: "profile", label: "Profile", sortAccessor: (r) => r.profile, render: (r) => <span style={{ color: "var(--muted)" }}>{r.profile}</span> },
-    { key: "grade", label: "Grade", sortAccessor: (r) => r.grade, render: (r) => r.grade ?? "—" },
-    { key: "qty", label: "Qty", align: "right", mono: true, sortAccessor: (r) => r.quantity, render: (r) => r.quantity },
-    { key: "weight", label: "Weight", align: "right", mono: true, sortAccessor: (r) => r.weight ?? 0, render: (r) => r.weight ? Number(r.weight).toFixed(0) + " lb" : "—" },
-    { key: "heat", label: "Heat #", mono: true, sortAccessor: (r) => r.heat_number, render: (r) => r.heat_number ?? "—" },
-    { key: "status", label: "Status", sortAccessor: (r) => r.status, render: (r) => <StatusPill status={r.status} /> },
+    { key: "mark",   label: "Part Mark", mono: true,                  sortField: "part_mark",     sortAccessor: (r) => r.part_mark,     render: (r) => r.part_mark },
+    { key: "asm",    label: "Assembly",  mono: true,                  sortField: "assembly_mark", sortAccessor: (r) => r.assembly_mark, render: (r) => r.assembly_mark ?? "—" },
+    { key: "profile",label: "Profile",                                sortField: "profile",       sortAccessor: (r) => r.profile,       render: (r) => <span style={{ color: "var(--muted)" }}>{r.profile}</span> },
+    { key: "grade",  label: "Grade",                                  sortField: "grade",         sortAccessor: (r) => r.grade,         render: (r) => r.grade ?? "—" },
+    { key: "qty",    label: "Qty",       align: "right", mono: true,  sortField: "quantity",      sortAccessor: (r) => r.quantity,      render: (r) => r.quantity },
+    { key: "weight", label: "Weight",    align: "right", mono: true,  sortField: "weight",        sortAccessor: (r) => r.weight ?? 0,   render: (r) => r.weight ? Number(r.weight).toFixed(0) + " lb" : "—" },
+    { key: "heat",   label: "Heat #",    mono: true,                  sortField: "heat_number",   sortAccessor: (r) => r.heat_number,   render: (r) => r.heat_number ?? "—" },
+    { key: "status", label: "Status",                                 sortField: "status",        sortAccessor: (r) => r.status,        render: (r) => <StatusPill status={r.status} /> },
   ];
+
+  const total = list.data?.total ?? 0;
 
   return (
     <PageWrapper title="Parts">
       <div className="flex items-center justify-between mb-6">
         <div>
           <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Parts List</div>
-          <div className="text-[12px]" style={{ color: "var(--muted)" }}>{list.data?.length ?? 0} parts</div>
+          <div className="text-[12px]" style={{ color: "var(--muted)" }}>
+            {total} part{total === 1 ? "" : "s"}
+            {(statusFilter || search) && total > 0 && " (filtered)"}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
             <Search size={13} className="absolute" style={{ left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--muted)" }} />
-            <input className="input" placeholder="Search part marks…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ paddingLeft: 30, width: 240, height: 32 }} />
+            <input className="input" placeholder="Search part marks…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} style={{ paddingLeft: 30, width: 240, height: 32 }} />
           </div>
           <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ height: 32, width: 160 }}>
             <option value="">All statuses</option>
@@ -148,7 +180,7 @@ export default function PartsPage() {
       )}
 
       <DataTable
-        data={list.data}
+        data={list.data?.rows}
         columns={cols}
         loading={list.isLoading}
         error={list.error}
@@ -156,6 +188,19 @@ export default function PartsPage() {
         rowKey={(r) => r.id}
         onRowClick={(r) => setEditing(r)}
         selectable={{ selected, onChange: setSelected }}
+        server={{
+          page: list.page,
+          perPage: list.perPage,
+          total,
+          hasMore: list.data?.has_more ?? false,
+          onPageChange: list.setPage,
+          onPerPageChange: list.setPerPage,
+          orderBy: list.orderBy,
+          dir: list.dir,
+          onSortChange: list.setSort,
+          fetching: list.isFetching && !list.isLoading,
+          pageSizeOptions: [25, 50, 100, 200],
+        }}
       />
 
       {showNew && (

@@ -77,7 +77,22 @@ type FetchOpts = {
   retries?: number;
 };
 
-async function call<T>(path: string, method: string, opts: FetchOpts = {}): Promise<T> {
+export interface Pagination {
+  total: number;
+  page: number;
+  per_page: number;
+  has_more: boolean;
+  offset?: number;
+}
+
+// Internal envelope returned by `callEnvelope` — exposes both data and the
+// pagination metadata that the legacy `call<T>()` discards.
+interface Envelope<T> {
+  data: T;
+  pagination?: Pagination;
+}
+
+async function callEnvelope<T>(path: string, method: string, opts: FetchOpts = {}): Promise<Envelope<T>> {
   if (isIdle()) {
     await signOut();
     throw new FabApiError("Session expired due to inactivity", 401, "idle_timeout");
@@ -112,7 +127,13 @@ async function call<T>(path: string, method: string, opts: FetchOpts = {}): Prom
       continue;
     }
     const text = await res.text();
-    let json: { ok?: boolean; data?: unknown; error?: { message: string; code: string }; count?: number } = {};
+    let json: {
+      ok?: boolean;
+      data?: unknown;
+      error?: { message: string; code: string };
+      count?: number;
+      pagination?: Pagination;
+    } = {};
     try { json = text ? JSON.parse(text) : {}; } catch { /* non-json */ }
 
     if (!res.ok) {
@@ -123,9 +144,17 @@ async function call<T>(path: string, method: string, opts: FetchOpts = {}): Prom
       if (res.status >= 500) captureException(fabErr, { route: path, method, status: res.status });
       throw fabErr;
     }
-    return (json.data ?? json) as T;
+    return {
+      data: (json.data ?? json) as T,
+      pagination: json.pagination,
+    };
   }
   throw lastError ?? new FabApiError("Network error", 0, "network");
+}
+
+async function call<T>(path: string, method: string, opts: FetchOpts = {}): Promise<T> {
+  const env = await callEnvelope<T>(path, method, opts);
+  return env.data;
 }
 
 async function signOut() {
@@ -142,10 +171,46 @@ async function signOut() {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+export interface PagedResult<T> {
+  rows: T[];
+  total: number;
+  page: number;
+  per_page: number;
+  has_more: boolean;
+}
+
+export interface BulkUpdateResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+  succeeded_ids: string[];
+  failures: Array<{ id: string; error: { message: string; code: string } }>;
+  patch_applied: Record<string, unknown>;
+}
+
 export const FabAPI = {
   // Generic CRUD
   list<T = unknown>(table: string, query?: Record<string, string | number | boolean | undefined>) {
     return call<T[]>(`/${table}`, "GET", { query });
+  },
+  /**
+   * Paginated list. Use for any view that renders >25 rows or needs total /
+   * has_more for "next page" buttons. The server caps per_page at 200; if
+   * you ask for more it'll silently floor down.
+   */
+  async listPaged<T = unknown>(
+    table: string,
+    query?: Record<string, string | number | boolean | undefined>,
+  ): Promise<PagedResult<T>> {
+    const env = await callEnvelope<T[]>(`/${table}`, "GET", { query });
+    const p = env.pagination;
+    return {
+      rows: env.data,
+      total: p?.total ?? env.data.length,
+      page: p?.page ?? 1,
+      per_page: p?.per_page ?? env.data.length,
+      has_more: p?.has_more ?? false,
+    };
   },
   get<T = unknown>(table: string, id: string) {
     return call<T>(`/${table}/${id}`, "GET");
@@ -155,6 +220,15 @@ export const FabAPI = {
   },
   update<T = unknown>(table: string, id: string, body: unknown) {
     return call<T>(`/${table}/${id}`, "PATCH", { body });
+  },
+  /**
+   * Bulk-update a list of ids on the same table. Per-row outcome — one row
+   * failing doesn't fail the batch. Result includes `failures: [{ id, error }]`
+   * so the UI can show "27 updated, 3 failed". Audit log + activity feed
+   * are written server-side.
+   */
+  bulkUpdate(table: string, body: { ids: string[]; patch: Record<string, unknown> }) {
+    return call<BulkUpdateResult>(`/${table}/bulk-update`, "POST", { body });
   },
   remove(table: string, id: string) {
     return call<{ deleted: boolean; id: string }>(`/${table}/${id}`, "DELETE");

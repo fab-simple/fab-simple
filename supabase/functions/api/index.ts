@@ -6,6 +6,7 @@ import { log, requestId } from "./lib/log.ts";
 import { authenticate } from "./middleware/auth.ts";
 import { rateLimit } from "./middleware/rateLimit.ts";
 import { listOrGet, create, update, remove } from "./controllers/crud.ts";
+import { bulkUpdate } from "./controllers/bulk.ts";
 import { dashboard } from "./controllers/dashboard.ts";
 import { importCsv } from "./controllers/import.ts";
 import { cutOptimize } from "./controllers/cutOptimizer.ts";
@@ -109,6 +110,14 @@ Deno.serve(async (req) => {
 
     // Global search
     if (path === "/search" && method === "GET") return search(ctx);
+
+    // Bulk update on a table: /{table}/bulk-update
+    // Matches *before* the generic /{table}/{id} route so "bulk-update" isn't
+    // interpreted as a UUID.
+    const bulkMatch = path.match(/^\/([a-z_]+)\/bulk-update$/i);
+    if (bulkMatch && method === "POST") {
+      return bulkUpdate(ctx, bulkMatch[1]);
+    }
 
     // Generic CRUD: /{table} or /{table}/{id}
     const match = url.pathname.match(TABLE_RE);
