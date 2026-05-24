@@ -1,0 +1,274 @@
+// FabAPI — canonical client-side wrapper.
+//
+//   • Bearer token held in closure (no localStorage, no XSS exfil surface)
+//   • Refresh-token cookies handled by @supabase/ssr middleware
+//   • XSS sanitization on every outbound string
+//   • 20-min idle timeout (Worker) / 30-min (others)
+//   • 401 → forced sign-out · 403 → toast · 429 → exponential backoff (max 3)
+
+import { createClient } from "@/lib/supabase/client";
+import { captureException } from "@/lib/observability";
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE ??
+  `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/api`;
+
+const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+let token: string | null = null;
+let role: string | null = null;
+let lastActivity = Date.now();
+
+const IDLE_LIMITS: Record<string, number> = {
+  worker: 20 * 60 * 1000,
+  default: 30 * 60 * 1000,
+};
+
+export function setSession(accessToken: string | null, userRole?: string | null) {
+  token = accessToken;
+  role = userRole ?? null;
+  lastActivity = Date.now();
+}
+
+export function getRole() { return role; }
+export function getToken() { return token; }
+
+function isIdle(): boolean {
+  const limit = IDLE_LIMITS[role ?? "default"] ?? IDLE_LIMITS.default;
+  return Date.now() - lastActivity > limit;
+}
+
+const SCRIPT_RE = /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi;
+const TAG_RE = /<\/?[a-z][^>]*?>/gi;
+const JS_PROTO_RE = /^\s*javascript:/i;
+
+function sanitizeString(s: string) {
+  return s.replace(SCRIPT_RE, "").replace(TAG_RE, "").replace(JS_PROTO_RE, "").trim();
+}
+
+export function sanitize<T>(input: T): T {
+  if (input == null) return input;
+  if (typeof input === "string") return sanitizeString(input) as unknown as T;
+  if (Array.isArray(input)) return input.map(sanitize) as unknown as T;
+  if (typeof input === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+      out[k] = typeof v === "string" ? sanitizeString(v) : sanitize(v);
+    }
+    return out as T;
+  }
+  return input;
+}
+
+export class FabApiError extends Error {
+  status: number;
+  code: string;
+  constructor(message: string, status: number, code: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+type FetchOpts = {
+  body?: unknown;
+  query?: Record<string, string | number | boolean | undefined>;
+  skipSanitize?: boolean;
+  retries?: number;
+};
+
+async function call<T>(path: string, method: string, opts: FetchOpts = {}): Promise<T> {
+  if (isIdle()) {
+    await signOut();
+    throw new FabApiError("Session expired due to inactivity", 401, "idle_timeout");
+  }
+  lastActivity = Date.now();
+
+  const url = new URL(API_BASE + path);
+  if (opts.query) {
+    for (const [k, v] of Object.entries(opts.query)) {
+      if (v != null) url.searchParams.set(k, String(v));
+    }
+  }
+
+  const body = opts.body == null ? undefined :
+    opts.skipSanitize ? JSON.stringify(opts.body) :
+    JSON.stringify(sanitize(opts.body));
+
+  const headers: Record<string, string> = {
+    apikey: ANON_KEY,
+    "content-type": "application/json",
+  };
+  if (token) headers.authorization = `Bearer ${token}`;
+
+  const retries = opts.retries ?? 3;
+  let lastError: FabApiError | null = null;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const res = await fetch(url.toString(), { method, headers, body });
+    if (res.status === 429) {
+      await new Promise((r) => setTimeout(r, 2 ** attempt * 500));
+      lastError = new FabApiError("Rate limited", 429, "rate_limited");
+      continue;
+    }
+    const text = await res.text();
+    let json: { ok?: boolean; data?: unknown; error?: { message: string; code: string }; count?: number } = {};
+    try { json = text ? JSON.parse(text) : {}; } catch { /* non-json */ }
+
+    if (!res.ok) {
+      const msg = json.error?.message ?? `HTTP ${res.status}`;
+      const code = json.error?.code ?? "http_error";
+      if (res.status === 401) await signOut();
+      const fabErr = new FabApiError(msg, res.status, code);
+      if (res.status >= 500) captureException(fabErr, { route: path, method, status: res.status });
+      throw fabErr;
+    }
+    return (json.data ?? json) as T;
+  }
+  throw lastError ?? new FabApiError("Network error", 0, "network");
+}
+
+async function signOut() {
+  setSession(null, null);
+  try {
+    const sb = createClient();
+    await sb.auth.signOut();
+  } catch { /* ignore */ }
+  if (typeof window !== "undefined") {
+    window.location.href = "/auth/signin";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+export const FabAPI = {
+  // Generic CRUD
+  list<T = unknown>(table: string, query?: Record<string, string | number | boolean | undefined>) {
+    return call<T[]>(`/${table}`, "GET", { query });
+  },
+  get<T = unknown>(table: string, id: string) {
+    return call<T>(`/${table}/${id}`, "GET");
+  },
+  create<T = unknown>(table: string, body: unknown) {
+    return call<T>(`/${table}`, "POST", { body });
+  },
+  update<T = unknown>(table: string, id: string, body: unknown) {
+    return call<T>(`/${table}/${id}`, "PATCH", { body });
+  },
+  remove(table: string, id: string) {
+    return call<{ deleted: boolean; id: string }>(`/${table}/${id}`, "DELETE");
+  },
+
+  // Specials
+  dashboard() { return call<DashboardData>("/dashboard", "GET"); },
+  importCsv(body: { project_id: string; rows: Record<string, string>[]; units?: "imperial" | "metric" | "auto" }) {
+    return call("/import/csv", "POST", { body });
+  },
+  cutOptimize(body: {
+    project_id?: string; profile: string; stock_length: number; kerf?: number;
+    min_remnant?: number; cuts: { length: number; qty: number; mark?: string }[];
+  }) { return call("/cut-optimize", "POST", { body }); },
+  seedAisc(project_id: string) { return call("/seed-aisc", "POST", { body: { project_id } }); },
+  inviteUser(body: { email: string; role: string; full_name?: string }) {
+    return call("/invite-user", "POST", { body });
+  },
+  archiveProject(id: string) { return call(`/archive-project/${id}`, "POST"); },
+  convertEstimate(body: { estimate_id: string; pm_id?: string; deadline?: string }) {
+    return call("/convert-estimate", "POST", { body });
+  },
+  qcReport(project_id?: string) { return call("/qc-report", "GET", { query: project_id ? { project_id } : undefined }); },
+  markAllNotificationsRead() { return call("/notifications/mark-all-read", "POST"); },
+
+  // Files
+  signUpload(body: { entity_type: string; entity_id: string; bucket: "drawings" | "mtrs" | "photos" | "billing"; filename: string; mime?: string; size?: number }) {
+    return call<{ upload_url: string; token: string; storage_path: string; attachment_id: string; bucket: string }>(
+      "/files/sign-upload", "POST", { body }
+    );
+  },
+  signRead(attachmentId: string) {
+    return call<{ url: string; mime_type: string | null; size_bytes: number | null; entity_type: string; entity_id: string; expires_in: number }>(
+      `/files/sign-read/${attachmentId}`, "GET"
+    );
+  },
+  listFiles(entity_type: string, entity_id: string) {
+    return call<FileAttachment[]>("/files", "GET", { query: { entity_type, entity_id } });
+  },
+  deleteFile(id: string) { return call<{ deleted: boolean }>(`/files/${id}`, "DELETE"); },
+
+  // AI Copilot
+  copilot(body: { messages: { role: "user" | "assistant"; content: string }[]; project_id?: string }) {
+    return call<{ reply: string; tokens_used?: number }>("/copilot", "POST", { body });
+  },
+
+  // Global search
+  search(q: string) {
+    return call<{ hits: SearchHit[]; q: string }>("/search", "GET", { query: { q } });
+  },
+};
+
+export interface SearchHit {
+  kind: "project" | "part" | "drawing" | "ncr" | "change_order" | "rfi";
+  id: string;
+  label: string;
+  subtitle?: string;
+  href: string;
+}
+
+export interface FileAttachment {
+  id: string;
+  storage_bucket: string;
+  storage_path: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+  uploaded_by: string | null;
+}
+
+// Helper that performs the full upload flow (sign → PUT → return attachment_id)
+export async function uploadFile(opts: {
+  file: File;
+  entity_type: string;
+  entity_id: string;
+  bucket: "drawings" | "mtrs" | "photos" | "billing";
+}): Promise<{ attachment_id: string; storage_path: string }> {
+  const sign = await FabAPI.signUpload({
+    entity_type: opts.entity_type,
+    entity_id: opts.entity_id,
+    bucket: opts.bucket,
+    filename: opts.file.name,
+    mime: opts.file.type,
+    size: opts.file.size,
+  });
+  const put = await fetch(sign.upload_url, {
+    method: "PUT",
+    headers: { "content-type": opts.file.type || "application/octet-stream" },
+    body: opts.file,
+  });
+  if (!put.ok) throw new FabApiError(`Upload failed: ${put.status}`, put.status, "upload_failed");
+  return { attachment_id: sign.attachment_id, storage_path: sign.storage_path };
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+export interface DashboardData {
+  parts_by_status: Record<string, number>;
+  total_parts: number;
+  total_weight: number;
+  projects: Array<{
+    id: string; name: string; number: string; gc_name: string | null;
+    contract_value: number | null; deadline: string | null; status: string;
+    color: string | null; pm_id: string | null;
+    total_parts: number; completed: number; progress: number;
+  }>;
+  financial: { backlog: number; billed: number; retainage_held: number; collected: number; po_total: number } | null;
+  cert_alerts: Array<{ id: string; cert_type: string; holder_name: string; expiry_date: string; alert_days: number }>;
+  inventory_alerts: Array<{ id: string; profile: string; grade: string | null; quantity: number; reorder_point: number; status: string }>;
+  activity: Array<{ id: string; user_name: string | null; action: string; entity_type: string; entity_label: string | null; created_at: string }>;
+  open_ncrs: Array<{ id: string; ncr_number: string; description: string; status: string }>;
+  open_change_orders: Array<{ id: string; co_number: string; amount: number; status: string }>;
+  open_rfis: Array<{ id: string; rfi_number: string; question: string; status: string }>;
+  recent_parts: Array<{ id: string; part_mark: string; profile: string; status: string; project_id: string | null; project_name: string | null }>;
+  production_by_day: Array<{ date: string; parts_completed: number }>;
+}

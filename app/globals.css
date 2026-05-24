@@ -974,7 +974,25 @@ tbody tr:last-child td {
   .layout-content {
     padding: 20px 16px !important;
   }
+
+  /* Collapse multi-column grids to single column on phones */
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr !important; }
+
+  /* Page header rows stack on mobile */
+  .flex.items-center.justify-between { flex-wrap: wrap; gap: 12px; }
+
+  /* Tables get horizontal scroll on mobile */
+  .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tbl-wrap table { min-width: 640px; }
+
+  /* Inputs are larger to be tappable */
+  .input { height: 42px; font-size: 14px; }
+
+  /* Buttons grow more friendly */
+  .btn { min-height: 36px; padding: 6px 12px; font-size: 13px; }
+  .btn.btn-sm { min-height: 28px; }
 }
+
 
 /* ─── Explicit Grid / Spacing Utilities ─────────────────────────────────────
    These are defined here (not via Tailwind JIT) to guarantee they render
@@ -1052,3 +1070,38 @@ tbody tr:last-child td {
 .mt-section {
   margin-top: 32px !important;
 }
+/* ── Auth + form controls ─────────────────────────────────────────── */
+.input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 120ms, box-shadow 120ms;
+}
+.input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.btn:hover { background: var(--bg-muted); }
+.btn-sm { height: 28px; font-size: 11px; padding: 0 10px; }
+.btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
+.btn-primary:hover { background: #4338CA; }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.pill-red { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; border-radius: 6px; }

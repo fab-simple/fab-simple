@@ -1,0 +1,142 @@
+// FabSimple v5.1 — Edge Function entry point.
+// Router for 18+ endpoints. CORS + rate limit + JWT auth before any handler.
+
+import { corsHeaders, ok, err, preflight } from "./lib/response.ts";
+import { log, requestId } from "./lib/log.ts";
+import { authenticate } from "./middleware/auth.ts";
+import { rateLimit } from "./middleware/rateLimit.ts";
+import { listOrGet, create, update, remove } from "./controllers/crud.ts";
+import { dashboard } from "./controllers/dashboard.ts";
+import { importCsv } from "./controllers/import.ts";
+import { cutOptimize } from "./controllers/cutOptimizer.ts";
+import {
+  seedAisc,
+  inviteUser,
+  archiveProject,
+  convertEstimate,
+  qcReport,
+  markAllNotificationsRead,
+} from "./controllers/admin.ts";
+import { signUpload, signRead, listAttachments, deleteAttachment } from "./controllers/files.ts";
+import { copilot } from "./controllers/copilot.ts";
+import { signupBootstrap } from "./controllers/signup.ts";
+import { search } from "./controllers/search.ts";
+
+const TABLE_RE = /^\/api\/?([a-z_]+)(?:\/([0-9a-f-]{36}))?\/?$/i;
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return preflight();
+
+  const rid = requestId();
+  const start = Date.now();
+  const url = new URL(req.url);
+
+  // Rate limit by client IP
+  const ip =
+    req.headers.get("cf-connecting-ip") ??
+    req.headers.get("x-forwarded-for") ??
+    "unknown";
+  const rl = await rateLimit(ip);
+  if (!rl.ok) {
+    return new Response(
+      JSON.stringify({ ok: false, error: { message: "Rate limit exceeded", code: "rate_limited" } }),
+      {
+        status: 429,
+        headers: {
+          "content-type": "application/json",
+          "X-RateLimit-Reset": String(rl.resetAt),
+          ...corsHeaders,
+        },
+      }
+    );
+  }
+
+  // Health check (no auth)
+  if (url.pathname.endsWith("/health")) {
+    return ok({ status: "healthy", ts: new Date().toISOString() });
+  }
+
+  // Public: signup bootstrap (no JWT yet — uses one-shot auth_id verification)
+  if (url.pathname.endsWith("/signup-bootstrap") && req.method === "POST") {
+    return signupBootstrap(req);
+  }
+
+  // Authenticate
+  const ctxOrResponse = await authenticate(req, url);
+  if (ctxOrResponse instanceof Response) return ctxOrResponse;
+  const ctx = ctxOrResponse;
+
+  // Update last_login (fire-and-forget)
+  ctx.sbAdmin.from("users").update({ last_login: new Date().toISOString() }).eq("id", ctx.user.id).then(() => {});
+
+  // Route
+  try {
+    const path = url.pathname.replace(/^\/api(?:\/?$)?/, "") || "/";
+    const method = req.method;
+
+    // Specials first
+    if (path === "/dashboard" && method === "GET") return dashboard(ctx);
+    if (path === "/import/csv" && method === "POST") return importCsv(ctx);
+    if (path === "/cut-optimize" && method === "POST") return cutOptimize(ctx);
+    if (path === "/seed-aisc" && method === "POST") return seedAisc(ctx);
+    if (path === "/invite-user" && method === "POST") return inviteUser(ctx);
+    if (path === "/convert-estimate" && method === "POST") return convertEstimate(ctx);
+    if (path === "/qc-report" && method === "GET") return qcReport(ctx);
+    if (path === "/notifications/mark-all-read" && method === "POST") return markAllNotificationsRead(ctx);
+    const archMatch = path.match(/^\/archive-project\/([0-9a-f-]{36})$/i);
+    if (archMatch && method === "POST") return archiveProject(ctx, archMatch[1]);
+
+    // Files
+    if (path === "/files/sign-upload" && method === "POST") return signUpload(ctx);
+    if (path === "/files" && method === "GET") return listAttachments(ctx);
+    const signReadMatch = path.match(/^\/files\/sign-read\/([0-9a-f-]{36})$/i);
+    if (signReadMatch && method === "GET") return signRead(ctx, signReadMatch[1]);
+    const delFileMatch = path.match(/^\/files\/([0-9a-f-]{36})$/i);
+    if (delFileMatch && method === "DELETE") return deleteAttachment(ctx, delFileMatch[1]);
+
+    // AI Copilot
+    if (path === "/copilot" && method === "POST") return copilot(ctx);
+
+    // Global search
+    if (path === "/search" && method === "GET") return search(ctx);
+
+    // Generic CRUD: /{table} or /{table}/{id}
+    const match = url.pathname.match(TABLE_RE);
+    if (match) {
+      const [, table, id] = match;
+      if (id) {
+        if (method === "GET") return listOrGet(ctx, table, id);
+        if (method === "PATCH") return update(ctx, table, id);
+        if (method === "DELETE") return remove(ctx, table, id);
+      } else {
+        if (method === "GET") return listOrGet(ctx, table);
+        if (method === "POST") return create(ctx, table);
+      }
+    }
+
+    log.warn("route_not_found", { request_id: rid, route: url.pathname, method: req.method });
+    return err("Not found", 404, "no_route");
+  } catch (e) {
+    log.error("unhandled_exception", {
+      request_id: rid,
+      route: url.pathname,
+      method: req.method,
+      error_code: "internal",
+      error: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack?.split("\n").slice(0, 6).join(" | ") : undefined,
+      duration_ms: Date.now() - start,
+      user_id: ctx.user.id,
+      company_id: ctx.user.company_id,
+    });
+    return err(e instanceof Error ? e.message : "Internal error", 500, "internal");
+  } finally {
+    log.info("request_completed", {
+      request_id: rid,
+      route: url.pathname,
+      method: req.method,
+      duration_ms: Date.now() - start,
+      user_id: ctx.user.id,
+      company_id: ctx.user.company_id,
+    });
+  }
+});

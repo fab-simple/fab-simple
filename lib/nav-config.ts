@@ -54,7 +54,8 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
     items: [
       { key: "projects", label: "Projects", href: "/dashboard/projects", icon: FolderKanban },
       { key: "estimating", label: "Estimating", href: "/dashboard/estimating", icon: Calculator, roles: ["owner", "estimator", "pm", "accounting"] },
-      { key: "change-orders", label: "Change Orders & RFI", href: "/dashboard/change-orders", icon: FileDiff },
+      { key: "change-orders", label: "Change Orders", href: "/dashboard/change-orders", icon: FileDiff },
+      { key: "rfis", label: "RFI Log", href: "/dashboard/rfis", icon: FileText },
       { key: "drawings", label: "Drawing Log", href: "/dashboard/drawings", icon: FileText },
     ],
   },
@@ -65,6 +66,7 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       { key: "assemblies", label: "Assemblies", href: "/dashboard/assemblies", icon: Layers },
       { key: "daily-log", label: "Daily Production Log", href: "/dashboard/daily-log", icon: ClipboardList },
       { key: "import", label: "Import / Tekla CSV", href: "/dashboard/import", icon: Upload },
+      { key: "cut-list", label: "Cut List Optimizer", href: "/dashboard/cut-list", icon: Hammer },
     ],
   },
   {
@@ -84,6 +86,7 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       { key: "aisc", label: "AISC 303 QC", href: "/dashboard/aisc", icon: ShieldCheck, badge: "2", badgeClass: "bg-red-600 text-white" },
       { key: "osha", label: "OSHA Checklist", href: "/dashboard/osha", icon: AlertTriangle, badge: "1", badgeClass: "bg-red-600 text-white" },
       { key: "certifications", label: "Certifications", href: "/dashboard/certifications", icon: Award, badge: "2", badgeClass: "bg-amber-500 text-white" },
+      { key: "ncr", label: "NCR Reports", href: "/dashboard/ncr", icon: AlertTriangle },
     ],
   },
   {
@@ -107,6 +110,7 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
     items: [
       { key: "worker", label: "Worker View", href: "/dashboard/worker", icon: Smartphone },
       { key: "users", label: "Users & Roles", href: "/dashboard/users", icon: Users, roles: ["owner"] },
+      { key: "audit-log", label: "Audit Log", href: "/dashboard/audit-log", icon: ShieldCheck, roles: ["owner", "pm", "accounting"] },
       { key: "integrations", label: "Integrations", href: "/dashboard/integrations", icon: Plug },
       { key: "pricing", label: "Pricing", href: "/dashboard/pricing", icon: Tag },
     ],

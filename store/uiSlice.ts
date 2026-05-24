@@ -3,6 +3,7 @@ import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 interface UIState {
   sidebarOpen: boolean;
   notifPanelOpen: boolean;
+  copilotOpen: boolean;
   activeModal: string | null;
   pageTitle: string;
 }
@@ -10,6 +11,7 @@ interface UIState {
 const initialState: UIState = {
   sidebarOpen: false,
   notifPanelOpen: false,
+  copilotOpen: false,
   activeModal: null,
   pageTitle: "Dashboard",
 };
@@ -22,11 +24,13 @@ const uiSlice = createSlice({
     setSidebarOpen: (state, action: PayloadAction<boolean>) => { state.sidebarOpen = action.payload; },
     toggleNotifPanel: (state) => { state.notifPanelOpen = !state.notifPanelOpen; },
     closeNotifPanel: (state) => { state.notifPanelOpen = false; },
+    toggleCopilot: (state) => { state.copilotOpen = !state.copilotOpen; },
+    closeCopilot: (state) => { state.copilotOpen = false; },
     openModal: (state, action: PayloadAction<string>) => { state.activeModal = action.payload; },
     closeModal: (state) => { state.activeModal = null; },
     setPageTitle: (state, action: PayloadAction<string>) => { state.pageTitle = action.payload; },
   },
 });
 
-export const { toggleSidebar, setSidebarOpen, toggleNotifPanel, closeNotifPanel, openModal, closeModal, setPageTitle } = uiSlice.actions;
+export const { toggleSidebar, setSidebarOpen, toggleNotifPanel, closeNotifPanel, toggleCopilot, closeCopilot, openModal, closeModal, setPageTitle } = uiSlice.actions;
 export default uiSlice.reducer;

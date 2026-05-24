@@ -2,56 +2,97 @@
 
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
-import {
-  PROJECTS,
-  PARTS,
-  ACTIVITY_FEED,
-  DAILY_LOGS,
-} from "@/lib/mock-data";
+import { useDashboard } from "@/hooks/useResource";
 import { formatCurrency } from "@/lib/utils";
 import {
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from "recharts";
+import { Loader2, AlertCircle } from "lucide-react";
 
-const STATUS_COUNTS = [
-  { name: "Not Started", value: 148, color: "#94A3B8" },
-  { name: "Cutting",     value: 87,  color: "#C2410C" },
-  { name: "Welding",     value: 204, color: "#2563EB" },
-  { name: "Painting",    value: 161, color: "#7C3AED" },
-  { name: "Completed",   value: 1330, color: "#16A34A" },
-  { name: "Shipped",     value: 489, color: "#0D9488" },
-];
+const STATUS_COLORS: Record<string, { name: string; color: string }> = {
+  not_started: { name: "Not Started", color: "#94A3B8" },
+  in_progress: { name: "In Progress", color: "#2563EB" },
+  complete:    { name: "Completed",   color: "#16A34A" },
+  shipped:     { name: "Shipped",     color: "#0D9488" },
+  on_hold:     { name: "On Hold",     color: "#DC2626" },
+};
 
-const WEEK_DATA = [
-  { day: "Mon", parts: 88 },
-  { day: "Tue", parts: 102 },
-  { day: "Wed", parts: 91 },
-  { day: "Thu", parts: 118 },
-  { day: "Fri", parts: 73 },
-];
-
-const STATS = [
-  { label: "Total Parts",      value: "2,419", sub: "across 4 active projects", cls: "primary" },
-  { label: "Completed Parts",  value: "1,330", sub: "72% of Dallas project", cls: "green" },
-  { label: "In Production",    value: "452",   sub: "87 cutting · 204 welding", cls: "blue" },
-  { label: "Pending Shipment", value: "161",   sub: "painting / finishing", cls: "violet" },
-];
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function DashboardPage() {
-  const totalParts = STATUS_COUNTS.reduce((s, x) => s + x.value, 0);
+  const { data, isLoading, error } = useDashboard();
+
+  if (isLoading) {
+    return (
+      <PageWrapper title="Dashboard">
+        <div className="flex items-center justify-center" style={{ minHeight: 400, color: "var(--muted)" }}>
+          <Loader2 size={20} className="animate-spin" />
+          <span className="ml-3 text-[13px]">Loading dashboard…</span>
+        </div>
+      </PageWrapper>
+    );
+  }
+
+  if (error) {
+    return (
+      <PageWrapper title="Dashboard">
+        <div className="card" style={{ padding: 24 }}>
+          <div className="flex items-center gap-3" style={{ color: "#DC2626" }}>
+            <AlertCircle size={18} />
+            <div>
+              <div className="font-semibold">Failed to load dashboard</div>
+              <div className="text-[12px]" style={{ color: "var(--muted)" }}>{error.message}</div>
+            </div>
+          </div>
+        </div>
+      </PageWrapper>
+    );
+  }
+
+  if (!data) {
+    return (
+      <PageWrapper title="Dashboard">
+        <div className="card text-center" style={{ padding: 40, color: "var(--muted)" }}>
+          No dashboard data available.
+        </div>
+      </PageWrapper>
+    );
+  }
+
+  const statusCounts = Object.entries(data.parts_by_status)
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => ({
+      name: STATUS_COLORS[k]?.name ?? k,
+      color: STATUS_COLORS[k]?.color ?? "#94A3B8",
+      value: v,
+    }));
+
+  const totalParts = data.total_parts;
+  const totalWeight = data.total_weight;
+  const projects = data.projects;
+  const activity = data.activity;
+  const recentParts = data.recent_parts;
+
+  const completedCount = (data.parts_by_status.complete ?? 0) + (data.parts_by_status.shipped ?? 0);
+  const inProgressCount = (data.parts_by_status.in_progress ?? 0) + (data.parts_by_status.not_started ?? 0);
+  const shippedCount = data.parts_by_status.shipped ?? 0;
+
+  // Build a normalized day-of-week series for the chart from production_by_day.
+  const weekData = data.production_by_day.map((d) => ({
+    day: DAY_LABELS[new Date(d.date + "T00:00:00").getDay()] ?? d.date,
+    parts: d.parts_completed,
+  }));
+
+  const STATS = [
+    { label: "Total Parts",     value: totalParts.toLocaleString(),    sub: `across ${projects.length} active projects`, cls: "primary" },
+    { label: "Completed Parts", value: completedCount.toLocaleString(), sub: totalWeight ? `${(totalWeight / 2000).toFixed(1)} tons total` : "ready for QC sign-off", cls: "green" },
+    { label: "In Production",   value: inProgressCount.toLocaleString(), sub: `${data.parts_by_status.in_progress ?? 0} active · ${data.parts_by_status.not_started ?? 0} queued`, cls: "blue" },
+    { label: "Shipped",         value: shippedCount.toLocaleString(),   sub: `${data.open_change_orders.length} open change orders`, cls: "violet" },
+  ];
 
   return (
     <PageWrapper title="Dashboard">
-      {/* Stats Row */}
       <div className="grid-4" style={{ gap: 20, marginBottom: 32 }}>
         {STATS.map((s) => (
           <div key={s.label} className={`stat-card ${s.cls}`}>
@@ -63,7 +104,6 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid-3" style={{ gap: 24, marginBottom: 32 }}>
-        {/* Doughnut Chart */}
         <div className="card">
           <div className="card-header">
             <div>
@@ -75,33 +115,15 @@ export default function DashboardPage() {
             <div style={{ height: 220 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie
-                    data={STATUS_COUNTS}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={55}
-                    outerRadius={90}
-                    paddingAngle={2}
-                    dataKey="value"
-                  >
-                    {STATUS_COUNTS.map((entry, index) => (
-                      <Cell key={index} fill={entry.color} />
-                    ))}
+                  <Pie data={statusCounts} cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={2} dataKey="value">
+                    {statusCounts.map((entry, index) => <Cell key={index} fill={entry.color} />)}
                   </Pie>
-                  <Tooltip
-                    formatter={(value) => [value, "Parts"]}
-                    contentStyle={{
-                      background: "var(--bg-card)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      fontSize: 12,
-                    }}
-                  />
+                  <Tooltip formatter={(v) => [v, "Parts"]} contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
             <div className="grid-2" style={{ gap: 6, marginTop: 8 }}>
-              {STATUS_COUNTS.map((s) => (
+              {statusCounts.map((s) => (
                 <div key={s.name} className="flex items-center gap-2 text-[11px]" style={{ color: "var(--text-2)" }}>
                   <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: s.color }} />
                   {s.name}
@@ -112,23 +134,24 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Project Progress */}
         <div className="card">
           <div className="card-header">
             <div className="card-title">Project Progress</div>
           </div>
           <div className="card-body">
-            {PROJECTS.map((p) => (
+            {projects.slice(0, 5).map((p) => (
               <div key={p.id} className="mb-4">
                 <div className="flex items-start justify-between mb-1.5">
                   <div>
                     <div className="text-[12px] font-semibold" style={{ color: "var(--text)" }}>{p.name}</div>
-                    <div className="text-[11px]" style={{ color: "var(--muted)" }}>{p.client} · {p.total_parts} parts</div>
+                    <div className="text-[11px]" style={{ color: "var(--muted)" }}>
+                      {p.gc_name ?? "—"} · {p.total_parts} parts
+                    </div>
                   </div>
-                  <span className="text-[13px] font-bold font-mono" style={{ color: p.color }}>{p.progress}%</span>
+                  <span className="text-[13px] font-bold font-mono" style={{ color: p.color ?? "var(--primary)" }}>{p.progress}%</span>
                 </div>
                 <div className="pbar">
-                  <div className="pbar-fill" style={{ width: `${p.progress}%`, background: p.color }} />
+                  <div className="pbar-fill" style={{ width: `${p.progress}%`, background: p.color ?? "var(--primary)" }} />
                 </div>
                 <div className="flex justify-between mt-1">
                   <span className="text-[10px]" style={{ color: "var(--muted)" }}>{p.completed} complete</span>
@@ -136,10 +159,12 @@ export default function DashboardPage() {
                 </div>
               </div>
             ))}
+            {projects.length === 0 && (
+              <div className="text-center text-[12px] py-4" style={{ color: "var(--muted)" }}>No active projects</div>
+            )}
           </div>
         </div>
 
-        {/* This Week */}
         <div className="card">
           <div className="card-header">
             <div className="card-title">This Week — Parts/Day</div>
@@ -147,69 +172,56 @@ export default function DashboardPage() {
           </div>
           <div className="card-body">
             <div style={{ height: 180 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={WEEK_DATA} barSize={28}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="day" tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} />
-                  <Tooltip
-                    cursor={{ fill: "var(--bg-muted)" }}
-                    contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-                  />
-                  <Bar dataKey="parts" fill="#4F46E5" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="grid-3" style={{ gap: 8, marginTop: 12 }} style={{ borderTop: "1px solid var(--border)" }}>
-              {DAILY_LOGS.map((d) => (
-                <div key={d.id} className="text-center">
-                  <div className="text-[10px] font-mono font-bold" style={{ color: "var(--muted)" }}>{d.station.split("/")[0].trim()}</div>
-                  <div className="text-[16px] font-bold font-mono" style={{ color: "var(--text)" }}>{d.parts_completed}</div>
-                  <div className="text-[9px]" style={{ color: "var(--muted)" }}>parts</div>
+              {weekData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={weekData} barSize={28}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="day" tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} />
+                    <Tooltip cursor={{ fill: "var(--bg-muted)" }} contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} />
+                    <Bar dataKey="parts" fill="#4F46E5" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-[12px]" style={{ color: "var(--muted)" }}>
+                  No production data this week
                 </div>
-              )).slice(0, 3)}
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Bottom row */}
       <div className="grid-2 gap-md">
-        {/* Activity Feed */}
         <div className="card">
           <div className="card-header">
             <div className="card-title">Live Activity</div>
             <span className="pill pill-done" style={{ fontSize: 10 }}>● Live</span>
           </div>
           <div className="card-body">
-            {ACTIVITY_FEED.map((a) => (
-              <div
-                key={a.id}
-                className="flex items-center gap-3 py-2.5"
-                style={{ borderBottom: "1px solid var(--bg-muted)" }}
-              >
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
-                  style={{ background: a.color }}
-                >
-                  {a.user_name.slice(0, 1)}
+            {activity.slice(0, 6).map((a) => (
+              <div key={a.id} className="flex items-center gap-3 py-2.5" style={{ borderBottom: "1px solid var(--bg-muted)" }}>
+                <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0" style={{ background: "#2563EB" }}>
+                  {(a.user_name ?? "?").slice(0, 1)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="font-semibold text-[12px]" style={{ color: "var(--text)" }}>{a.user_name}</span>
                   <span className="text-[12px]" style={{ color: "var(--muted)" }}> {a.action} </span>
-                  <span className="font-mono text-[11px] font-bold" style={{ color: "var(--primary)" }}>{a.entity_id}</span>
-                  {a.detail && (
-                    <span className="text-[12px]" style={{ color: "var(--muted)" }}> — {a.detail}</span>
+                  {a.entity_label && (
+                    <span className="font-mono text-[11px] font-bold" style={{ color: "var(--primary)" }}>{a.entity_label}</span>
                   )}
                 </div>
-                <span className="text-[10px] font-mono flex-shrink-0" style={{ color: "var(--faint)" }}>{a.time}</span>
+                <span className="text-[10px] font-mono flex-shrink-0" style={{ color: "var(--faint)" }}>
+                  {a.created_at ? new Date(a.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                </span>
               </div>
             ))}
+            {activity.length === 0 && (
+              <div className="text-center text-[12px] py-4" style={{ color: "var(--muted)" }}>No recent activity</div>
+            )}
           </div>
         </div>
 
-        {/* Recent Parts */}
         <div className="card">
           <div className="card-header">
             <div className="card-title">Recent Parts</div>
@@ -225,43 +237,47 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {PARTS.slice(0, 6).map((p) => (
+                {recentParts.slice(0, 6).map((p) => (
                   <tr key={p.id}>
-                    <td className="td-mono">{p.part_id}</td>
+                    <td className="td-mono">{p.part_mark}</td>
                     <td style={{ color: "var(--muted)", fontSize: 12 }}>{p.profile}</td>
-                    <td style={{ fontSize: 12, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.project}</td>
+                    <td style={{ fontSize: 12, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.project_name ?? "—"}</td>
                     <td><StatusPill status={p.status} /></td>
                   </tr>
                 ))}
+                {recentParts.length === 0 && (
+                  <tr><td colSpan={4} className="text-center py-3" style={{ color: "var(--muted)", fontSize: 12 }}>No parts yet</td></tr>
+                )}
               </tbody>
             </table>
           </div>
         </div>
       </div>
 
-      {/* Quick Stats Row */}
       <div className="grid-4" style={{ gap: 20, marginTop: 32 }}>
         <div className="card-body card" style={{ borderTop: "3px solid #D97706" }}>
           <div className="stat-label">Open Change Orders</div>
-          <div className="stat-value" style={{ fontSize: 22 }}>3</div>
-          <div className="stat-sub">$44,800 pending approval</div>
+          <div className="stat-value" style={{ fontSize: 22 }}>{data.open_change_orders.length}</div>
+          <div className="stat-sub">
+            ${data.open_change_orders.reduce((s, c) => s + Number(c.amount ?? 0), 0).toLocaleString()} pending
+          </div>
         </div>
         <div className="card-body card" style={{ borderTop: "3px solid var(--red)" }}>
-          <div className="stat-label">AISC Holds</div>
-          <div className="stat-value" style={{ fontSize: 22 }}>2</div>
+          <div className="stat-label">Open NCRs</div>
+          <div className="stat-value" style={{ fontSize: 22 }}>{data.open_ncrs.length}</div>
           <div className="stat-sub">QC sign-off required</div>
         </div>
         <div className="card-body card" style={{ borderTop: "3px solid var(--amber)" }}>
           <div className="stat-label">Open RFIs</div>
-          <div className="stat-value" style={{ fontSize: 22 }}>1</div>
+          <div className="stat-value" style={{ fontSize: 22 }}>{data.open_rfis.length}</div>
           <div className="stat-sub">Awaiting EOR response</div>
         </div>
         <div className="card-body card" style={{ borderTop: "3px solid var(--teal)" }}>
           <div className="stat-label">Total Contract Value</div>
           <div className="stat-value" style={{ fontSize: 18 }}>
-            {formatCurrency(PROJECTS.reduce((s, p) => s + p.contract_value, 0))}
+            {formatCurrency(data.financial?.backlog ?? projects.reduce((s, p) => s + Number(p.contract_value ?? 0), 0))}
           </div>
-          <div className="stat-sub">4 active projects</div>
+          <div className="stat-sub">{projects.length} active projects</div>
         </div>
       </div>
     </PageWrapper>

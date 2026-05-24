@@ -1,64 +1,116 @@
 "use client";
 
-import { PageWrapper } from "@/components/ui/PageWrapper";
-import { CERTIFICATIONS } from "@/lib/mock-data";
 import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { PageWrapper } from "@/components/ui/PageWrapper";
+import { DataTable, type Column } from "@/components/ui/DataTable";
+import { ResourceModal, Field } from "@/components/ui/ResourceModal";
+import { useResourceList, useCreate } from "@/hooks/useResource";
+import { Plus, AlertTriangle, CheckCircle2 } from "lucide-react";
+
+interface Cert {
+  id: string; cert_type: string; holder_name: string; cert_number: string | null;
+  issue_date: string | null; expiry_date: string; alert_days: number; status: string;
+}
+
+function daysUntil(date: string) {
+  return Math.ceil((new Date(date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+}
 
 export default function CertificationsPage() {
-  const [filter, setFilter] = useState("All");
-  const expired = CERTIFICATIONS.filter((c) => c.status === "Expired");
-  const expiring = CERTIFICATIONS.filter((c) => c.status === "Expiring Soon");
+  const list = useResourceList<Cert>("certifications", { order_by: "expiry_date", dir: "asc" });
+  const create = useCreate<Cert>("certifications");
+  const [showNew, setShowNew] = useState(false);
 
-  const filtered = filter === "All" ? CERTIFICATIONS : CERTIFICATIONS.filter((c) => c.status === filter);
+  const cols: Column<Cert>[] = [
+    { key: "type", label: "Cert Type", render: (r) => <strong>{r.cert_type}</strong> },
+    { key: "holder", label: "Holder", render: (r) => r.holder_name },
+    { key: "num", label: "Cert #", mono: true, render: (r) => r.cert_number ?? "—" },
+    { key: "issue", label: "Issued", render: (r) => r.issue_date ? new Date(r.issue_date).toLocaleDateString() : "—" },
+    { key: "expiry", label: "Expires", render: (r) => new Date(r.expiry_date).toLocaleDateString() },
+    {
+      key: "days", label: "Until expiry", align: "right", mono: true, render: (r) => {
+        const d = daysUntil(r.expiry_date);
+        const cls = d < 0 ? "#DC2626" : d < r.alert_days ? "#D97706" : "#16A34A";
+        return <span style={{ color: cls, fontWeight: 700 }}>{d < 0 ? `EXPIRED ${Math.abs(d)}d ago` : `${d} d`}</span>;
+      }
+    },
+    {
+      key: "status", label: "Status", render: (r) => {
+        const d = daysUntil(r.expiry_date);
+        if (d < 0) return <span className="pill pill-red" style={{ padding: "2px 8px" }}>Expired</span>;
+        if (d < r.alert_days) return <span className="pill pill-warn" style={{ padding: "2px 8px" }}><AlertTriangle size={10} /> Expiring</span>;
+        return <span className="pill pill-done" style={{ padding: "2px 8px" }}><CheckCircle2 size={10} /> Active</span>;
+      }
+    },
+  ];
 
   return (
-    <PageWrapper title="Certifications & Qualifications">
-      {(expired.length > 0 || expiring.length > 0) && (
-        <div className={`alert ${expired.length > 0 ? "alert-danger" : "alert-warn"} mb-4`}>
-          <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
-          <div>
-            {expired.length > 0 && <><strong>EXPIRED:</strong> {expired.map((c) => `${c.person_company} (${c.cert_number})`).join(", ")}. </>}
-            {expiring.length > 0 && <><strong>EXPIRING SOON:</strong> {expiring.map((c) => `${c.person_company} — ${c.days_until}d`).join(", ")}.</>}
-          </div>
+    <PageWrapper title="Certifications">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Certifications & Credentials</div>
+          <div className="text-[12px]" style={{ color: "var(--muted)" }}>Tracks CWI, welder, crane operator, AISC fab shop certs</div>
         </div>
+        <button className="btn btn-primary" onClick={() => setShowNew(true)}><Plus size={14} /> New cert</button>
+      </div>
+
+      <DataTable
+        data={list.data} columns={cols} loading={list.isLoading} error={list.error}
+        empty={{ title: "No certifications tracked yet" }}
+        rowKey={(r) => r.id}
+      />
+
+      {showNew && (
+        <NewModal
+          onClose={() => setShowNew(false)}
+          onSubmit={(p) => create.mutate(p, { onSuccess: () => setShowNew(false) })}
+          submitting={create.isPending} error={create.error?.message ?? null}
+        />
       )}
-
-      <div className="flex flex-wrap gap-2 mb-4">
-        {["All", "Valid", "Expiring Soon", "Expired"].map((s) => (
-          <button key={s} className={`btn btn-sm ${filter === s ? "btn-primary" : ""}`} onClick={() => setFilter(s)}>{s}</button>
-        ))}
-      </div>
-
-      <div className="card">
-        <div className="tbl-wrap">
-          <table>
-            <thead>
-              <tr><th>Person / Company</th><th>Role</th><th>Cert Type</th><th>Cert Number</th><th>Issue Date</th><th>Expiry Date</th><th>Days Until Expiry</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              {filtered.map((c) => (
-                <tr key={c.id} className={c.status === "Expired" ? "tr-danger" : c.status === "Expiring Soon" ? "tr-warn" : ""}>
-                  <td className="font-semibold" style={{ color: "var(--text)" }}>{c.person_company}</td>
-                  <td style={{ fontSize: 12 }}>{c.role_title}</td>
-                  <td style={{ fontSize: 12 }}>{c.cert_type}</td>
-                  <td className="td-mono">{c.cert_number}</td>
-                  <td style={{ fontSize: 12 }}>{c.issue_date}</td>
-                  <td style={{ fontSize: 12 }}>{c.expiry_date}</td>
-                  <td className="td-mono font-bold" style={{ color: c.days_until < 0 ? "var(--red)" : c.days_until < 30 ? "#D97706" : "var(--green)" }}>
-                    {c.days_until < 0 ? `${Math.abs(c.days_until)}d AGO` : `${c.days_until}d`}
-                  </td>
-                  <td>
-                    <span className={`pill ${c.status === "Expired" ? "pill-danger" : c.status === "Expiring Soon" ? "pill-warn" : "pill-done"}`}>
-                      {c.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </PageWrapper>
+  );
+}
+
+function NewModal({ onClose, onSubmit, submitting, error }: {
+  onClose: () => void; onSubmit: (p: Record<string, unknown>) => void; submitting: boolean; error: string | null;
+}) {
+  const [f, setF] = useState({
+    cert_type: "", holder_name: "", cert_number: "",
+    issue_date: "", expiry_date: "", alert_days: "30",
+  });
+  return (
+    <ResourceModal title="New certification" onClose={onClose} submitting={submitting} error={error}
+      onSubmit={(e) => { e.preventDefault();
+        onSubmit({
+          cert_type: f.cert_type,
+          holder_name: f.holder_name,
+          cert_number: f.cert_number || undefined,
+          issue_date: f.issue_date || undefined,
+          expiry_date: f.expiry_date,
+          alert_days: Number(f.alert_days || 30),
+        });
+      }}
+    >
+      <Field label="Cert type" required>
+        <input className="input" required value={f.cert_type} onChange={(e) => setF({ ...f, cert_type: e.target.value })} placeholder="CWI / AWS D1.1 Welder / Crane Operator" />
+      </Field>
+      <Field label="Holder name" required>
+        <input className="input" required value={f.holder_name} onChange={(e) => setF({ ...f, holder_name: e.target.value })} />
+      </Field>
+      <Field label="Cert #">
+        <input className="input" value={f.cert_number} onChange={(e) => setF({ ...f, cert_number: e.target.value })} />
+      </Field>
+      <div className="grid-3" style={{ gap: 12 }}>
+        <Field label="Issue date">
+          <input className="input" type="date" value={f.issue_date} onChange={(e) => setF({ ...f, issue_date: e.target.value })} />
+        </Field>
+        <Field label="Expiry" required>
+          <input className="input" type="date" required value={f.expiry_date} onChange={(e) => setF({ ...f, expiry_date: e.target.value })} />
+        </Field>
+        <Field label="Alert (days)">
+          <input className="input" type="number" min="1" value={f.alert_days} onChange={(e) => setF({ ...f, alert_days: e.target.value })} />
+        </Field>
+      </div>
+    </ResourceModal>
   );
 }

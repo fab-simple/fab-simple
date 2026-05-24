@@ -2,6 +2,8 @@
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { CopilotPanel, CopilotLauncher } from "@/components/CopilotPanel";
+import { CommandPalette } from "@/components/CommandPalette";
 
 export default function DashboardLayout({
   children,
@@ -10,14 +12,12 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="flex h-full" style={{ background: "var(--bg)" }}>
-      {/* Sidebar with right border separator */}
       <div style={{ borderRight: "1px solid var(--border)", flexShrink: 0 }}>
         <Sidebar />
       </div>
 
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Topbar />
-        {/* Constrained content: max-width + centered */}
         <main className="flex-1 overflow-y-auto">
           <div
             style={{
@@ -30,6 +30,10 @@ export default function DashboardLayout({
           </div>
         </main>
       </div>
+
+      <CopilotLauncher />
+      <CopilotPanel />
+      <CommandPalette />
     </div>
   );
 }

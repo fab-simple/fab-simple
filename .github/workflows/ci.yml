@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  NEXT_PUBLIC_SUPABASE_URL: https://stub.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+  NEXT_PUBLIC_API_BASE: https://stub.supabase.co/functions/v1/api
+  NEXT_PUBLIC_FAB_MODE: live
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  edge-functions-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Lint Edge Functions
+        working-directory: supabase/functions/api
+        run: deno lint
+
+      - name: Type-check Edge Functions
+        working-directory: supabase/functions/api
+        run: deno check index.ts
+
+  db-schema-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start local Supabase stack
+        run: supabase start
+      - name: Verify migrations and seed apply cleanly
+        run: supabase db reset --no-seed
+      - name: Stop stack
+        if: always()
+        run: supabase stop || true

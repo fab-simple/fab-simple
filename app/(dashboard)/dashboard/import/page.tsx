@@ -1,127 +1,165 @@
 "use client";
 
-import { PageWrapper } from "@/components/ui/PageWrapper";
 import { useState } from "react";
-import { Upload, CheckCircle, AlertCircle } from "lucide-react";
+import { PageWrapper } from "@/components/ui/PageWrapper";
+import { useResourceList } from "@/hooks/useResource";
+import { FabAPI } from "@/lib/api";
+import { Upload, FileText, Loader2, CheckCircle2, AlertCircle, Info } from "lucide-react";
+import Papa from "papaparse";
 
-const IMPORT_COLUMNS = ["Part ID", "Assembly ID", "Drawing No.", "Profile", "Material", "Length", "Weight", "Phase", "Description"];
+interface Project { id: string; name: string; }
 
-const SAMPLE_PREVIEW = [
-  { id: "W14×82-1044", assembly: "A-101", dwg: "DS-104", profile: "W14×82", material: "A992", length: "29′-6″", weight: 2410 },
-  { id: "HSS6×6×0.5-1089", assembly: "A-112", dwg: "DS-112", profile: "HSS6×6×0.5", material: "A500 Gr.C", length: "18′-0″", weight: 861 },
-  { id: "MC12×10.6-2001", assembly: "B-201", dwg: "DS-201", profile: "MC12×10.6", material: "A36", length: "22′-3″", weight: 470 },
-];
+interface ImportResult {
+  summary: { inserted: number; updated: number; skipped: number; errors: number; units: string };
+  skipped: Array<{ row: number; part_mark?: string; reason: string }>;
+  errors: Array<{ row: number; reason: string }>;
+}
 
 export default function ImportPage() {
-  const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
-  const [dragging, setDragging] = useState(false);
+  const projects = useResourceList<Project>("projects", { limit: "100" });
+  const [projectId, setProjectId] = useState<string>("");
+  const [file, setFile] = useState<File | null>(null);
+  const [units, setUnits] = useState<"auto" | "imperial" | "metric">("auto");
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleImport() {
+    if (!file || !projectId) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const text = await file.text();
+      const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+      const res = await FabAPI.importCsv({ project_id: projectId, rows: parsed.data, units });
+      setResult(res as ImportResult);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  }
 
   return (
-    <PageWrapper title="Import / Tekla CSV">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center gap-4 mb-6">
-          {["upload", "preview", "done"].map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
-                style={{ background: step === s ? "var(--primary)" : i < ["upload", "preview", "done"].indexOf(step) ? "var(--green)" : "var(--border-2)" }}
-              >
-                {i < ["upload", "preview", "done"].indexOf(step) ? "✓" : i + 1}
-              </div>
-              <span className="text-[12px] font-semibold capitalize" style={{ color: step === s ? "var(--primary)" : "var(--muted)" }}>{s}</span>
-              {i < 2 && <span style={{ color: "var(--border-2)" }}>→</span>}
+    <PageWrapper title="Import">
+      <div className="mb-6">
+        <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Tekla / SDS2 CSV Import</div>
+        <div className="text-[12px]" style={{ color: "var(--muted)" }}>Imports parts from BOM exports — auto-detects units and 9 column variants</div>
+      </div>
+
+      <div className="card">
+        <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div>
+            <label className="text-[11px] uppercase font-semibold tracking-wider" style={{ color: "var(--muted)" }}>Project</label>
+            <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ marginTop: 4 }}>
+              <option value="">— select project —</option>
+              {projects.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[11px] uppercase font-semibold tracking-wider" style={{ color: "var(--muted)" }}>Units</label>
+            <select className="input" value={units} onChange={(e) => setUnits(e.target.value as "auto" | "imperial" | "metric")} style={{ marginTop: 4 }}>
+              <option value="auto">Auto-detect</option>
+              <option value="imperial">Imperial (in / lb)</option>
+              <option value="metric">Metric (mm / kg)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[11px] uppercase font-semibold tracking-wider" style={{ color: "var(--muted)" }}>CSV file</label>
+            <div style={{
+              marginTop: 4,
+              border: "2px dashed var(--border)",
+              borderRadius: 8,
+              padding: 24,
+              textAlign: "center",
+              background: "var(--bg-muted)",
+            }}>
+              <FileText size={24} style={{ margin: "0 auto", color: "var(--muted)", marginBottom: 8 }} />
+              <input
+                id="csv-input"
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                style={{ display: "none" }}
+              />
+              <label htmlFor="csv-input" className="btn btn-primary" style={{ cursor: "pointer" }}>
+                <Upload size={14} /> Choose CSV
+              </label>
+              {file && (
+                <div className="text-[12px] mt-2" style={{ color: "var(--text)" }}>
+                  Selected: <strong>{file.name}</strong> ({(file.size / 1024).toFixed(1)} KB)
+                </div>
+              )}
             </div>
-          ))}
+          </div>
+
+          <div className="flex items-center justify-end gap-2">
+            {error && <span className="pill pill-red" style={{ padding: "6px 10px", fontSize: 12 }}>{error}</span>}
+            <button className="btn btn-primary" disabled={!file || !projectId || importing} onClick={handleImport}>
+              {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              {importing ? "Importing…" : "Import parts"}
+            </button>
+          </div>
         </div>
+      </div>
 
-        {step === "upload" && (
-          <div className="card">
-            <div className="card-body">
-              <div
-                className="border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors"
-                style={{
-                  borderColor: dragging ? "var(--primary)" : "var(--border-2)",
-                  background: dragging ? "var(--primary-bg)" : "var(--bg-muted)",
-                }}
-                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={() => { setDragging(false); setStep("preview"); }}
-                onClick={() => setStep("preview")}
-              >
-                <Upload size={32} className="mx-auto mb-3" style={{ color: dragging ? "var(--primary)" : "var(--muted)" }} />
-                <div className="font-bold text-[14px] mb-1" style={{ color: "var(--text)" }}>Drop Tekla CSV or click to browse</div>
-                <div className="text-[12px]" style={{ color: "var(--muted)" }}>Supports Tekla Structures .csv export format</div>
-              </div>
-
-              <div className="mt-5" style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
-                <div className="font-semibold text-[12px] mb-2" style={{ color: "var(--text)" }}>Expected Column Mapping:</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {IMPORT_COLUMNS.map((c) => (
-                    <span key={c} className="pill pill-info">{c}</span>
+      {result && (
+        <div className="card mt-section">
+          <div className="card-header">
+            <div className="card-title">Import results</div>
+            <span className="pill" style={{ fontSize: 10 }}>Units: {result.summary.units}</span>
+          </div>
+          <div className="card-body">
+            <div className="grid-4" style={{ gap: 12, marginBottom: 16 }}>
+              <Tally label="Inserted" value={result.summary.inserted} icon={<CheckCircle2 size={14} style={{ color: "#16A34A" }} />} />
+              <Tally label="Updated"  value={result.summary.updated}  icon={<Info size={14} style={{ color: "#2563EB" }} />} />
+              <Tally label="Skipped"  value={result.summary.skipped}  icon={<AlertCircle size={14} style={{ color: "#D97706" }} />} />
+              <Tally label="Errors"   value={result.summary.errors}   icon={<AlertCircle size={14} style={{ color: "#DC2626" }} />} />
+            </div>
+            {result.skipped.length > 0 && (
+              <details>
+                <summary className="text-[13px] font-semibold cursor-pointer" style={{ color: "var(--text)" }}>
+                  Skipped rows ({result.skipped.length})
+                </summary>
+                <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>
+                  {result.skipped.map((s, i) => (
+                    <div key={i} className="flex gap-2 py-1" style={{ borderBottom: "1px solid var(--bg-muted)" }}>
+                      <span style={{ width: 50 }}>row {s.row}</span>
+                      <span style={{ flex: 1 }}>{s.part_mark} — {s.reason}</span>
+                    </div>
                   ))}
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {step === "preview" && (
-          <div className="card">
-            <div className="card-header">
-              <div className="card-title">CSV Preview — 3 of 47 rows</div>
-              <div className="flex items-center gap-2">
-                <CheckCircle size={13} style={{ color: "var(--green)" }} />
-                <span className="text-[12px]" style={{ color: "var(--green)" }}>44 valid · 0 errors</span>
-                <AlertCircle size={13} style={{ color: "#D97706" }} />
-                <span className="text-[12px]" style={{ color: "#D97706" }}>3 warnings</span>
-              </div>
-            </div>
-            <div className="tbl-wrap">
-              <table>
-                <thead>
-                  <tr><th>Part ID</th><th>Assembly</th><th>Drawing</th><th>Profile</th><th>Material</th><th>Length</th><th>Weight</th></tr>
-                </thead>
-                <tbody>
-                  {SAMPLE_PREVIEW.map((r) => (
-                    <tr key={r.id}>
-                      <td className="td-mono">{r.id}</td>
-                      <td className="font-mono text-[11px]" style={{ color: "var(--primary)" }}>{r.assembly}</td>
-                      <td className="td-mono">{r.dwg}</td>
-                      <td className="td-mono">{r.profile}</td>
-                      <td style={{ fontSize: 12 }}>{r.material}</td>
-                      <td className="td-mono">{r.length}</td>
-                      <td className="td-mono">{r.weight}</td>
-                    </tr>
+              </details>
+            )}
+            {result.errors.length > 0 && (
+              <details style={{ marginTop: 8 }}>
+                <summary className="text-[13px] font-semibold cursor-pointer" style={{ color: "#DC2626" }}>
+                  Errors ({result.errors.length})
+                </summary>
+                <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>
+                  {result.errors.map((e, i) => (
+                    <div key={i} className="flex gap-2 py-1" style={{ borderBottom: "1px solid var(--bg-muted)" }}>
+                      <span style={{ width: 50 }}>row {e.row}</span>
+                      <span>{e.reason}</span>
+                    </div>
                   ))}
-                  <tr><td colSpan={7} className="text-center py-2 text-[11px]" style={{ color: "var(--faint)" }}>… 44 more rows</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div className="card-body" style={{ borderTop: "1px solid var(--border)" }}>
-              <div className="flex gap-3 justify-end">
-                <button className="btn" onClick={() => setStep("upload")}>← Back</button>
-                <button className="btn btn-primary" onClick={() => setStep("done")}>Import 47 Parts →</button>
-              </div>
-            </div>
+                </div>
+              </details>
+            )}
           </div>
-        )}
-
-        {step === "done" && (
-          <div className="card">
-            <div className="card-body text-center py-12">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: "var(--green-bg)" }}>
-                <CheckCircle size={32} style={{ color: "var(--green)" }} />
-              </div>
-              <div className="font-bold text-[18px] mb-2" style={{ color: "var(--text)" }}>Import Complete!</div>
-              <div className="text-[13px] mb-6" style={{ color: "var(--muted)" }}>47 parts imported to Dallas Skyline Tower. Parts are now visible in the Parts List.</div>
-              <div className="flex gap-3 justify-center">
-                <button className="btn" onClick={() => setStep("upload")}>Import Another</button>
-                <button className="btn btn-primary" onClick={() => window.location.href = "/dashboard/parts"}>View Parts →</button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </PageWrapper>
+  );
+}
+
+function Tally({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
+  return (
+    <div className="stat-card">
+      <div className="stat-label flex items-center gap-1.5">{icon} {label}</div>
+      <div className="stat-value">{value}</div>
+    </div>
   );
 }

@@ -1,54 +1,79 @@
 "use client";
 
+import { useState } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { RECEIPTS } from "@/lib/mock-data";
-import { AlertTriangle } from "lucide-react";
+import { DataTable, type Column } from "@/components/ui/DataTable";
+import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
+import { useResourceList, useUpdate } from "@/hooks/useResource";
+import { PackageCheck, Loader2, Paperclip } from "lucide-react";
+
+interface PO {
+  id: string; po_number: string; vendor: string; status: string;
+  qty_ordered: number | null; qty_received: number; total_amount: number;
+  expected_date: string | null;
+}
 
 export default function ReceivingPage() {
-  const awaitingMTR = RECEIPTS.filter((r) => r.mtr_status === "Awaiting");
+  const list = useResourceList<PO>("purchase_orders", { status__in: "issued,partial", order_by: "expected_date", dir: "asc", limit: "100" });
+  const update = useUpdate<PO>("purchase_orders");
+  const [attachTarget, setAttachTarget] = useState<PO | null>(null);
+
+  const cols: Column<PO>[] = [
+    { key: "num", label: "PO #", mono: true, render: (r) => <strong>{r.po_number}</strong> },
+    { key: "vendor", label: "Vendor", render: (r) => r.vendor },
+    { key: "expected", label: "Expected", render: (r) => r.expected_date ? new Date(r.expected_date).toLocaleDateString() : "—" },
+    { key: "ord", label: "Ordered", align: "right", mono: true, render: (r) => r.qty_ordered ?? "—" },
+    { key: "rcv", label: "Received", align: "right", mono: true, render: (r) => r.qty_received },
+    { key: "status", label: "Status", render: (r) => <StatusPill status={r.status} /> },
+    {
+      key: "action", label: "Receive", render: (r) => (
+        <div className="flex items-center gap-1">
+          <button
+            className="btn btn-sm btn-primary"
+            disabled={update.isPending}
+            onClick={() => {
+              const next = Number(r.qty_received ?? 0) + Number(r.qty_ordered ?? 1);
+              const isComplete = r.qty_ordered ? next >= Number(r.qty_ordered) : false;
+              update.mutate({ id: r.id, body: { qty_received: next, status: isComplete ? "received" : "partial" } });
+            }}
+          >
+            {update.isPending && update.variables?.id === r.id ? <Loader2 size={12} className="animate-spin" /> : <PackageCheck size={12} />}
+            Receive
+          </button>
+          <button className="btn btn-sm" title="Attach BOL / MTR" onClick={() => setAttachTarget(r)}>
+            <Paperclip size={12} />
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <PageWrapper title="Material Receiving">
-      {awaitingMTR.length > 0 && (
-        <div className="alert alert-warn mb-4">
-          <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
-          <div><strong>{awaitingMTR.length} receipt(s)</strong> awaiting MTR (Mill Test Report). Parts with heat numbers {awaitingMTR.map((r) => r.heat_number).join(", ")} are in quarantine until certs are received and on file.</div>
-        </div>
-      )}
-      <div className="grid-4 gap-md mb-section">
-        <div className="stat-card primary"><div className="stat-label">Total Receipts</div><div className="stat-value">{RECEIPTS.length}</div></div>
-        <div className="stat-card green"><div className="stat-label">MTR On File</div><div className="stat-value">{RECEIPTS.filter(r => r.mtr_status === "On File").length}</div></div>
-        <div className="stat-card amber"><div className="stat-label">Awaiting MTR</div><div className="stat-value">{awaitingMTR.length}</div></div>
-        <div className="stat-card green"><div className="stat-label">Released</div><div className="stat-value">{RECEIPTS.filter(r => r.released).length}</div></div>
-      </div>
-      <div className="card">
-        <div className="card-header"><div className="card-title">Material Receipts</div></div>
-        <div className="tbl-wrap">
-          <table>
-            <thead>
-              <tr><th>Receipt No.</th><th>PO No.</th><th>Delivery Date</th><th>Supplier</th><th>Material</th><th>Bundle Tag</th><th>Heat No.</th><th>Qty Rec.</th><th>Qty Ord.</th><th>MTR Status</th><th>Damage</th><th>Released</th></tr>
-            </thead>
-            <tbody>
-              {RECEIPTS.map((r) => (
-                <tr key={r.id} className={r.mtr_status === "Awaiting" ? "tr-warn" : ""}>
-                  <td className="td-mono">{r.receipt_number}</td>
-                  <td className="td-mono" style={{ fontSize: 11 }}>{r.po_number}</td>
-                  <td style={{ fontSize: 12 }}>{r.delivery_date}</td>
-                  <td style={{ fontSize: 12 }}>{r.supplier}</td>
-                  <td className="td-mono" style={{ fontSize: 11 }}>{r.material}</td>
-                  <td className="td-mono" style={{ fontSize: 11 }}>{r.bundle_tag}</td>
-                  <td className="td-mono" style={{ fontSize: 11 }}>{r.heat_number}</td>
-                  <td className="td-mono">{r.qty_received}</td>
-                  <td className="td-mono">{r.qty_ordered}</td>
-                  <td><StatusPill status={r.mtr_status} /></td>
-                  <td style={{ fontSize: 12 }}>{r.damage_notes}</td>
-                  <td><span className={`pill ${r.released ? "pill-done" : "pill-danger"}`}>{r.released ? "Released" : "Quarantine"}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="mb-6">
+        <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Material Receiving</div>
+        <div className="text-[12px]" style={{ color: "var(--muted)" }}>
+          {list.data?.length ?? 0} open POs awaiting material
         </div>
       </div>
+
+      <DataTable
+        data={list.data} columns={cols} loading={list.isLoading} error={list.error}
+        empty={{ title: "Nothing to receive", subtitle: "All purchase orders are either drafted or fully closed." }}
+        rowKey={(r) => r.id}
+      />
+
+      <AttachmentsDrawer
+        open={!!attachTarget}
+        onClose={() => setAttachTarget(null)}
+        entityType="purchase_orders"
+        entityId={attachTarget?.id ?? ""}
+        bucket="mtrs"
+        title={`BOL / MTR — ${attachTarget?.po_number ?? ""}`}
+        subtitle={attachTarget?.vendor}
+        accept=".pdf,application/pdf,image/*"
+      />
     </PageWrapper>
   );
 }

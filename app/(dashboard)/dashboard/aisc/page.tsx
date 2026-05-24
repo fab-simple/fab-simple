@@ -1,112 +1,140 @@
 "use client";
 
-import { PageWrapper } from "@/components/ui/PageWrapper";
 import { useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { PageWrapper } from "@/components/ui/PageWrapper";
+import { StatusPill } from "@/components/ui/StatusPill";
+import { useResourceList, useUpdate, FAB_MODE } from "@/hooks/useResource";
+import { FabAPI } from "@/lib/api";
+import { CheckCircle2, AlertCircle, MinusCircle, Loader2, Sparkles, FileDown } from "lucide-react";
+import { generateQcReport } from "@/lib/pdf";
 
-type ItemStatus = "Open" | "Done" | "Hold" | "Overdue";
-
-interface CheckItem {
-  id: string;
-  section: string;
-  title: string;
-  reference: string;
-  status: ItemStatus;
-  notes: string;
+interface AiscItem {
+  id: string; project_id: string; section_ref: string; item_text: string;
+  category: string; status: string; notes: string | null; sort_order: number;
 }
+interface Project { id: string; name: string; }
 
-const INITIAL_ITEMS: CheckItem[] = [
-  { id: "a1", section: "4. Work Authorization", title: "WPS/PQR reviewed and approved for all weld procedures", reference: "§4.2", status: "Done", notes: "CWI-2841 sign-off 03/15" },
-  { id: "a2", section: "4. Work Authorization", title: "Welder qualification records current and on file", reference: "§4.3", status: "Done", notes: "" },
-  { id: "a3", section: "4. Work Authorization", title: "CWI qualification current (recertification not overdue)", reference: "§4.4", status: "Done", notes: "" },
-  { id: "a4", section: "5. Fabrication", title: "All material ASTM certified and traceable to heat number", reference: "§5.1", status: "Hold", notes: "HN-7734B MTR awaiting — parts in quarantine" },
-  { id: "a5", section: "5. Fabrication", title: "Camber and sweep within tolerance per AISC Code of Standard Practice", reference: "§5.3", status: "Done", notes: "" },
-  { id: "a6", section: "5. Fabrication", title: "Field bolt holes sized per specified fastener diameter", reference: "§5.4", status: "Open", notes: "" },
-  { id: "a7", section: "5. Fabrication", title: "Steel surfaces free of mill scale, excessive rust, and contaminants", reference: "§5.7", status: "Done", notes: "" },
-  { id: "a8", section: "6. Quality Control", title: "Shop inspection plan approved by responsible CWI", reference: "§6.1", status: "Done", notes: "" },
-  { id: "a9", section: "6. Quality Control", title: "All CJP welds UT/RT inspected per contract requirements", reference: "§6.4", status: "Hold", notes: "W14×82-1044 UT pending Seq. 5" },
-  { id: "a10", section: "6. Quality Control", title: "Fillet welds VT inspected per AWS D1.1 §6.9", reference: "§6.5", status: "Done", notes: "" },
-  { id: "a11", section: "6. Quality Control", title: "Paint system verified — mil thickness readings recorded", reference: "§6.7", status: "Done", notes: "PI-0441 thru PI-0443" },
-  { id: "a12", section: "7. Erection", title: "Erection sequence reviewed with GC superintendent", reference: "§7.2", status: "Open", notes: "" },
-  { id: "a13", section: "7. Erection", title: "Anchor bolt survey completed and within tolerance", reference: "§7.4", status: "Open", notes: "" },
-  { id: "a14", section: "7. Erection", title: "Temporary bracing plan approved by EOR prior to erection", reference: "§7.6", status: "Done", notes: "" },
-];
-
-const SECTION_COLORS: Record<string, string> = {
-  "4. Work Authorization": "var(--primary)",
-  "5. Fabrication": "var(--blue)",
-  "6. Quality Control": "var(--violet)",
-  "7. Erection": "var(--teal)",
+const STATUS_ICONS: Record<string, React.ReactNode> = {
+  open:   <AlertCircle size={14} style={{ color: "#D97706" }} />,
+  done:   <CheckCircle2 size={14} style={{ color: "#16A34A" }} />,
+  hold:   <AlertCircle size={14} style={{ color: "#DC2626" }} />,
+  na:     <MinusCircle size={14} style={{ color: "#94A3B8" }} />,
 };
+const STATUSES = ["open", "done", "hold", "na"];
 
-export default function AISCPage() {
-  const [items, setItems] = useState<CheckItem[]>(INITIAL_ITEMS);
+export default function AiscPage() {
+  const projects = useResourceList<Project>("projects", { limit: "100" });
+  const [projectId, setProjectId] = useState<string>("");
+  const project = projectId || projects.data?.[0]?.id;
+  const items = useResourceList<AiscItem>("aisc_checklist", project ? { project_id: project, order_by: "sort_order", dir: "asc", limit: "200" } : undefined, { enabled: FAB_MODE === "live" && !!project });
+  const update = useUpdate<AiscItem>("aisc_checklist");
+  const [seeding, setSeeding] = useState(false);
 
-  const toggle = (id: string) => {
-    setItems((prev) =>
-      prev.map((item) => {
-        if (item.id !== id) return item;
-        const next: ItemStatus =
-          item.status === "Open" ? "Done" : item.status === "Done" ? "Hold" : "Open";
-        return { ...item, status: next };
-      })
-    );
-  };
+  async function handleSeed() {
+    if (!project) return;
+    setSeeding(true);
+    try {
+      await FabAPI.seedAisc(project);
+      items.refetch();
+    } finally { setSeeding(false); }
+  }
 
-  const sections = [...new Set(items.map((i) => i.section))];
-  const done = items.filter((i) => i.status === "Done").length;
-  const holds = items.filter((i) => i.status === "Hold").length;
+  async function downloadQcPdf() {
+    if (!project) return;
+    const res = await FabAPI.qcReport(project) as {
+      welds: Array<{ weld_number: string; project_id: string; result: string; inspected_at: string | null }>;
+      paint: Array<{ insp_number: string; project_id: string; result: string; dft_avg: number | null; created_at: string }>;
+      ncrs: Array<{ ncr_number: string; description: string; status: string; created_at: string }>;
+      aisc: Array<{ section_ref: string; item_text: string; status: string; category: string }>;
+      generated_at: string;
+      project_id: string | null;
+    };
+    const projName = projects.data?.find((p) => p.id === project)?.name ?? "QC";
+    const doc = generateQcReport({ ...res, project_name: projName });
+    doc.save(`QC-Report-${projName.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.pdf`);
+  }
+
+  const grouped = (items.data ?? []).reduce<Record<string, AiscItem[]>>((acc, item) => {
+    (acc[item.category] ??= []).push(item);
+    return acc;
+  }, {});
+
+  const stats = (items.data ?? []).reduce(
+    (acc, it) => { acc[it.status] = (acc[it.status] ?? 0) + 1; return acc; },
+    {} as Record<string, number>
+  );
+  const total = items.data?.length ?? 0;
+  const pct = total ? Math.round(((stats.done ?? 0) / total) * 100) : 0;
 
   return (
-    <PageWrapper title="AISC 303 QC Compliance">
-      <div className="grid-4 gap-md mb-section">
-        <div className="stat-card primary"><div className="stat-label">Total Items</div><div className="stat-value">{items.length}</div></div>
-        <div className="stat-card green"><div className="stat-label">Done</div><div className="stat-value">{done}</div></div>
-        <div className="stat-card red"><div className="stat-label">Holds</div><div className="stat-value">{holds}</div><div className="stat-sub">erection blocked</div></div>
-        <div className="stat-card amber"><div className="stat-label">Completion</div><div className="stat-value">{Math.round((done / items.length) * 100)}%</div></div>
+    <PageWrapper title="AISC 303 QC">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>AISC 303-10 Quality Manual</div>
+          <div className="text-[12px]" style={{ color: "var(--muted)" }}>{total} items · {stats.done ?? 0} cleared · {pct}% complete</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ height: 32, width: 220 }}>
+            <option value="">{projects.data?.[0]?.name ?? "Select project"}</option>
+            {projects.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <button className="btn" onClick={handleSeed} disabled={seeding || !project}>
+            {seeding ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            Seed catalogue (24 items)
+          </button>
+          <button className="btn btn-primary" onClick={downloadQcPdf} disabled={!project}>
+            <FileDown size={14} /> QC Report PDF
+          </button>
+        </div>
       </div>
 
-      {holds > 0 && (
-        <div className="alert alert-danger mb-4">
-          <ShieldCheck size={15} className="flex-shrink-0 mt-0.5" />
-          <div>
-            <strong>{holds} AISC HOLD{holds > 1 ? "S" : ""}</strong> — Fabrication/erection on affected items must be paused until holds are resolved. Click items to update status.
-          </div>
-        </div>
-      )}
+      <div className="grid-4" style={{ gap: 16, marginBottom: 24 }}>
+        <Stat label="Open"   value={stats.open ?? 0} color="#D97706" />
+        <Stat label="Done"   value={stats.done ?? 0} color="#16A34A" />
+        <Stat label="Hold"   value={stats.hold ?? 0} color="#DC2626" />
+        <Stat label="N/A"    value={stats.na ?? 0}   color="#94A3B8" />
+      </div>
 
-      <div className="text-[11px] mb-3" style={{ color: "var(--muted)" }}>Click any item to cycle status: Open → Done → Hold</div>
-
-      {sections.map((section) => (
-        <div key={section} className="card mb-4">
+      {items.isLoading ? (
+        <div className="card" style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>Loading…</div>
+      ) : Object.entries(grouped).map(([category, list]) => (
+        <div className="card" key={category} style={{ marginBottom: 20 }}>
           <div className="card-header">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full" style={{ background: SECTION_COLORS[section] || "var(--primary)" }} />
-              <div className="card-title">{section}</div>
-              <span className="font-mono text-[10px]" style={{ color: "var(--muted)" }}>AISC 303-10</span>
-            </div>
+            <div className="card-title">{category}</div>
+            <span className="pill" style={{ fontSize: 10 }}>{list.length} items</span>
           </div>
-          <div className="card-body">
-            {items.filter((i) => i.section === section).map((item) => (
-              <div
-                key={item.id}
-                className={`cc ${item.status.toLowerCase()}`}
-                onClick={() => toggle(item.id)}
-              >
-                <div className="cc-check">
-                  {item.status === "Done" && "✓"}
-                  {item.status === "Hold" && "!"}
+          <div className="card-body" style={{ padding: 0 }}>
+            {list.map((item) => (
+              <div key={item.id} className="flex items-center gap-3 p-3" style={{ borderBottom: "1px solid var(--bg-muted)" }}>
+                {STATUS_ICONS[item.status]}
+                <div style={{ flex: 1 }}>
+                  <div className="text-[13px]" style={{ color: "var(--text)" }}>{item.item_text}</div>
+                  <div className="text-[11px] font-mono" style={{ color: "var(--muted)" }}>{item.section_ref}</div>
                 </div>
-                <div className="flex-1">
-                  <div className="text-[12px] font-semibold" style={{ color: "var(--text)" }}>{item.title}</div>
-                  {item.notes && <div className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>{item.notes}</div>}
-                </div>
-                <span className="font-mono text-[10px]" style={{ color: "var(--faint)" }}>{item.reference}</span>
+                <select
+                  className="input"
+                  value={item.status}
+                  disabled={update.isPending}
+                  onChange={(e) => update.mutate({ id: item.id, body: { status: e.target.value } })}
+                  style={{ height: 28, width: 120, fontSize: 11 }}
+                >
+                  {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <StatusPill status={item.status === "done" ? "done" : item.status === "hold" ? "warn" : item.status === "na" ? "ns" : "open"} size="sm" />
               </div>
             ))}
           </div>
         </div>
       ))}
     </PageWrapper>
+  );
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="stat-card" style={{ borderLeft: `4px solid ${color}` }}>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value" style={{ fontSize: 24 }}>{value}</div>
+    </div>
   );
 }

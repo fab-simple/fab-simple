@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NAV_SECTIONS, type NavItem } from "@/lib/nav-config";
+import { NAV_SECTIONS } from "@/lib/nav-config";
 import { useAppSelector, useAppDispatch } from "@/hooks/useAppRedux";
 import { setSidebarOpen } from "@/store/uiSlice";
 import { LogOut, X } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -14,6 +15,12 @@ export function Sidebar() {
   const { name, role, initials, avatarColor } = useAppSelector((s) => s.auth);
 
   const close = () => dispatch(setSidebarOpen(false));
+
+  async function signOut() {
+    const sb = createClient();
+    await sb.auth.signOut();
+    window.location.href = "/auth/signin";
+  }
 
   return (
     <>
@@ -67,7 +74,10 @@ export function Sidebar() {
 
         {/* Scrollable Nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
-          {NAV_SECTIONS.map((section, si) => (
+          {NAV_SECTIONS.map((section, si) => {
+            const visibleItems = section.items.filter((it) => !it.roles || it.roles.includes(role));
+            if (visibleItems.length === 0) return null;
+            return (
             <div key={section.label} style={{ marginTop: si === 0 ? 0 : 24 }}>
               {/* Subtle Section Header */}
               {section.label !== "Overview" && (
@@ -80,7 +90,7 @@ export function Sidebar() {
 
               {/* Items List */}
               <div className="flex flex-col gap-0.5">
-                {section.items.map((item) => {
+                {visibleItems.map((item) => {
                   const Icon = item.icon;
                   // Exact match for dashboard root, fuzzy for subroutes
                   const active =
@@ -139,7 +149,8 @@ export function Sidebar() {
                 })}
               </div>
             </div>
-          ))}
+            );
+          })}
         </nav>
 
         {/* Footer — User profile */}
@@ -167,7 +178,7 @@ export function Sidebar() {
             <button
               className="p-1.5 rounded-md text-slate-500 group-hover:text-slate-300 group-hover:bg-slate-800 transition-all border-none bg-transparent cursor-pointer"
               title="Sign out"
-              onClick={() => (window.location.href = "/")}
+              onClick={signOut}
             >
               <LogOut size={15} />
             </button>

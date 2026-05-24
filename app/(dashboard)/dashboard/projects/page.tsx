@@ -1,203 +1,213 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { Modal } from "@/components/ui/Modal";
-import { PROJECTS } from "@/lib/mock-data";
+import { useResourceList, useCreate } from "@/hooks/useResource";
+import { useCsvExport } from "@/hooks/useCsvExport";
 import { formatCurrency } from "@/lib/utils";
-import { useState } from "react";
-import { Plus, Search } from "lucide-react";
-import Link from "next/link";
+import { Plus, Loader2, AlertCircle, Calendar } from "lucide-react";
+
+interface Project {
+  id: string;
+  name: string;
+  number: string | null;
+  gc_name: string | null;
+  contract_value: number | null;
+  contract_type: string | null;
+  est_tonnage: number | null;
+  status: string;
+  start_date: string | null;
+  deadline: string | null;
+  description: string | null;
+  color: string | null;
+  is_archived: boolean;
+}
 
 export default function ProjectsPage() {
-  const [search, setSearch] = useState("");
-  const [showModal, setShowModal] = useState(false);
+  const list = useResourceList<Project>("projects", { order_by: "created_at", dir: "desc", is_archived: "false" });
+  const create = useCreate<Project>("projects");
 
-  const filtered = PROJECTS.filter(
-    (p) =>
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.client.toLowerCase().includes(search.toLowerCase())
-  );
+  useCsvExport({
+    filename: "projects",
+    data: list.data,
+    transform: (p) => ({
+      number: p.number, name: p.name, gc: p.gc_name,
+      contract_value: p.contract_value, est_tonnage: p.est_tonnage,
+      status: p.status, start_date: p.start_date, deadline: p.deadline,
+    }),
+  });
+  const [showNew, setShowNew] = useState(false);
+
+  const projects: Project[] = list.data ?? [];
 
   return (
     <PageWrapper title="Projects">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between mb-5">
-        <div className="relative">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--muted)" }} />
-          <input
-            className="filter-input pl-8 w-64"
-            placeholder="Search projects…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Projects</div>
+          <div className="text-[12px]" style={{ color: "var(--muted)" }}>{projects.length} active</div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-          <Plus size={14} /> New Project
+        <button className="btn btn-primary" onClick={() => setShowNew(true)}>
+          <Plus size={14} /> New project
         </button>
       </div>
 
-      {/* Stats Row */}
-      <div className="grid-4" style={{ gap: 20, marginBottom: 32 }}>
-        <div className="stat-card blue">
-          <div className="stat-label">Total Projects</div>
-          <div className="stat-value">4</div>
-          <div className="stat-sub">3 active · 1 planning</div>
+      {list.isLoading && (
+        <div className="card" style={{ padding: 40, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)" }}>
+          <Loader2 size={18} className="animate-spin" />
+          <span style={{ marginLeft: 12, fontSize: 13 }}>Loading projects…</span>
         </div>
-        <div className="stat-card green">
-          <div className="stat-label">Total Parts</div>
-          <div className="stat-value">3,041</div>
-          <div className="stat-sub">all projects combined</div>
-        </div>
-        <div className="stat-card primary">
-          <div className="stat-label">Contract Value</div>
-          <div className="stat-value" style={{ fontSize: 18 }}>
-            {formatCurrency(PROJECTS.reduce((s, p) => s + p.contract_value, 0))}
-          </div>
-          <div className="stat-sub">4 contracts</div>
-        </div>
-        <div className="stat-card amber">
-          <div className="stat-label">Avg Progress</div>
-          <div className="stat-value">
-            {Math.round(PROJECTS.reduce((s, p) => s + p.progress, 0) / PROJECTS.length)}%
-          </div>
-          <div className="stat-sub">across active projects</div>
-        </div>
-      </div>
+      )}
 
-      {/* Project Cards */}
-      <div className="grid-2" style={{ gap: 24, marginBottom: 32 }}>
-        {filtered.map((p) => (
-          <div key={p.id} className="card" style={{ borderTop: `3px solid ${p.color}` }}>
+      {list.error && (
+        <div className="card" style={{ padding: 24, display: "flex", alignItems: "center", gap: 12, color: "#DC2626" }}>
+          <AlertCircle size={18} />
+          <div>
+            <div className="font-semibold">Failed to load projects</div>
+            <div className="text-[12px]" style={{ color: "var(--muted)" }}>{list.error.message}</div>
+          </div>
+        </div>
+      )}
+
+      {!list.isLoading && !list.error && projects.length === 0 && (
+        <div className="card text-center" style={{ padding: 40, color: "var(--muted)", fontSize: 13 }}>
+          No projects yet. Click <strong>New project</strong> to create one.
+        </div>
+      )}
+
+      <div className="grid-3 gap-md">
+        {projects.map((p) => (
+          <Link key={p.id} href={`/dashboard/projects/${p.id}`} className="card project-card" style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+            <div className="card-header">
+              <div style={{ flex: 1 }}>
+                <div className="text-[14px] font-bold" style={{ color: "var(--text)" }}>{p.name}</div>
+                <div className="text-[11px] font-mono" style={{ color: "var(--muted)" }}>{p.number ?? "—"}</div>
+              </div>
+              <StatusPill status={p.status} size="sm" />
+            </div>
             <div className="card-body">
-              <div className="flex items-start justify-between mb-3">
+              <div className="text-[12px]" style={{ color: "var(--muted)", marginBottom: 12 }}>
+                {p.description ?? "—"}
+              </div>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
-                  <div className="font-bold text-[15px] mb-0.5" style={{ color: "var(--text)" }}>{p.name}</div>
-                  <div className="text-[12px]" style={{ color: "var(--muted)" }}>
-                    {p.client} · {p.contract_type} · Due {new Date(p.deadline).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  <div className="text-[10px] uppercase font-semibold tracking-wider" style={{ color: "var(--muted)" }}>GC</div>
+                  <div className="text-[12px] font-semibold" style={{ color: "var(--text)" }}>{p.gc_name ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase font-semibold tracking-wider" style={{ color: "var(--muted)" }}>Contract</div>
+                  <div className="text-[12px] font-semibold font-mono" style={{ color: "var(--text)" }}>
+                    {p.contract_value ? formatCurrency(p.contract_value) : "—"}
                   </div>
                 </div>
-                <StatusPill status={p.status} />
               </div>
-
-              <div className="grid-3" style={{ gap: 12, marginBottom: 16 }}>
-                <div className="info-cell text-center">
-                  <div className="info-cell-label">Parts</div>
-                  <div className="info-cell-value font-mono">{p.total_parts}</div>
-                </div>
-                <div className="info-cell text-center">
-                  <div className="info-cell-label">Complete</div>
-                  <div className="info-cell-value font-mono">{p.completed}</div>
-                </div>
-                <div className="info-cell text-center">
-                  <div className="info-cell-label">Value</div>
-                  <div className="info-cell-value" style={{ fontSize: 12 }}>{formatCurrency(p.contract_value)}</div>
-                </div>
+              <div className="flex items-center gap-1 mt-3 text-[11px]" style={{ color: "var(--muted)" }}>
+                <Calendar size={11} />
+                {p.deadline ? new Date(p.deadline).toLocaleDateString() : "no deadline"}
               </div>
-
-              <div className="mb-3">
-                <div className="flex justify-between mb-1">
-                  <span className="text-[11px]" style={{ color: "var(--muted)" }}>Progress</span>
-                  <span className="text-[12px] font-bold font-mono" style={{ color: p.color }}>{p.progress}%</span>
-                </div>
-                <div className="pbar">
-                  <div className="pbar-fill" style={{ width: `${p.progress}%`, background: p.color }} />
-                </div>
-              </div>
-
-              <Link
-                href={`/dashboard/parts?project=${encodeURIComponent(p.name)}`}
-                className="btn btn-sm w-full justify-center mt-1"
-              >
-                View Parts
-              </Link>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
 
-      {/* Table View */}
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">All Projects</div>
-        </div>
-        <div className="tbl-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Project Name</th>
-                <th>Client</th>
-                <th>Contract Type</th>
-                <th>Parts</th>
-                <th>Progress</th>
-                <th>Contract Value</th>
-                <th>Deadline</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p) => (
-                <tr key={p.id}>
-                  <td className="font-semibold" style={{ color: "var(--text)" }}>{p.name}</td>
-                  <td style={{ color: "var(--muted)" }}>{p.client}</td>
-                  <td><span className="pill pill-info">{p.contract_type}</span></td>
-                  <td className="td-mono">{p.total_parts}</td>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <div className="pbar" style={{ width: 60 }}>
-                        <div className="pbar-fill" style={{ width: `${p.progress}%`, background: p.color }} />
-                      </div>
-                      <span className="text-[11px] font-mono font-bold" style={{ color: p.color }}>{p.progress}%</span>
-                    </div>
-                  </td>
-                  <td className="font-mono text-[12px]">{formatCurrency(p.contract_value)}</td>
-                  <td className="text-[12px]">{p.deadline}</td>
-                  <td><StatusPill status={p.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* New Project Modal */}
-      <Modal open={showModal} onClose={() => setShowModal(false)} title="New Project" size="md">
-        <div className="grid-2" style={{ gap: 12 }}>
-          <div className="fld col-span-2">
-            <label>Project Name *</label>
-            <input placeholder="e.g. Houston Data Center Steel" />
-          </div>
-          <div className="fld">
-            <label>Client / GC *</label>
-            <input placeholder="Turner Construction" />
-          </div>
-          <div className="fld">
-            <label>Contract Type</label>
-            <select>
-              <option>Lump Sum</option>
-              <option>GMP</option>
-              <option>T&amp;M</option>
-              <option>Unit Price</option>
-            </select>
-          </div>
-          <div className="fld">
-            <label>Contract Value ($)</label>
-            <input type="number" placeholder="0.00" />
-          </div>
-          <div className="fld">
-            <label>Deadline</label>
-            <input type="date" />
-          </div>
-          <div className="fld col-span-2">
-            <label>Description</label>
-            <textarea rows={3} placeholder="Brief project description…" />
-          </div>
-        </div>
-        <div className="modal-footer">
-          <button className="btn" onClick={() => setShowModal(false)}>Cancel</button>
-          <button className="btn btn-primary">Create Project</button>
-        </div>
-      </Modal>
+      {showNew && (
+        <NewProjectModal
+          onClose={() => setShowNew(false)}
+          onSubmit={(payload) => {
+            create.mutate(payload, { onSuccess: () => setShowNew(false) });
+          }}
+          submitting={create.isPending}
+          error={create.error?.message ?? null}
+        />
+      )}
     </PageWrapper>
+  );
+}
+
+function NewProjectModal({
+  onClose, onSubmit, submitting, error,
+}: {
+  onClose: () => void;
+  onSubmit: (payload: Record<string, unknown>) => void;
+  submitting: boolean;
+  error: string | null;
+}) {
+  const [form, setForm] = useState({
+    name: "",
+    number: "",
+    gc_name: "",
+    contract_value: "",
+    deadline: "",
+    description: "",
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.5)" }} onClick={onClose}>
+      <div className="card" style={{ width: 480 }} onClick={(e) => e.stopPropagation()}>
+        <div className="card-header">
+          <div className="card-title">New project</div>
+        </div>
+        <form
+          className="card-body"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSubmit({
+              name: form.name,
+              number: form.number || undefined,
+              gc_name: form.gc_name || undefined,
+              contract_value: form.contract_value ? Number(form.contract_value) : undefined,
+              deadline: form.deadline || undefined,
+              description: form.description || undefined,
+              status: "active",
+            });
+          }}
+          style={{ display: "flex", flexDirection: "column", gap: 12 }}
+        >
+          <Field label="Project name" required>
+            <input className="input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </Field>
+          <Field label="Project number">
+            <input className="input" value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} placeholder="PRJ-2026-NNNN" />
+          </Field>
+          <Field label="General contractor">
+            <input className="input" value={form.gc_name} onChange={(e) => setForm({ ...form, gc_name: e.target.value })} />
+          </Field>
+          <div className="grid-2" style={{ gap: 12 }}>
+            <Field label="Contract value ($)">
+              <input className="input" type="number" min="0" value={form.contract_value} onChange={(e) => setForm({ ...form, contract_value: e.target.value })} />
+            </Field>
+            <Field label="Deadline">
+              <input className="input" type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })} />
+            </Field>
+          </div>
+          <Field label="Description">
+            <textarea className="input" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ height: "auto", padding: "8px 12px", resize: "vertical" }} />
+          </Field>
+
+          {error && <div className="pill pill-red" style={{ padding: "8px 12px", fontSize: 12 }}>{error}</div>}
+
+          <div className="flex justify-end gap-2 mt-2">
+            <button type="button" onClick={onClose} className="btn">Cancel</button>
+            <button type="submit" disabled={submitting} className="btn btn-primary">
+              {submitting ? <Loader2 size={14} className="animate-spin" /> : null}
+              {submitting ? "Creating…" : "Create project"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] uppercase font-semibold tracking-wider" style={{ color: "var(--muted)" }}>
+        {label}{required && <span style={{ color: "#DC2626" }}> *</span>}
+      </span>
+      {children}
+    </label>
   );
 }

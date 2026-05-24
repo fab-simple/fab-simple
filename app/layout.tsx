@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
+import { PWAInstall } from "@/components/PWAInstall";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -20,6 +21,17 @@ export const metadata: Metadata = {
   title: "FabSimple — Steel Fabrication Management",
   description:
     "End-to-end structural steel fabrication management: estimating, production tracking, QC compliance, and billing.",
+  manifest: "/manifest.json",
+  applicationName: "FabSimple",
+  appleWebApp: { capable: true, title: "FabSimple", statusBarStyle: "default" },
+  icons: { icon: "/icons/icon-192.svg", apple: "/icons/icon-192.svg" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#4F46E5",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
@@ -34,6 +46,7 @@ export default function RootLayout({
     >
       <body className="h-full antialiased">
         <Providers>{children}</Providers>
+        <PWAInstall />
       </body>
     </html>
   );

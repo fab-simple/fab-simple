@@ -1,86 +1,57 @@
 "use client";
 
 import { PageWrapper } from "@/components/ui/PageWrapper";
+import { Check } from "lucide-react";
 
 const PLANS = [
   {
-    id: "starter",
-    name: "Starter",
-    price: 149,
-    period: "month",
-    color: "#64748B",
-    features: ["Up to 2 projects", "500 parts", "1 user", "Estimating, Parts, QC", "Email support"],
-    highlight: false,
+    name: "Starter", price: "$199", period: "/mo",
+    perks: ["Up to 5 users", "1 project at a time", "5,000 parts", "QC modules", "Tekla CSV import", "Email support"],
+    cta: "Start free trial", featured: false,
   },
   {
-    id: "professional",
-    name: "Professional",
-    price: 349,
-    period: "month",
-    color: "#4F46E5",
-    features: ["Up to 10 projects", "10,000 parts", "10 users", "All modules", "AIA G702 billing", "Tekla CSV import", "Priority support"],
-    highlight: true,
+    name: "Professional", price: "$499", period: "/mo",
+    perks: ["Up to 25 users", "10 active projects", "50,000 parts", "Everything in Starter", "AIA G702 Billing", "Realtime + AI insights", "Priority support"],
+    cta: "Most popular", featured: true,
   },
   {
-    id: "enterprise",
-    name: "Enterprise",
-    price: 0,
-    period: "month",
-    color: "#0D9488",
-    features: ["Unlimited projects & parts", "Unlimited users", "All modules + API access", "Custom integrations", "Onboarding + training", "Dedicated CSM"],
-    highlight: false,
+    name: "Enterprise", price: "Custom", period: "",
+    perks: ["Unlimited users", "Unlimited projects", "Unlimited parts", "Procore + QBO sync", "Dedicated CSM", "SSO + audit log export", "99.9% SLA"],
+    cta: "Contact sales", featured: false,
   },
 ];
 
 export default function PricingPage() {
   return (
     <PageWrapper title="Pricing">
-      <div className="text-center mb-8">
-        <h2 className="font-bold text-[24px] mb-2" style={{ color: "var(--text)" }}>Simple, Transparent Pricing</h2>
-        <p className="text-[14px]" style={{ color: "var(--muted)" }}>No per-seat surprises. Everything you need to run a steel fabrication shop.</p>
+      <div className="text-center" style={{ marginBottom: 32 }}>
+        <div className="text-[24px] font-bold" style={{ color: "var(--text)" }}>Plans built for steel shops</div>
+        <div className="text-[13px]" style={{ color: "var(--muted)", marginTop: 6 }}>Cancel anytime · 14-day trial · No setup fees</div>
       </div>
 
-      <div className="grid-3" style={{ gap: 20 }}>
+      <div className="grid-3 gap-md">
         {PLANS.map((plan) => (
-          <div
-            key={plan.id}
-            className="card"
-            style={{
-              borderTop: `3px solid ${plan.color}`,
-              boxShadow: plan.highlight ? "var(--shadow-lg)" : undefined,
-              transform: plan.highlight ? "scale(1.02)" : undefined,
-            }}
-          >
-            <div className="card-body">
-              {plan.highlight && (
-                <div className="text-center mb-3">
-                  <span className="pill pill-active">Most Popular</span>
-                </div>
-              )}
-              <div className="text-center mb-5">
-                <div className="font-bold text-[18px] mb-1" style={{ color: plan.color }}>{plan.name}</div>
-                {plan.price > 0 ? (
-                  <>
-                    <div className="font-bold text-[36px]" style={{ color: "var(--text)" }}>${plan.price}</div>
-                    <div className="text-[12px]" style={{ color: "var(--muted)" }}>per {plan.period}</div>
-                  </>
-                ) : (
-                  <div className="font-bold text-[28px]" style={{ color: "var(--text)" }}>Contact Us</div>
-                )}
+          <div key={plan.name} className="card" style={plan.featured ? { borderColor: "var(--primary)", borderWidth: 2 } : {}}>
+            {plan.featured && (
+              <div style={{ background: "var(--primary)", color: "white", padding: "6px 12px", textAlign: "center", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>
+                Recommended
               </div>
-              <ul className="flex flex-col gap-2 mb-5">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex items-center gap-2 text-[13px]" style={{ color: "var(--text-2)" }}>
-                    <span style={{ color: plan.color, flexShrink: 0 }}>✓</span>
-                    {f}
+            )}
+            <div className="card-body" style={{ padding: 28 }}>
+              <div className="text-[18px] font-bold" style={{ color: "var(--text)" }}>{plan.name}</div>
+              <div style={{ marginTop: 12, marginBottom: 24 }}>
+                <span className="text-[36px] font-bold" style={{ color: "var(--text)" }}>{plan.price}</span>
+                <span className="text-[13px]" style={{ color: "var(--muted)" }}>{plan.period}</span>
+              </div>
+              <ul style={{ listStyle: "none", padding: 0, margin: 0, marginBottom: 24, display: "flex", flexDirection: "column", gap: 10 }}>
+                {plan.perks.map((p) => (
+                  <li key={p} className="flex items-center gap-2 text-[13px]" style={{ color: "var(--text)" }}>
+                    <Check size={14} style={{ color: "#16A34A" }} /> {p}
                   </li>
                 ))}
               </ul>
-              <button
-                className={`btn w-full justify-center ${plan.highlight ? "btn-primary" : ""}`}
-                style={!plan.highlight ? { borderColor: plan.color, color: plan.color } : {}}
-              >
-                {plan.price === 0 ? "Talk to Sales" : "Get Started"}
+              <button className={plan.featured ? "btn btn-primary" : "btn"} style={{ width: "100%", justifyContent: "center", height: 40 }}>
+                {plan.cta}
               </button>
             </div>
           </div>

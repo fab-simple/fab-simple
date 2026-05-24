@@ -1,0 +1,413 @@
+openapi: 3.1.0
+info:
+  title: FabSimple API
+  description: |
+    REST API for FabSimple, a fabrication shop management platform.
+
+    All routes are served by a Supabase Edge Function at `/functions/v1/api`. Every
+    response uses the envelope:
+
+    ```json
+    { "ok": true,  "data": <T> }
+    { "ok": false, "error": { "message": "...", "code": "..." } }
+    ```
+
+    Auth: pass `Authorization: Bearer <supabase-session-jwt>` and the
+    `apikey: <supabase-anon-key>` header. The signup-bootstrap and health routes
+    do not require a session.
+  version: 5.1.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://{project_ref}.supabase.co/functions/v1/api
+    description: Hosted Supabase
+    variables:
+      project_ref:
+        default: your-project-ref
+  - url: http://127.0.0.1:54321/functions/v1/api
+    description: Local dev
+
+security:
+  - bearerAuth: []
+  - apiKey: []
+
+paths:
+  /health:
+    get:
+      summary: Liveness check
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /signup-bootstrap:
+    post:
+      summary: Create company + user + subscription after Supabase Auth signup
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [auth_id, email, full_name, company_name]
+              properties:
+                auth_id: { type: string, format: uuid }
+                email: { type: string, format: email }
+                full_name: { type: string }
+                company_name: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  /dashboard:
+    get:
+      summary: Aggregate KPIs for the signed-in user's company
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /search:
+    get:
+      summary: Global search across projects, parts, drawings, NCRs, COs, RFIs
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string, minLength: 2 }
+          required: true
+      responses:
+        "200":
+          description: Hits
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          q: { type: string }
+                          hits:
+                            type: array
+                            items: { $ref: "#/components/schemas/SearchHit" }
+
+  /copilot:
+    post:
+      summary: AI assistant grounded in your project context
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                project_id: { type: string, format: uuid }
+                messages:
+                  type: array
+                  items: { $ref: "#/components/schemas/ChatMessage" }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /import/csv:
+    post:
+      summary: Bulk import parts from a Tekla/SDS2 export
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, rows]
+              properties:
+                project_id: { type: string, format: uuid }
+                units: { type: string, enum: [imperial, metric] }
+                rows:
+                  type: array
+                  items: { type: object, additionalProperties: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /cut-optimize:
+    post:
+      summary: 1D cut list optimizer (FFD bin packing with kerf)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profile, stock_length, cuts]
+              properties:
+                project_id: { type: string, format: uuid, description: If provided, plan is persisted to cut_plans }
+                profile: { type: string }
+                stock_length: { type: number }
+                kerf: { type: number, default: 0.125 }
+                min_remnant: { type: number, default: 6 }
+                cuts:
+                  type: array
+                  items:
+                    type: object
+                    required: [length, qty]
+                    properties:
+                      length: { type: number }
+                      qty: { type: integer, minimum: 1 }
+                      mark: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  /files/sign-upload:
+    post:
+      summary: Generate a signed URL for uploading a file to Storage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bucket, filename, entity_type, entity_id]
+              properties:
+                bucket: { type: string, enum: [drawings, mtrs, photos, billing] }
+                filename: { type: string }
+                entity_type: { type: string }
+                entity_id: { type: string }
+                content_type: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /files/sign-read/{id}:
+    get:
+      summary: Generate a signed URL to read an attachment by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /files:
+    get:
+      summary: List attachments for an entity
+      parameters:
+        - in: query
+          name: entity_type
+          schema: { type: string }
+          required: true
+        - in: query
+          name: entity_id
+          schema: { type: string, format: uuid }
+          required: true
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /files/{id}:
+    delete:
+      summary: Delete an attachment
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /{table}:
+    parameters:
+      - in: path
+        name: table
+        required: true
+        schema:
+          type: string
+          enum: [projects, parts, drawings, purchase_orders, inventory, weld_inspections, paint_inspections, ncr_reports, change_orders, rfis, billing_applications, kits, fab_cells, daily_production_log, aisc_checklist_items, certifications, activity_feed, file_attachments, notifications, users, cut_plans]
+    get:
+      summary: List rows for the signed-in user's company
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+        - in: query
+          name: order_by
+          schema: { type: string }
+        - in: query
+          name: dir
+          schema: { type: string, enum: [asc, desc], default: desc }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+    post:
+      summary: Create a row
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  /{table}/{id}:
+    parameters:
+      - in: path
+        name: table
+        required: true
+        schema: { type: string }
+      - in: path
+        name: id
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Fetch one row
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Update one row
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+    delete:
+      summary: Delete one row
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /notifications/mark-all-read:
+    post:
+      summary: Mark all of the user's notifications as read
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /qc-report:
+    get:
+      summary: Generate a project QC report payload (used by the PDF generator)
+      parameters:
+        - in: query
+          name: project_id
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /seed-aisc:
+    post:
+      summary: Seed AISC 303 checklist items into a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string, format: uuid }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /invite-user:
+    post:
+      summary: Invite a user to the company (sends Supabase Auth invite email)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role, full_name]
+              properties:
+                email: { type: string, format: email }
+                role: { type: string, enum: [owner, pm, foreman, estimator, qc, worker, accounting] }
+                full_name: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /convert-estimate:
+    post:
+      summary: Convert a won estimate into a live project + parts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [estimate_id]
+              properties:
+                estimate_id: { type: string, format: uuid }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /archive-project/{id}:
+    post:
+      summary: Archive a project
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    apiKey:
+      type: apiKey
+      in: header
+      name: apikey
+
+  schemas:
+    Envelope:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+        data: { description: Present when ok is true }
+        error:
+          type: object
+          properties:
+            message: { type: string }
+            code: { type: string }
+
+    SearchHit:
+      type: object
+      properties:
+        kind: { type: string, enum: [project, part, drawing, ncr, change_order, rfi] }
+        id: { type: string, format: uuid }
+        label: { type: string }
+        subtitle: { type: string }
+        href: { type: string }
+
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role: { type: string, enum: [user, assistant, system] }
+        content: { type: string }
+
+  responses:
+    Ok:
+      description: Success
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+    Validation:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }

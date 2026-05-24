@@ -1,123 +1,116 @@
 "use client";
 
+import { useState } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { SHIPMENTS, PARTS } from "@/lib/mock-data";
-import { Modal } from "@/components/ui/Modal";
-import { useState } from "react";
-import { Plus, Printer } from "lucide-react";
+import { DataTable, type Column } from "@/components/ui/DataTable";
+import { ResourceModal, Field } from "@/components/ui/ResourceModal";
+import { useResourceList, useCreate } from "@/hooks/useResource";
+import { Plus } from "lucide-react";
+
+interface Ship {
+  id: string; ticket_number: string; load_number: string | null;
+  truck_number: string | null; carrier: string | null; driver_name: string | null;
+  ship_date: string; destination: string | null; total_pieces: number;
+  total_weight: number | null; status: string; project_id: string | null;
+}
+interface Project { id: string; name: string; }
+
+const STATUSES = ["pending", "loaded", "in_transit", "delivered"];
 
 export default function ShippingPage() {
-  const [showModal, setShowModal] = useState(false);
-  const [printTicket, setPrintTicket] = useState<(typeof SHIPMENTS)[0] | null>(null);
+  const list = useResourceList<Ship>("shipping_tickets", { order_by: "ship_date", dir: "desc" });
+  const projects = useResourceList<Project>("projects", { limit: "100" });
+  const create = useCreate<Ship>("shipping_tickets");
+  const [showNew, setShowNew] = useState(false);
+
+  const cols: Column<Ship>[] = [
+    { key: "tkt", label: "Ticket #", mono: true, render: (r) => <strong>{r.ticket_number}</strong> },
+    { key: "load", label: "Load #", mono: true, render: (r) => r.load_number ?? "—" },
+    { key: "truck", label: "Truck", mono: true, render: (r) => r.truck_number ?? "—" },
+    { key: "carrier", label: "Carrier", render: (r) => r.carrier ?? "—" },
+    { key: "ship", label: "Ship date", render: (r) => new Date(r.ship_date).toLocaleDateString() },
+    { key: "dest", label: "Destination", render: (r) => r.destination ?? "—" },
+    { key: "pcs", label: "Pieces", align: "right", mono: true, render: (r) => r.total_pieces },
+    { key: "wt", label: "Weight", align: "right", mono: true, render: (r) => r.total_weight ? `${Number(r.total_weight).toLocaleString()} lb` : "—" },
+    { key: "status", label: "Status", render: (r) => <StatusPill status={r.status} /> },
+  ];
 
   return (
     <PageWrapper title="Shipping Tickets">
-      <div className="flex justify-end mb-4">
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Create Load Ticket</button>
-      </div>
-
-      <div className="grid-4 gap-md mb-section">
-        <div className="stat-card teal"><div className="stat-label">Delivered</div><div className="stat-value">{SHIPMENTS.filter(s => s.status === "Delivered").length}</div></div>
-        <div className="stat-card blue"><div className="stat-label">Scheduled</div><div className="stat-value">{SHIPMENTS.filter(s => s.status === "Scheduled").length}</div></div>
-        <div className="stat-card amber"><div className="stat-label">Draft</div><div className="stat-value">{SHIPMENTS.filter(s => s.status === "Draft").length}</div></div>
-        <div className="stat-card primary"><div className="stat-label">Total Loads</div><div className="stat-value">{SHIPMENTS.length}</div></div>
-      </div>
-
-      <div className="card">
-        <div className="card-header"><div className="card-title">Load Tickets</div></div>
-        <div className="tbl-wrap">
-          <table>
-            <thead>
-              <tr><th>Load No.</th><th>Ship Date</th><th>Project</th><th>Carrier</th><th>Driver</th><th>Erection Seq.</th><th>Pieces</th><th>Weight (lbs)</th><th>Status</th><th>Actions</th></tr>
-            </thead>
-            <tbody>
-              {SHIPMENTS.map((s) => (
-                <tr key={s.id}>
-                  <td className="td-mono">{s.load_number}</td>
-                  <td style={{ fontSize: 12 }}>{s.ship_date}</td>
-                  <td style={{ fontSize: 12 }}>{s.project}</td>
-                  <td style={{ fontSize: 12 }}>{s.carrier}</td>
-                  <td style={{ fontSize: 12 }}>{s.driver}</td>
-                  <td style={{ fontSize: 12, color: "var(--muted)" }}>{s.erection_seq}</td>
-                  <td className="td-mono">{s.total_pieces}</td>
-                  <td className="td-mono">{s.total_weight.toLocaleString()}</td>
-                  <td><StatusPill status={s.status} /></td>
-                  <td>
-                    <button className="btn btn-sm" onClick={() => setPrintTicket(s)}>
-                      <Printer size={12} /> Print BOL
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Shipping Tickets</div>
+          <div className="text-[12px]" style={{ color: "var(--muted)" }}>BOL-ready load tickets and dispatch summaries</div>
         </div>
+        <button className="btn btn-primary" onClick={() => setShowNew(true)}><Plus size={14} /> New ticket</button>
       </div>
 
-      {/* Print Ticket Modal */}
-      {printTicket && (
-        <Modal open={true} onClose={() => setPrintTicket(null)} title="" size="lg">
-          <div
-            style={{
-              background: "#fff",
-              border: "2px solid var(--sidebar)",
-              borderRadius: 8,
-              padding: 24,
-              fontFamily: "var(--font-jetbrains-mono), monospace",
-            }}
-          >
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <div className="font-bold text-[18px]" style={{ color: "var(--sidebar)" }}>LOAD TICKET / BILL OF LADING</div>
-                <div className="font-mono text-[12px] mt-0.5" style={{ color: "var(--muted)" }}>Texas Steel Fab LLC · Mesquite, TX 75149</div>
-              </div>
-              <div className="text-right">
-                <div className="font-bold text-[20px]" style={{ color: "var(--primary)" }}>{printTicket.load_number}</div>
-                <div className="text-[12px]" style={{ color: "var(--muted)" }}>{printTicket.ship_date}</div>
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-              {[
-                ["Project", printTicket.project],
-                ["Erection Sequence", printTicket.erection_seq],
-                ["Carrier", printTicket.carrier],
-                ["Driver", printTicket.driver],
-                ["Total Pieces", printTicket.total_pieces],
-                ["Total Weight", `${printTicket.total_weight.toLocaleString()} lbs`],
-              ].map(([label, value]) => (
-                <div key={`${label}`} style={{ borderBottom: "1px solid var(--border)", paddingBottom: 6 }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{value}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ padding: 12, background: "var(--bg-muted)", borderRadius: 8, fontSize: 11, color: "var(--muted)" }}>
-              Parts manifest included with load. See attached packing slip for individual heat numbers and ASTM certs.
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button className="btn" onClick={() => setPrintTicket(null)}>Close</button>
-            <button className="btn btn-primary" onClick={() => window.print()}><Printer size={13} /> Print</button>
-          </div>
-        </Modal>
+      <DataTable data={list.data} columns={cols} loading={list.isLoading} error={list.error}
+        empty={{ title: "No shipping tickets yet" }} rowKey={(r) => r.id} />
+
+      {showNew && (
+        <NewModal projects={projects.data ?? []} onClose={() => setShowNew(false)}
+          onSubmit={(p) => create.mutate(p, { onSuccess: () => setShowNew(false) })}
+          submitting={create.isPending} error={create.error?.message ?? null}
+        />
       )}
-
-      <Modal open={showModal} onClose={() => setShowModal(false)} title="Create Load Ticket" size="md">
-        <div className="grid-2" style={{ gap: 12 }}>
-          <div className="fld"><label>Project</label><select><option>Dallas Skyline Tower</option><option>Houston Refinery</option></select></div>
-          <div className="fld"><label>Ship Date</label><input type="date" /></div>
-          <div className="fld"><label>Carrier</label><input placeholder="J&amp;L Trucking" /></div>
-          <div className="fld"><label>Driver</label><input placeholder="Driver name" /></div>
-          <div className="fld col-span-2"><label>Erection Sequence</label><input placeholder="Seq. 3 — Interior framing Level 2" /></div>
-          <div className="fld"><label>Total Pieces</label><input type="number" /></div>
-          <div className="fld"><label>Total Weight (lbs)</label><input type="number" /></div>
-        </div>
-        <div className="modal-footer">
-          <button className="btn" onClick={() => setShowModal(false)}>Cancel</button>
-          <button className="btn btn-primary">Create Ticket</button>
-        </div>
-      </Modal>
     </PageWrapper>
+  );
+}
+
+function NewModal({ projects, onClose, onSubmit, submitting, error }: {
+  projects: Project[]; onClose: () => void;
+  onSubmit: (p: Record<string, unknown>) => void; submitting: boolean; error: string | null;
+}) {
+  const [f, setF] = useState({
+    project_id: "", load_number: "", truck_number: "", carrier: "", driver_name: "",
+    ship_date: new Date().toISOString().slice(0, 10), destination: "",
+    total_pieces: "0", total_weight: "", status: "pending",
+  });
+  return (
+    <ResourceModal title="New shipping ticket" onClose={onClose} submitting={submitting} error={error}
+      onSubmit={(e) => { e.preventDefault();
+        onSubmit({
+          project_id: f.project_id || undefined,
+          load_number: f.load_number || undefined,
+          truck_number: f.truck_number || undefined,
+          carrier: f.carrier || undefined,
+          driver_name: f.driver_name || undefined,
+          ship_date: f.ship_date, destination: f.destination || undefined,
+          total_pieces: Number(f.total_pieces),
+          total_weight: f.total_weight ? Number(f.total_weight) : undefined,
+          status: f.status, parts: [],
+        });
+      }}
+    >
+      <div className="grid-2" style={{ gap: 12 }}>
+        <Field label="Project">
+          <select className="input" value={f.project_id} onChange={(e) => setF({ ...f, project_id: e.target.value })}>
+            <option value="">—</option>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Load #"><input className="input" value={f.load_number} onChange={(e) => setF({ ...f, load_number: e.target.value })} /></Field>
+      </div>
+      <div className="grid-3" style={{ gap: 12 }}>
+        <Field label="Truck #"><input className="input" value={f.truck_number} onChange={(e) => setF({ ...f, truck_number: e.target.value })} /></Field>
+        <Field label="Carrier"><input className="input" value={f.carrier} onChange={(e) => setF({ ...f, carrier: e.target.value })} /></Field>
+        <Field label="Driver"><input className="input" value={f.driver_name} onChange={(e) => setF({ ...f, driver_name: e.target.value })} /></Field>
+      </div>
+      <div className="grid-2" style={{ gap: 12 }}>
+        <Field label="Ship date" required><input className="input" type="date" required value={f.ship_date} onChange={(e) => setF({ ...f, ship_date: e.target.value })} /></Field>
+        <Field label="Destination"><input className="input" value={f.destination} onChange={(e) => setF({ ...f, destination: e.target.value })} placeholder="Dallas TX jobsite" /></Field>
+      </div>
+      <div className="grid-3" style={{ gap: 12 }}>
+        <Field label="Pieces"><input className="input" type="number" min="0" value={f.total_pieces} onChange={(e) => setF({ ...f, total_pieces: e.target.value })} /></Field>
+        <Field label="Weight (lb)"><input className="input" type="number" step="0.01" value={f.total_weight} onChange={(e) => setF({ ...f, total_weight: e.target.value })} /></Field>
+        <Field label="Status">
+          <select className="input" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+            {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </Field>
+      </div>
+    </ResourceModal>
   );
 }

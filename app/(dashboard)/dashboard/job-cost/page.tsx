@@ -1,86 +1,103 @@
 "use client";
 
+import { useState } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
-import { JOB_COSTS } from "@/lib/mock-data";
-import { formatCurrency } from "@/lib/utils";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { DataTable, type Column } from "@/components/ui/DataTable";
+import { ResourceModal, Field } from "@/components/ui/ResourceModal";
+import { useResourceList, useCreate } from "@/hooks/useResource";
+import { Plus } from "lucide-react";
+
+interface JC {
+  id: string; cost_code: string; description: string | null;
+  budget_amount: number; actual_amount: number; committed: number;
+  variance: number; project_id: string;
+}
+interface Project { id: string; name: string; }
 
 export default function JobCostPage() {
-  const totalBudget = JOB_COSTS.reduce((s, j) => s + j.budget, 0);
-  const totalActual = JOB_COSTS.reduce((s, j) => s + j.actual, 0);
-  const overBudget = JOB_COSTS.filter((j) => j.actual > j.budget);
+  const projects = useResourceList<Project>("projects", { limit: "100" });
+  const [projectId, setProjectId] = useState<string>("");
+  const project = projectId || projects.data?.[0]?.id;
+  const list = useResourceList<JC>("job_costs", project ? { project_id: project, order_by: "cost_code", dir: "asc" } : undefined);
+  const create = useCreate<JC>("job_costs");
+  const [showNew, setShowNew] = useState(false);
+
+  const cols: Column<JC>[] = [
+    { key: "code", label: "Cost code", mono: true, render: (r) => <strong>{r.cost_code}</strong> },
+    { key: "desc", label: "Description", render: (r) => r.description ?? "—" },
+    { key: "budget", label: "Budget", align: "right", mono: true, render: (r) => `$${Number(r.budget_amount).toLocaleString()}` },
+    { key: "comm", label: "Committed", align: "right", mono: true, render: (r) => `$${Number(r.committed).toLocaleString()}` },
+    { key: "actual", label: "Actual", align: "right", mono: true, render: (r) => `$${Number(r.actual_amount).toLocaleString()}` },
+    {
+      key: "var", label: "Variance", align: "right", mono: true, render: (r) => {
+        const v = Number(r.variance);
+        const color = v < 0 ? "#DC2626" : "#16A34A";
+        return <span style={{ color, fontWeight: 700 }}>{v < 0 ? "-" : "+"}${Math.abs(v).toLocaleString()}</span>;
+      }
+    },
+  ];
+
+  const totalBudget = (list.data ?? []).reduce((s, r) => s + Number(r.budget_amount ?? 0), 0);
+  const totalActual = (list.data ?? []).reduce((s, r) => s + Number(r.actual_amount ?? 0), 0);
 
   return (
-    <PageWrapper title="Job Cost Tracker">
-      <div className="grid-4 gap-md mb-section">
-        <div className="stat-card primary"><div className="stat-label">Total Budget</div><div className="stat-value" style={{ fontSize: 18 }}>{formatCurrency(totalBudget)}</div></div>
-        <div className="stat-card blue"><div className="stat-label">Total Actual</div><div className="stat-value" style={{ fontSize: 18 }}>{formatCurrency(totalActual)}</div></div>
-        <div className={`stat-card ${totalActual <= totalBudget ? "green" : "red"}`}>
-          <div className="stat-label">Variance</div>
-          <div className="stat-value" style={{ fontSize: 18 }}>{formatCurrency(Math.abs(totalBudget - totalActual))}</div>
-          <div className="stat-sub">{totalActual <= totalBudget ? "under budget" : "OVER BUDGET"}</div>
-        </div>
-        <div className={`stat-card ${overBudget.length === 0 ? "green" : "red"}`}>
-          <div className="stat-label">Over-Budget Items</div>
-          <div className="stat-value">{overBudget.length}</div>
-        </div>
-      </div>
-
-      <div className="card mb-5">
-        <div className="card-header"><div className="card-title">Budget vs Actual by Category</div></div>
-        <div className="card-body">
-          <div style={{ height: 240 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={JOB_COSTS} barSize={20}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="category" tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v) => formatCurrency(v as number)} contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="budget" name="Budget" fill="var(--primary-bd)" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="actual" name="Actual" fill="var(--primary)" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+    <PageWrapper title="Job Cost">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Job Cost Tracker</div>
+          <div className="text-[12px]" style={{ color: "var(--muted)" }}>
+            Budget ${totalBudget.toLocaleString()} · Actual ${totalActual.toLocaleString()}
           </div>
         </div>
-      </div>
-
-      <div className="card">
-        <div className="card-header"><div className="card-title">Cost Breakdown</div></div>
-        <div className="tbl-wrap">
-          <table>
-            <thead>
-              <tr><th>Category</th><th>Project</th><th>Budget</th><th>Actual</th><th>Committed</th><th>% Used</th><th>Variance</th></tr>
-            </thead>
-            <tbody>
-              {JOB_COSTS.map((j) => {
-                const pct = Math.round((j.actual / j.budget) * 100);
-                const variance = j.budget - j.actual;
-                return (
-                  <tr key={j.id} className={j.actual > j.budget ? "tr-danger" : ""}>
-                    <td className="font-semibold" style={{ color: "var(--text)" }}>{j.category}</td>
-                    <td style={{ fontSize: 12 }}>{j.project}</td>
-                    <td className="td-mono">{formatCurrency(j.budget)}</td>
-                    <td className="td-mono">{formatCurrency(j.actual)}</td>
-                    <td className="td-mono">{formatCurrency(j.committed)}</td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <div className="pbar" style={{ width: 60 }}>
-                          <div className="pbar-fill" style={{ width: `${Math.min(pct, 100)}%`, background: pct > 100 ? "var(--red)" : pct > 85 ? "#D97706" : "var(--primary)" }} />
-                        </div>
-                        <span className="font-mono text-[11px]" style={{ color: pct > 100 ? "var(--red)" : "var(--text)" }}>{pct}%</span>
-                      </div>
-                    </td>
-                    <td className="td-mono" style={{ color: variance < 0 ? "var(--red)" : "var(--green)", fontWeight: 600 }}>
-                      {variance < 0 ? "-" : "+"}{formatCurrency(Math.abs(variance))}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="flex items-center gap-2">
+          <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ height: 32, width: 240 }}>
+            <option value="">{projects.data?.[0]?.name ?? "Select project"}</option>
+            {projects.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <button className="btn btn-primary" onClick={() => setShowNew(true)} disabled={!project}><Plus size={14} /> Add code</button>
         </div>
       </div>
+
+      <DataTable data={list.data} columns={cols} loading={list.isLoading} error={list.error}
+        empty={{ title: "No cost codes yet", subtitle: "Add a cost code to start tracking budget vs actual." }}
+        rowKey={(r) => r.id} />
+
+      {showNew && project && (
+        <NewModal projectId={project} onClose={() => setShowNew(false)}
+          onSubmit={(p) => create.mutate(p, { onSuccess: () => setShowNew(false) })}
+          submitting={create.isPending} error={create.error?.message ?? null}
+        />
+      )}
     </PageWrapper>
+  );
+}
+
+function NewModal({ projectId, onClose, onSubmit, submitting, error }: {
+  projectId: string; onClose: () => void;
+  onSubmit: (p: Record<string, unknown>) => void; submitting: boolean; error: string | null;
+}) {
+  const [f, setF] = useState({ cost_code: "", description: "", budget_amount: "", actual_amount: "0", committed: "0" });
+  return (
+    <ResourceModal title="New cost code" onClose={onClose} submitting={submitting} error={error}
+      onSubmit={(e) => { e.preventDefault();
+        onSubmit({
+          project_id: projectId, cost_code: f.cost_code,
+          description: f.description || undefined,
+          budget_amount: Number(f.budget_amount || 0),
+          actual_amount: Number(f.actual_amount || 0),
+          committed: Number(f.committed || 0),
+        });
+      }}
+    >
+      <div className="grid-2" style={{ gap: 12 }}>
+        <Field label="Cost code" required><input className="input" required value={f.cost_code} onChange={(e) => setF({ ...f, cost_code: e.target.value })} placeholder="material" /></Field>
+        <Field label="Description"><input className="input" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
+      </div>
+      <div className="grid-3" style={{ gap: 12 }}>
+        <Field label="Budget"><input className="input" type="number" step="0.01" value={f.budget_amount} onChange={(e) => setF({ ...f, budget_amount: e.target.value })} /></Field>
+        <Field label="Committed"><input className="input" type="number" step="0.01" value={f.committed} onChange={(e) => setF({ ...f, committed: e.target.value })} /></Field>
+        <Field label="Actual"><input className="input" type="number" step="0.01" value={f.actual_amount} onChange={(e) => setF({ ...f, actual_amount: e.target.value })} /></Field>
+      </div>
+    </ResourceModal>
   );
 }

@@ -1,62 +1,84 @@
 "use client";
 
+import { useEffect } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
-import { ACTIVITY_FEED } from "@/lib/mock-data";
+import { useResourceList } from "@/hooks/useResource";
+import { createClient } from "@/lib/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { Loader2, Activity } from "lucide-react";
 
-const DOT_COLORS: Record<string, string> = {
-  "status_update": "var(--primary)",
-  "inspection": "var(--green)",
-  "receiving": "#D97706",
-  "shipping": "var(--teal)",
-  "qc": "var(--violet)",
-};
+interface ActivityItem {
+  id: string; user_name: string | null; action: string;
+  entity_type: string; entity_label: string | null; created_at: string;
+  metadata: Record<string, unknown> | null;
+}
+
+const COLORS = ["#4F46E5", "#2563EB", "#7C3AED", "#EA580C", "#DC2626", "#0D9488", "#16A34A"];
 
 export default function LiveActivityPage() {
+  const list = useResourceList<ActivityItem>("activity_feed", { order_by: "created_at", dir: "desc", limit: "100" });
+  const qc = useQueryClient();
+
+  // Subscribe to realtime inserts and invalidate the query
+  useEffect(() => {
+    const sb = createClient();
+    const channel = sb
+      .channel("activity_feed_changes")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity_feed" }, () => {
+        qc.invalidateQueries({ queryKey: ["activity_feed"] });
+      })
+      .subscribe();
+    return () => { sb.removeChannel(channel); };
+  }, [qc]);
+
   return (
-    <PageWrapper title="Live Activity Feed">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-        <span className="text-[13px] font-semibold" style={{ color: "var(--text)" }}>Live — updates every 30s</span>
-        <span className="pill pill-done ml-2">Online</span>
+    <PageWrapper title="Live Activity">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Live Activity</div>
+          <div className="text-[12px]" style={{ color: "var(--muted)" }}>Real-time stream of shop floor + admin events</div>
+        </div>
+        <span className="pill pill-done" style={{ fontSize: 11, padding: "4px 10px" }}>● Live</span>
       </div>
 
-      <div className="card">
-        <div className="card-body">
-          {ACTIVITY_FEED.map((a, i) => (
-            <div
-              key={a.id}
-              className="flex items-start gap-3 py-3 relative"
-              style={{ borderBottom: i < ACTIVITY_FEED.length - 1 ? "1px solid var(--bg-muted)" : "none" }}
-            >
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
-                style={{ background: a.color }}
-              >
-                {a.user_name.slice(0, 1)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-[13px]" style={{ color: "var(--text)" }}>{a.user_name}</span>
-                  <span className="text-[12px]" style={{ color: "var(--muted)" }}>{a.action}</span>
-                  <span className="font-mono text-[11px] font-bold" style={{ color: "var(--primary)" }}>{a.entity_id}</span>
-                </div>
-                {a.detail && (
-                  <div className="text-[12px] mt-0.5" style={{ color: "var(--muted)" }}>{a.detail}</div>
-                )}
-                <div className="flex items-center gap-2 mt-1">
-                  <span
-                    className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                    style={{ background: DOT_COLORS[a.category]?.replace(")", "-bg)").replace("var(--", "var(--") || "var(--bg-muted)", color: DOT_COLORS[a.category] || "var(--muted)" }}
-                  >
-                    {a.category.replace("_", " ")}
-                  </span>
-                  <span className="font-mono text-[10px]" style={{ color: "var(--faint)" }}>{a.time}</span>
-                </div>
-              </div>
-            </div>
-          ))}
+      {list.isLoading ? (
+        <div className="card" style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
+          <Loader2 size={18} className="animate-spin" style={{ display: "inline" }} /> Loading…
         </div>
-      </div>
+      ) : (
+        <div className="card">
+          <div className="card-body" style={{ padding: 0 }}>
+            {(list.data ?? []).map((a, i) => (
+              <div key={a.id} className="flex items-start gap-3 p-3" style={{ borderBottom: "1px solid var(--bg-muted)" }}>
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
+                  style={{ background: COLORS[i % COLORS.length] }}
+                >
+                  {(a.user_name ?? "?").slice(0, 1)}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div className="text-[13px]">
+                    <span className="font-semibold" style={{ color: "var(--text)" }}>{a.user_name ?? "System"}</span>
+                    <span style={{ color: "var(--muted)" }}> {a.action} </span>
+                    {a.entity_label && (
+                      <span className="font-mono font-bold" style={{ color: "var(--primary)" }}>{a.entity_label}</span>
+                    )}
+                  </div>
+                  <div className="text-[11px] font-mono" style={{ color: "var(--faint)", marginTop: 2 }}>
+                    {new Date(a.created_at).toLocaleString()}
+                  </div>
+                </div>
+                <Activity size={14} style={{ color: "var(--faint)" }} />
+              </div>
+            ))}
+            {!list.data?.length && (
+              <div className="p-8 text-center text-[12px]" style={{ color: "var(--muted)" }}>
+                No activity yet. Update a part status, create a project, or run a QC inspection to see events here.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </PageWrapper>
   );
 }
