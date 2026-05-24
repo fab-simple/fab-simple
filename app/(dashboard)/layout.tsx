@@ -12,7 +12,7 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="flex h-full" style={{ background: "var(--bg)" }}>
-      <div style={{ borderRight: "1px solid var(--border)", flexShrink: 0 }}>
+      <div className="h-full flex flex-col" style={{ borderRight: "1px solid var(--border)", flexShrink: 0 }}>
         <Sidebar />
       </div>
 
