@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { rolesForPath, homeForRole, type Role } from "@/lib/nav-config";
 
 const PUBLIC_PATHS = new Set([
   "/auth/signin",
@@ -8,13 +9,6 @@ const PUBLIC_PATHS = new Set([
   "/auth/callback",
   "/auth/accept-invite",
 ]);
-
-const WORKER_ALLOW = [
-  "/worker",
-  "/dashboard/worker",
-  "/dashboard/parts",      // worker can read/update assigned parts
-  "/dashboard/drawings",   // worker reads drawings (QR scan)
-];
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -37,15 +31,15 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const path = request.nextUrl.pathname;
 
-  // Public paths — always allow
+  // Public auth flows — always allow.
   if (PUBLIC_PATHS.has(path) || path.startsWith("/auth")) return response;
 
-  // Static + Next internals
+  // Next.js internals + API passthrough.
   if (path.startsWith("/_next") || path.startsWith("/api") || path === "/favicon.ico") {
     return response;
   }
 
-  // Not logged in → redirect to signin
+  // Not signed in → redirect to signin with the intended path preserved.
   if (!user) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/signin";
@@ -53,16 +47,32 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Workers are restricted to a small set of routes
-  const role = (user.user_metadata?.role as string | undefined)
-    ?? (user.app_metadata?.role as string | undefined);
+  const role =
+    ((user.user_metadata?.role as string | undefined) ??
+      (user.app_metadata?.role as string | undefined) ??
+      "") as Role;
+
+  // Workers are exclusively allowed on /worker and a tiny allow-list of
+  // dashboard surfaces required for QR-scan deep links (drawings, parts).
   if (role === "worker") {
-    const allowed = WORKER_ALLOW.some((p) => path === p || path.startsWith(p + "/"));
-    if (!allowed) {
+    const allowed = rolesForPath(path);
+    if (!allowed || !allowed.includes("worker")) {
       const url = request.nextUrl.clone();
       url.pathname = "/worker";
       return NextResponse.redirect(url);
     }
+    return response;
+  }
+
+  // For every other role: check the canonical route → roles map. Routes that
+  // aren't listed (e.g. /, /worker-specific paths) fall through here untouched
+  // unless they're explicitly in the matrix.
+  const allowed = rolesForPath(path);
+  if (allowed && role && !allowed.includes(role)) {
+    const url = request.nextUrl.clone();
+    url.pathname = homeForRole(role);
+    url.searchParams.set("denied", path);
+    return NextResponse.redirect(url);
   }
 
   return response;

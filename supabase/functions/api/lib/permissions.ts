@@ -1,167 +1,199 @@
 // RBAC matrix. The DB layer (RLS) is the source of truth for security; this
 // matrix is API-layer pre-flight so we can return clear 403s and reject
 // requests before they hit the DB.
+//
+// Source of truth: FabSimple v5 spec "Role-Based Access Matrix".
+// `readable`   → roles that can SELECT rows of this table
+// `insertable` → roles that can POST new rows ("Full" / "Create" cells)
+// `updatable`  → roles that can PATCH rows ("Full" cells; some "Approve")
+// `deletable`  → roles that can DELETE rows (intentionally tight; usually owner only)
+//
+// Roles strictly omitted from `readable` cannot even fetch lists (the API
+// returns 403 before hitting Postgres) — this is what makes pages truly
+// hidden, not just CTAs.
 
 import type { Role, TableConfig } from "./types.ts";
 
-const ALL_READ: Role[] = ["owner", "pm", "estimator", "foreman", "qc", "accounting", "worker"];
+const ALL_NON_WORKER: Role[] = ["owner", "pm", "estimator", "foreman", "qc", "accounting"];
+const ALL_READ: Role[] = [...ALL_NON_WORKER, "worker"];
 
 export const TABLES: Record<string, TableConfig> = {
+  // Projects: Owner Full · Estimator View · PM Full · Foreman View · QC View · Accounting View
   projects: {
     table: "projects",
     insertable: ["owner", "pm"],
     updatable: ["owner", "pm"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: [...ALL_NON_WORKER],
     hasCompanyId: true,
     sequence: { prefix: "PRJ-YYYY", field: "number" },
     activity: { entity_type: "projects", label_field: "name" },
   },
+  // Parts: Owner Full · PM Full · Foreman Full · QC View · Worker View
   parts: {
     table: "parts",
     insertable: ["owner", "pm", "foreman"],
+    // Worker updates part status from the mobile worker view.
     updatable: ["owner", "pm", "foreman", "qc", "worker"],
     deletable: ["owner", "pm"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman", "qc", "worker"],
     hasCompanyId: true,
     activity: { entity_type: "parts", label_field: "part_mark" },
   },
+  // Assemblies: Owner Full · PM Full · Foreman Full · QC View
   assemblies: {
     table: "assemblies",
     insertable: ["owner", "pm", "foreman"],
     updatable: ["owner", "pm", "foreman"],
     deletable: ["owner", "pm"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman", "qc"],
     hasCompanyId: true,
     activity: { entity_type: "assemblies", label_field: "assembly_mark" },
   },
+  // Drawings: Owner Full · PM Full · Foreman View · QC View · Worker View
   drawings: {
     table: "drawings",
     insertable: ["owner", "pm"],
     updatable: ["owner", "pm"],
     deletable: ["owner", "pm"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman", "qc", "worker"],
     hasCompanyId: true,
     activity: { entity_type: "drawings", label_field: "drawing_number" },
   },
+  // Change Orders: Owner Full · PM Full · Accounting View (accounting needs
+  // to see approved COs in order to bill them).
   change_orders: {
     table: "change_orders",
     insertable: ["owner", "pm"],
     updatable: ["owner", "pm"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "accounting"],
     hasCompanyId: true,
     sequence: { prefix: "CO", field: "co_number" },
     activity: { entity_type: "change_orders", label_field: "co_number" },
   },
+  // RFIs: Owner Full · PM Full · Foreman View · QC View
   rfis: {
     table: "rfis",
-    insertable: ["owner", "pm", "foreman", "qc"],
-    updatable: ["owner", "pm", "foreman", "qc"],
+    insertable: ["owner", "pm"],
+    updatable: ["owner", "pm"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman", "qc"],
     hasCompanyId: true,
     sequence: { prefix: "RFI", field: "rfi_number" },
     activity: { entity_type: "rfis", label_field: "rfi_number" },
   },
+  // Weld Log: Owner Full · PM View · QC Full
   weld_inspections: {
     table: "weld_inspections",
     insertable: ["owner", "qc"],
     updatable: ["owner", "qc"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "qc"],
     hasCompanyId: true,
     sequence: { prefix: "WLD", field: "weld_number" },
     activity: { entity_type: "weld_inspections", label_field: "weld_number" },
   },
+  // Paint Inspection: Owner Full · PM View · QC Full
   paint_inspections: {
     table: "paint_inspections",
     insertable: ["owner", "qc"],
     updatable: ["owner", "qc"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "qc"],
     hasCompanyId: true,
     sequence: { prefix: "PI", field: "insp_number" },
     activity: { entity_type: "paint_inspections", label_field: "insp_number" },
   },
+  // AISC 303 Checklist: Owner Full · PM Full · Foreman View · QC Full
   aisc_checklist: {
     table: "aisc_checklist",
     insertable: ["owner", "qc", "pm"],
     updatable: ["owner", "qc", "pm"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman", "qc"],
     hasCompanyId: true,
   },
+  // NCR Reports: Owner Full · PM View · Foreman View · QC Full
   ncr_reports: {
     table: "ncr_reports",
-    insertable: ["owner", "qc", "pm"],
-    updatable: ["owner", "qc", "pm"],
+    insertable: ["owner", "qc"],
+    updatable: ["owner", "qc"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman", "qc"],
     hasCompanyId: true,
     sequence: { prefix: "NCR", field: "ncr_number" },
     activity: { entity_type: "ncr_reports", label_field: "ncr_number" },
   },
+  // Heat Numbers: Owner Full · PM View · QC Full
   heat_numbers: {
     table: "heat_numbers",
-    insertable: ["owner", "qc", "accounting", "foreman"],
-    updatable: ["owner", "qc", "accounting", "foreman"],
+    insertable: ["owner", "qc"],
+    updatable: ["owner", "qc"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "qc"],
     hasCompanyId: true,
     activity: { entity_type: "heat_numbers", label_field: "heat_number" },
   },
+  // Certifications: Owner Full · PM View · QC Full
   certifications: {
     table: "certifications",
     insertable: ["owner", "qc"],
     updatable: ["owner", "qc"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "qc"],
     hasCompanyId: true,
   },
+  // OSHA Checklist: Owner Full · PM Full · Foreman Full · QC View
   osha_checklists: {
     table: "osha_checklists",
-    insertable: ["owner", "qc", "foreman"],
-    updatable: ["owner", "qc", "foreman"],
+    insertable: ["owner", "pm", "foreman"],
+    updatable: ["owner", "pm", "foreman"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman", "qc"],
     hasCompanyId: true,
   },
+  // Daily Log: Owner Full · PM Full · Foreman Full
   daily_production_log: {
     table: "daily_production_log",
     insertable: ["owner", "foreman", "pm"],
     updatable: ["owner", "foreman", "pm"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman"],
     hasCompanyId: true,
     activity: { entity_type: "daily_production_log", label_field: "station" },
   },
+  // Cut Plans: Owner Full · PM Full · Foreman Full
   cut_plans: {
     table: "cut_plans",
     insertable: ["owner", "foreman", "pm"],
     updatable: ["owner", "foreman", "pm"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman"],
     hasCompanyId: true,
   },
+  // Erection Sequence: Owner Full · PM Full · Foreman Full
   erection_sequence: {
     table: "erection_sequence",
     insertable: ["owner", "pm", "foreman"],
     updatable: ["owner", "pm", "foreman"],
     deletable: ["owner", "pm"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman"],
     hasCompanyId: true,
   },
+  // Shipping Tickets: Owner Full · PM Full · Foreman Create · Accounting View
   shipping_tickets: {
     table: "shipping_tickets",
-    insertable: ["owner", "pm", "accounting"],
-    updatable: ["owner", "pm", "accounting"],
+    insertable: ["owner", "pm", "foreman"],
+    // Foreman is Create-only — editing/deletion stays with Owner/PM.
+    updatable: ["owner", "pm"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman", "accounting"],
     hasCompanyId: true,
     sequence: { prefix: "L", field: "ticket_number" },
     activity: { entity_type: "shipping_tickets", label_field: "ticket_number" },
   },
+  // Estimating: Owner Full · Estimator Full · PM View · Accounting (needs to bill)
   estimates: {
     table: "estimates",
     insertable: ["owner", "estimator"],
@@ -180,49 +212,56 @@ export const TABLES: Record<string, TableConfig> = {
     readable: ["owner", "estimator", "pm", "accounting"],
     hasCompanyId: true,
   },
+  // AIA G702 Billing: Owner Approve · PM View · Accounting Full
   billing_applications: {
     table: "billing_applications",
     insertable: ["owner", "accounting"],
+    // Owner has "Approve" — keep updatable on owner+accounting.
     updatable: ["owner", "accounting"],
     deletable: ["owner"],
     readable: ["owner", "pm", "accounting"],
     hasCompanyId: true,
     activity: { entity_type: "billing_applications", label_field: "application_number" },
   },
+  // Job Cost: Owner Full · Estimator View · PM Full · Accounting Full
   job_costs: {
     table: "job_costs",
-    insertable: ["owner", "accounting"],
-    updatable: ["owner", "accounting"],
+    insertable: ["owner", "pm", "accounting"],
+    updatable: ["owner", "pm", "accounting"],
     deletable: ["owner"],
     readable: ["owner", "pm", "accounting", "estimator"],
     hasCompanyId: true,
   },
+  // Purchase Orders: Owner Full · PM Full · Foreman View · Accounting Full
   purchase_orders: {
     table: "purchase_orders",
-    insertable: ["owner", "accounting"],
-    updatable: ["owner", "accounting"],
+    insertable: ["owner", "pm", "accounting"],
+    updatable: ["owner", "pm", "accounting"],
     deletable: ["owner"],
     readable: ["owner", "pm", "accounting", "foreman"],
     hasCompanyId: true,
     sequence: { prefix: "PO", field: "po_number" },
     activity: { entity_type: "purchase_orders", label_field: "po_number" },
   },
+  // Inventory: Owner Full · Estimator View · PM Full · Foreman View · Accounting View
   inventory: {
     table: "inventory",
-    insertable: ["owner", "foreman", "accounting"],
-    updatable: ["owner", "foreman", "accounting"],
+    insertable: ["owner", "pm"],
+    updatable: ["owner", "pm"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "estimator", "pm", "foreman", "accounting"],
     hasCompanyId: true,
   },
+  // Material Receiving log: Owner Full · PM Full · Foreman Full · Accounting View
   inventory_adjustments: {
     table: "inventory_adjustments",
-    insertable: ["owner", "foreman", "accounting"],
+    insertable: ["owner", "pm", "foreman"],
     updatable: ["owner"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman", "accounting"],
     hasCompanyId: true,
   },
+  // Notifications fan out to every signed-in user — keep readable broad.
   notifications: {
     table: "notifications",
     insertable: ["owner"], // most inserts come from triggers/cron
@@ -231,38 +270,44 @@ export const TABLES: Record<string, TableConfig> = {
     readable: ALL_READ,
     hasCompanyId: true,
   },
+  // GC Contacts: Owner Full · Estimator Full · PM Full
   gc_contacts: {
     table: "gc_contacts",
     insertable: ["owner", "pm", "estimator"],
     updatable: ["owner", "pm", "estimator"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "estimator"],
     hasCompanyId: true,
   },
+  // AI Copilot — same audience as Dashboard (everyone but worker).
   ai_insights: {
     table: "ai_insights",
     insertable: ["owner"], // primarily written by AI Copilot
-    updatable: ALL_READ,
+    updatable: [...ALL_NON_WORKER],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: [...ALL_NON_WORKER],
     hasCompanyId: true,
   },
   ai_chat_history: {
     table: "ai_chat_history",
-    insertable: ALL_READ,
-    updatable: ALL_READ,
-    deletable: ALL_READ,
-    readable: ALL_READ,
+    insertable: [...ALL_NON_WORKER],
+    updatable: [...ALL_NON_WORKER],
+    deletable: [...ALL_NON_WORKER],
+    readable: [...ALL_NON_WORKER],
     hasCompanyId: true,
   },
+  // Users & Roles: Owner only.
   users: {
     table: "users",
     insertable: ["owner"],
     updatable: ["owner"],
     deletable: ["owner"],
+    // Other roles need to look up display names (parts.assigned_to → user) so
+    // keep read broad — but no writes.
     readable: ALL_READ,
     hasCompanyId: true,
   },
+  // Audit Log: Owner / PM / Accounting.
   audit_log: {
     table: "audit_log",
     insertable: [],
@@ -271,6 +316,7 @@ export const TABLES: Record<string, TableConfig> = {
     readable: ["owner", "pm", "accounting"],
     hasCompanyId: true,
   },
+  // Activity Feed: every signed-in user (used for the realtime header).
   activity_feed: {
     table: "activity_feed",
     insertable: [],
@@ -279,14 +325,16 @@ export const TABLES: Record<string, TableConfig> = {
     readable: ALL_READ,
     hasCompanyId: true,
   },
+  // Receiving log entries — same audience as Material Receiving page.
   receiving_logs: {
     table: "receiving_logs",
     insertable: ["owner", "pm", "foreman"],
     updatable: ["owner", "pm", "foreman"],
     deletable: ["owner"],
-    readable: ALL_READ,
+    readable: ["owner", "pm", "foreman", "accounting"],
     hasCompanyId: true,
   },
+  // Attachments piggyback off whatever entity they're tied to.
   file_attachments: {
     table: "file_attachments",
     insertable: ALL_READ,
