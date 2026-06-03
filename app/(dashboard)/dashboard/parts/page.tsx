@@ -27,7 +27,7 @@ interface Part {
   assigned_user_id: string | null;
 }
 
-interface Project { id: string; name: string; }
+interface Project { id: string; name: string; number: string; }
 
 const STATUS_OPTIONS = ["not_started", "in_progress", "complete", "shipped", "on_hold"];
 
@@ -35,6 +35,7 @@ export default function PartsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [projectFilter, setProjectFilter] = useState<string>("");
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState<Part | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -52,9 +53,10 @@ export default function PartsPage() {
   const filters = useMemo(() => {
     const f: Record<string, string | undefined> = {};
     if (statusFilter) f.status = statusFilter;
+    if (projectFilter) f.project_id = projectFilter;
     if (search) f.part_mark__ilike = search;
     return f;
-  }, [statusFilter, search]);
+  }, [statusFilter, projectFilter, search]);
 
   const list = useResourcePaged<Part>("parts", {
     initialPerPage: 25,
@@ -73,7 +75,7 @@ export default function PartsPage() {
     list.setPage(1);
     setSelected(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter]);
+  }, [search, statusFilter, projectFilter]);
 
   async function bulkUpdateStatus(status: string) {
     if (selected.size === 0) return;
@@ -144,7 +146,7 @@ export default function PartsPage() {
           <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Parts List</div>
           <div className="text-[12px]" style={{ color: "var(--muted)" }}>
             {total} part{total === 1 ? "" : "s"}
-            {(statusFilter || search) && total > 0 && " (filtered)"}
+            {(statusFilter || projectFilter || search) && total > 0 && " (filtered)"}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -152,6 +154,14 @@ export default function PartsPage() {
             <Search size={13} className="absolute" style={{ left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--muted)" }} />
             <input className="input" placeholder="Search part marks…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} style={{ paddingLeft: 30, width: 240, height: 32 }} />
           </div>
+          <select className="input" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} style={{ height: 32, width: 200 }}>
+            <option value="">All projects</option>
+            {(projects.data ?? []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.number ? `${p.number} — ${p.name}` : p.name}
+              </option>
+            ))}
+          </select>
           <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ height: 32, width: 160 }}>
             <option value="">All statuses</option>
             {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
