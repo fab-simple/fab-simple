@@ -13,7 +13,6 @@ import { ok, err } from "../lib/response.ts";
 import { writeAudit, writeActivity } from "../services/audit.ts";
 
 const ALLOWED_BUCKETS = new Set(["drawings", "mtrs", "photos", "billing"]);
-const MAX_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB hard cap
 
 // Map entity → required role(s) to upload to it
 const UPLOAD_RBAC: Record<string, string[]> = {
@@ -56,9 +55,7 @@ export async function signUpload(ctx: Ctx): Promise<Response> {
     return err("entity_type, entity_id, bucket, filename required", 422, "validation");
   }
   if (!ALLOWED_BUCKETS.has(bucket)) return err("Invalid bucket", 422, "validation");
-  if (typeof size === "number" && size > MAX_SIZE_BYTES) {
-    return err(`File exceeds ${MAX_SIZE_BYTES / 1024 / 1024} MB`, 413, "file_too_large");
-  }
+  // No file-size cap — fabrication drawing sets can be very large multi-page PDFs.
   const allowedRoles = UPLOAD_RBAC[entity_type] ?? ["owner"];
   if (!allowedRoles.includes(ctx.user.role)) return err("Forbidden", 403, "forbidden");
 
@@ -139,6 +136,94 @@ export async function listAttachments(ctx: Ctx): Promise<Response> {
     .order("created_at", { ascending: false });
   if (error) return err(error.message, 400, "db_error");
   return ok(data ?? []);
+}
+
+// Attach an existing storage object to additional entities. Used by the
+// detailing PDF importer: one shop-drawing PDF often belongs to several
+// parts (e.g. 1001AB1, 1001AB2, 1001AB3 are all detailed on assembly
+// 1001's drawing). Instead of re-uploading the file N times, we upload
+// once and then create N sibling file_attachments rows that point to the
+// same storage_path. Storage stays single-copy; the parts list shows the
+// PDF on every linked part.
+export async function shareAttachment(ctx: Ctx): Promise<Response> {
+  const body = await ctx.req.json().catch(() => ({}));
+  const { source_attachment_id, target_entity_type, target_entity_ids } = body as {
+    source_attachment_id?: string;
+    target_entity_type?: string;
+    target_entity_ids?: string[];
+  };
+
+  if (!source_attachment_id || !target_entity_type || !Array.isArray(target_entity_ids)) {
+    return err("source_attachment_id, target_entity_type, target_entity_ids required", 422, "validation");
+  }
+
+  const uploadRoles = UPLOAD_RBAC[target_entity_type] ?? ["owner"];
+  if (!uploadRoles.includes(ctx.user.role)) return err("Forbidden", 403, "forbidden");
+
+  // Source row must belong to caller's company. Look it up via sbAdmin so
+  // we can return a precise 404/403 rather than rely on RLS surfacing it.
+  const { data: src, error: srcErr } = await ctx.sbAdmin.from("file_attachments")
+    .select("company_id, storage_bucket, storage_path, mime_type, size_bytes")
+    .eq("id", source_attachment_id)
+    .maybeSingle();
+  if (srcErr || !src) return err("Source attachment not found", 404, "not_found");
+  if (src.company_id !== ctx.user.company_id) return err("Source attachment not found", 404, "not_found");
+
+  // Skip targets that already have an attachment pointing at this exact
+  // storage_path so re-running the importer is idempotent.
+  const uniqueTargets = Array.from(new Set(target_entity_ids));
+  const { data: existing } = await ctx.sbAdmin.from("file_attachments")
+    .select("entity_id")
+    .eq("company_id", ctx.user.company_id)
+    .eq("storage_path", src.storage_path as string)
+    .in("entity_id", uniqueTargets);
+  const dedupe = new Set((existing ?? []).map((r) => r.entity_id as string));
+
+  const toInsert = uniqueTargets
+    .filter((id) => !dedupe.has(id))
+    .map((entity_id) => ({
+      company_id: ctx.user.company_id,
+      entity_type: target_entity_type,
+      entity_id,
+      storage_bucket: src.storage_bucket,
+      storage_path: src.storage_path,
+      mime_type: src.mime_type,
+      size_bytes: src.size_bytes,
+      uploaded_by: ctx.user.id,
+    }));
+
+  if (toInsert.length === 0) {
+    return ok({ created: 0, skipped: uniqueTargets.length, attachment_ids: [] });
+  }
+
+  const { data: created, error: insErr } = await ctx.sbAdmin
+    .from("file_attachments")
+    .insert(toInsert)
+    .select("id, entity_id");
+  if (insErr) return err(insErr.message, 400, "db_error");
+
+  await writeAudit(ctx, {
+    action: "share",
+    table_name: "file_attachments",
+    record_id: source_attachment_id,
+    new_values: {
+      target_entity_type,
+      created: created?.length ?? 0,
+      skipped: uniqueTargets.length - (created?.length ?? 0),
+    },
+  });
+  await writeActivity(ctx, {
+    action: `attached drawing to ${created?.length ?? 0} ${target_entity_type}`,
+    entity_type: target_entity_type,
+    entity_id: source_attachment_id,
+    entity_label: (src.storage_path as string).split("/").pop() ?? null,
+  });
+
+  return ok({
+    created: created?.length ?? 0,
+    skipped: uniqueTargets.length - (created?.length ?? 0),
+    attachment_ids: (created ?? []).map((r) => r.id as string),
+  });
 }
 
 export async function deleteAttachment(ctx: Ctx, id: string): Promise<Response> {

@@ -323,6 +323,14 @@ export const FabAPI = {
   listFiles(entity_type: string, entity_id: string) {
     return call<FileAttachment[]>("/files", "GET", { query: { entity_type, entity_id } });
   },
+  // Clones an existing file_attachment to additional entities (same storage
+  // object, multiple links). Used by the detailing-PDF importer to attach
+  // one PDF to every part marked on the drawing in a single API round-trip.
+  shareFile(body: { source_attachment_id: string; target_entity_type: string; target_entity_ids: string[] }) {
+    return call<{ created: number; skipped: number; attachment_ids: string[] }>(
+      "/files/share", "POST", { body, skipSanitize: true }
+    );
+  },
   deleteFile(id: string) { return call<{ deleted: boolean }>(`/files/${id}`, "DELETE"); },
 
   // AI Copilot

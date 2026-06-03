@@ -1,11 +1,11 @@
 "use client";
 
-import { use, useState, useRef } from "react";
+import { use, useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useResource, useUpdate } from "@/hooks/useResource";
-import { uploadFile } from "@/lib/api";
+import { uploadFile, FabAPI, type FileAttachment } from "@/lib/api";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { Loader2, ChevronLeft, Check, Camera, X } from "lucide-react";
+import { Loader2, ChevronLeft, Check, Camera, X, FileText, ExternalLink } from "lucide-react";
 
 interface Part {
   id: string;
@@ -37,6 +37,52 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoCount, setPhotoCount] = useState(0);
   const [photoErr, setPhotoErr] = useState<string | null>(null);
+
+  // Drawing PDFs attached to this part (uploaded via the import portal or the
+  // attachments drawer). Filtered to the `drawings` bucket so a worker's own
+  // progress photos don't show up in the drawings list.
+  const [drawings, setDrawings] = useState<FileAttachment[]>([]);
+  const [drawingsLoading, setDrawingsLoading] = useState(true);
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [drawingErr, setDrawingErr] = useState<string | null>(null);
+
+  const loadDrawings = useCallback(() => {
+    let cancelled = false;
+    setDrawingsLoading(true);
+    FabAPI.listFiles("parts", id)
+      .then((files) => {
+        if (cancelled) return;
+        setDrawings(files.filter((f) => f.storage_bucket === "drawings"));
+      })
+      .catch(() => { if (!cancelled) setDrawings([]); })
+      .finally(() => { if (!cancelled) setDrawingsLoading(false); });
+    return () => { cancelled = true; };
+  }, [id]);
+
+  useEffect(() => loadDrawings(), [loadDrawings]);
+
+  async function openDrawing(attachmentId: string) {
+    setOpeningId(attachmentId); setDrawingErr(null);
+    // Open the tab synchronously so mobile Safari doesn't treat the async
+    // signed-URL fetch as a blocked popup.
+    const tab = typeof window !== "undefined" ? window.open("", "_blank") : null;
+    try {
+      const { url } = await FabAPI.signRead(attachmentId);
+      if (tab) tab.location.href = url;
+      else if (typeof window !== "undefined") window.location.href = url;
+    } catch (e) {
+      tab?.close();
+      setDrawingErr(e instanceof Error ? e.message : "Could not open drawing");
+    } finally {
+      setOpeningId(null);
+    }
+  }
+
+  function fileLabel(path: string): string {
+    const base = path.split("/").pop() ?? "drawing.pdf";
+    // Storage paths are prefixed with a random UUID; strip it for readability.
+    return base.replace(/^[0-9a-f-]{36}-/i, "");
+  }
 
   async function snap(file: File) {
     setPhotoBusy(true); setPhotoErr(null);
@@ -82,6 +128,47 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
               <Info label="Heat #" value={part.heat_number ?? "—"} />
               <Info label="Weight" value={part.weight ? `${part.weight} lb` : "—"} />
             </div>
+          </div>
+
+          {/* Drawings — the PDF(s) linked to this part's QR code */}
+          <div className="rounded-xl p-4 mb-4" style={{ background: "#1E293B", border: "1px solid #334155" }}>
+            <div className="text-[13px] font-semibold mb-2 flex items-center gap-2" style={{ color: "#E2E8F0" }}>
+              <FileText size={14} /> Drawings
+              {drawings.length > 0 && (
+                <span style={{ fontSize: 11, color: "#94A3B8", fontWeight: 400 }}>({drawings.length})</span>
+              )}
+            </div>
+
+            {drawingsLoading ? (
+              <div className="text-[13px] flex items-center gap-2" style={{ color: "#94A3B8" }}>
+                <Loader2 size={14} className="animate-spin" /> Loading drawings…
+              </div>
+            ) : drawings.length === 0 ? (
+              <div className="text-[13px]" style={{ color: "#64748B" }}>
+                No drawing attached to this part yet.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {drawings.map((d) => (
+                  <button
+                    key={d.id}
+                    onClick={() => openDrawing(d.id)}
+                    disabled={openingId === d.id}
+                    className="w-full p-3 rounded-lg flex items-center gap-3"
+                    style={{ background: "#334155", color: "white", border: "none", textAlign: "left" }}
+                  >
+                    {openingId === d.id
+                      ? <Loader2 size={16} className="animate-spin" style={{ flexShrink: 0 }} />
+                      : <FileText size={16} style={{ flexShrink: 0, color: "#93C5FD" }} />}
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {fileLabel(d.storage_path)}
+                    </span>
+                    <ExternalLink size={14} style={{ flexShrink: 0, color: "#94A3B8" }} />
+                  </button>
+                ))}
+              </div>
+            )}
+            {drawingErr && <div className="text-[12px] mt-2" style={{ color: "#FCA5A5" }}>{drawingErr}</div>}
           </div>
 
           {/* Photo capture */}

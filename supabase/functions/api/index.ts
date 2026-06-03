@@ -18,7 +18,7 @@ import {
   qcReport,
   markAllNotificationsRead,
 } from "./controllers/admin.ts";
-import { signUpload, signRead, listAttachments, deleteAttachment } from "./controllers/files.ts";
+import { signUpload, signRead, listAttachments, deleteAttachment, shareAttachment } from "./controllers/files.ts";
 import { copilot } from "./controllers/copilot.ts";
 import { signupBootstrap } from "./controllers/signup.ts";
 import { acceptInvite } from "./controllers/acceptInvite.ts";
@@ -99,6 +99,7 @@ Deno.serve(async (req) => {
 
     // Files
     if (path === "/files/sign-upload" && method === "POST") return signUpload(ctx);
+    if (path === "/files/share" && method === "POST") return shareAttachment(ctx);
     if (path === "/files" && method === "GET") return listAttachments(ctx);
     const signReadMatch = path.match(/^\/files\/sign-read\/([0-9a-f-]{36})$/i);
     if (signReadMatch && method === "GET") return signRead(ctx, signReadMatch[1]);

@@ -43,6 +43,15 @@ export default function QrCodesPage() {
   // Off-screen high-res canvases harvested into the print sheet.
   const printSourceRef = useRef<HTMLDivElement | null>(null);
 
+  // QR payload must be a real https URL so a phone camera opens it directly.
+  // The worker scan page also accepts this `/worker/parts/<id>` form (and
+  // bare UUIDs), so the in-app scanner keeps working too. We read the origin
+  // after mount because window isn't available during SSR; until then we fall
+  // back to a relative path which still encodes/decodes fine.
+  const [origin, setOrigin] = useState("");
+  useEffect(() => { setOrigin(window.location.origin); }, []);
+  const partUrl = (id: string) => `${origin}/worker/parts/${id}`;
+
   // Filters that drive the paginated parts list. Stable identity so
   // useResourcePaged doesn't refetch on every keystroke.
   const filters = useMemo(() => {
@@ -297,7 +306,7 @@ export default function QrCodesPage() {
                 </button>
 
                 <div style={{ background: "white", padding: 8, borderRadius: 6, marginBottom: 8, marginTop: 4 }}>
-                  <QRCodeCanvas value={`fabsimple://part/${p.id}`} size={88} level="H" />
+                  <QRCodeCanvas value={partUrl(p.id)} size={88} level="H" />
                 </div>
                 {project?.number && (
                   <div className="font-mono text-[10px] font-bold" style={{ color: "var(--primary)", letterSpacing: 0.5, marginBottom: 2 }}>
@@ -342,7 +351,7 @@ export default function QrCodesPage() {
           .map((p) => (
             <div key={`print-${p.id}`} data-print-qr={p.id}>
               <QRCodeCanvas
-                value={`fabsimple://part/${p.id}`}
+                value={partUrl(p.id)}
                 size={256}
                 level="H"
                 includeMargin={false}
