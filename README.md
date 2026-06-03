@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
----
+
 ## What it does
 
 FabSimple replaces the patchwork of spreadsheets, paper logs, and one-off Access databases small fab shops still run on. It covers the work that actually happens in a structural steel shop:
