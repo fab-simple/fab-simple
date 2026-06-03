@@ -84,31 +84,40 @@ export default function QrCodesPage() {
   // `rows` array so it doesn't re-run on every render — `list.data?.rows ?? []`
   // produces a new array reference when data is undefined, which would
   // otherwise cause a render → setState → render loop.
-  const [withPdf, setWithPdf] = useState<Set<string>>(new Set());
+  // Map of part id → number of drawing PDFs attached. The count doubles as a
+  // revision number on the card: uploading a second PDF to the same QR shows
+  // "v2", a third shows "v3", etc. (each upload is a new attachment row).
+  const [pdfCount, setPdfCount] = useState<Map<string, number>>(new Map());
   const [attLoading, setAttLoading] = useState(false);
   const idsKey = rows.map((r) => r.id).join(",");
   useEffect(() => {
     if (!idsKey) {
-      setWithPdf((prev) => (prev.size === 0 ? prev : new Set()));
+      setPdfCount((prev) => (prev.size === 0 ? prev : new Map()));
       return;
     }
     let cancelled = false;
     setAttLoading(true);
-    FabAPI.list<AttachmentRow>("file_attachments", {
-      entity_type: "parts",
-      entity_id__in: idsKey,
-      per_page: 200,
-    })
-      .then((res) => {
-        if (cancelled) return;
-        const s = new Set<string>();
-        for (const a of res) s.add(a.entity_id);
-        setWithPdf(s);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setWithPdf(new Set()); // fail open — show everything as missing rather than wrong
-      })
+    (async () => {
+      // Page through every attachment for the on-screen parts so revision
+      // counts stay accurate even when parts have several PDFs (the server
+      // caps each page at 200 rows).
+      const counts = new Map<string, number>();
+      let page = 1;
+      for (;;) {
+        const res = await FabAPI.listPaged<AttachmentRow>("file_attachments", {
+          entity_type: "parts",
+          entity_id__in: idsKey,
+          per_page: 200,
+          page,
+        });
+        for (const a of res.rows) counts.set(a.entity_id, (counts.get(a.entity_id) ?? 0) + 1);
+        if (!res.has_more || res.rows.length === 0) break;
+        page++;
+      }
+      return counts;
+    })()
+      .then((counts) => { if (!cancelled) setPdfCount(counts); })
+      .catch(() => { if (!cancelled) setPdfCount(new Map()); }) // fail open — show everything as missing rather than wrong
       .finally(() => { if (!cancelled) setAttLoading(false); });
     return () => { cancelled = true; };
   }, [idsKey, attachmentsRev]);
@@ -118,9 +127,9 @@ export default function QrCodesPage() {
   // shop foremen can see at a glance how many parts still need scanned drawings.
   const visible = useMemo(() => {
     if (!missingOnly) return rows;
-    return rows.filter((p) => !withPdf.has(p.id));
-  }, [rows, missingOnly, withPdf]);
-  const missingCount = rows.reduce((n, p) => n + (withPdf.has(p.id) ? 0 : 1), 0);
+    return rows.filter((p) => !pdfCount.has(p.id));
+  }, [rows, missingOnly, pdfCount]);
+  const missingCount = rows.reduce((n, p) => n + (pdfCount.has(p.id) ? 0 : 1), 0);
 
   const toggle = (id: string) => setSelected((s) => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
@@ -161,21 +170,24 @@ export default function QrCodesPage() {
         .prof { font-size: 8.5pt; color: #52525b; margin-top: 1mm; }
         .url  { font-size: 6.5pt; color: #71717a; margin-top: 2mm; font-family: monospace; }
         .nopdf { font-size: 8pt; color: #DC2626; font-weight: 600; margin-top: 1mm; }
+        .rev { font-size: 8pt; color: #16A34A; font-weight: 600; margin-top: 1mm; }
         @media print { body { margin: 0; } h2 { display: none; } }
       </style></head><body>
         <h2>FabSimple QR Code Sheet — ${sheetParts.length} parts</h2>
         <div class="grid">${sheetParts.map((p) => {
           const project = projectById.get(p.project_id);
           const jobLabel = project?.number ? `Job ${project.number}` : "";
-          const noPdf = !withPdf.has(p.id);
+          const count = pdfCount.get(p.id) ?? 0;
+          const noPdf = count === 0;
           return `
           <div class="label">
             ${qrPng[p.id] ? `<img class="qr" src="${qrPng[p.id]}" alt="QR ${escapeHtml(p.part_mark)}" />` : ""}
             ${jobLabel ? `<div class="job">${escapeHtml(jobLabel)}</div>` : ""}
             <div class="mark">${escapeHtml(p.part_mark)}</div>
             <div class="prof">${escapeHtml(p.profile)}${p.assembly_mark ? ` · ${escapeHtml(p.assembly_mark)}` : ""}</div>
-            ${noPdf ? `<div class="nopdf">⚠ NO DRAWING ATTACHED</div>` : ""}
-            <div class="url">fabsimple://part/${p.id.slice(0, 8)}…</div>
+            ${noPdf
+              ? `<div class="nopdf">⚠ NO DRAWING ATTACHED</div>`
+              : count > 1 ? `<div class="rev">DRAWING REV ${count}</div>` : ""}
           </div>
           `;
         }).join("")}</div>
@@ -259,7 +271,8 @@ export default function QrCodesPage() {
         <div className="grid-4 gap-md">
           {visible.map((p) => {
             const project = projectById.get(p.project_id);
-            const noPdf = !withPdf.has(p.id);
+            const count = pdfCount.get(p.id) ?? 0;
+            const noPdf = count === 0;
             const isSelected = selected.has(p.id);
             return (
               <div
@@ -291,18 +304,24 @@ export default function QrCodesPage() {
                     selection so users can attach a PDF without re-selecting. */}
                 <button
                   type="button"
-                  title={noPdf ? "Add drawing PDF" : "View / manage attachments"}
+                  title={noPdf
+                    ? "Add drawing PDF"
+                    : `${count} drawing${count === 1 ? "" : "s"} attached (latest is rev ${count}) — view / manage`}
                   onClick={(e) => { e.stopPropagation(); setAttachTarget(p); }}
                   className="btn btn-sm"
                   style={{
                     position: "absolute", top: 6, right: 6,
                     padding: "3px 6px",
-                    background: noPdf ? "#DC2626" : "var(--bg-muted)",
-                    color: noPdf ? "#fff" : "var(--text)",
+                    background: noPdf ? "#DC2626" : "#16A34A",
+                    color: "#fff",
                     border: "none",
+                    display: "inline-flex", alignItems: "center", gap: 3,
                   }}
                 >
                   <Paperclip size={12} />
+                  {count > 1 && (
+                    <span style={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>v{count}</span>
+                  )}
                 </button>
 
                 <div style={{ background: "white", padding: 8, borderRadius: 6, marginBottom: 8, marginTop: 4 }}>
@@ -317,6 +336,11 @@ export default function QrCodesPage() {
                 <div className="text-[10px]" style={{ color: "var(--muted)" }}>{p.profile}</div>
                 {p.assembly_mark && (
                   <div className="text-[10px] font-mono" style={{ color: "var(--muted)" }}>asm: {p.assembly_mark}</div>
+                )}
+                {count > 1 && (
+                  <div className="text-[10px] font-semibold" style={{ color: "#16A34A", marginTop: 2 }}>
+                    Drawing rev {count} · {count} versions
+                  </div>
                 )}
               </div>
             );
