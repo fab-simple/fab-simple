@@ -93,8 +93,8 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       { key: "assemblies",    label: "Assemblies",            href: "/dashboard/assemblies", icon: Layers,        roles: [...OWNER_PM_FOREMAN_QC] },
       // Daily Log: Owner Full · PM Full · Foreman Full
       { key: "daily-log",     label: "Daily Production Log",  href: "/dashboard/daily-log",  icon: ClipboardList, roles: [...OWNER_PM_FOREMAN] },
-      // Tekla CSV import: Owner + PM (treat as Parts-write).
-      { key: "import",        label: "Import / Tekla CSV",    href: "/dashboard/import",     icon: Upload,        roles: [...OWNER_PM] },
+      // Tekla / SDS2 BOM import (CSV + XLSX): Owner + PM (treat as Parts-write).
+      { key: "import",        label: "Import / Tekla BOM",    href: "/dashboard/import",     icon: Upload,        roles: [...OWNER_PM] },
       // Cut List Optimizer: Owner Full · PM Full · Foreman Full
       { key: "cut-list",      label: "Cut List Optimizer",    href: "/dashboard/cut-list",   icon: Hammer,        roles: [...OWNER_PM_FOREMAN] },
     ],

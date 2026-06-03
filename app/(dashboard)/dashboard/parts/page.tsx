@@ -184,7 +184,7 @@ export default function PartsPage() {
         columns={cols}
         loading={list.isLoading}
         error={list.error}
-        empty={{ title: "No parts yet", subtitle: "Import a Tekla CSV or add manually." }}
+        empty={{ title: "No parts yet", subtitle: "Import a Tekla / SDS2 CSV or XLSX, or add manually." }}
         rowKey={(r) => r.id}
         onRowClick={(r) => setEditing(r)}
         selectable={{ selected, onChange: setSelected }}

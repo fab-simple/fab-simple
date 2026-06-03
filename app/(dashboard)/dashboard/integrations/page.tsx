@@ -6,8 +6,8 @@ import { Plug, ExternalLink } from "lucide-react";
 const INTEGRATIONS = [
   { name: "Procore", desc: "Sync RFIs, drawings, and submittals", status: "available", icon: "🏗️" },
   { name: "QuickBooks Online", desc: "Push invoices, sync vendor bills", status: "available", icon: "💵" },
-  { name: "Tekla Structures", desc: "BOM CSV import (live now)", status: "active", icon: "📐" },
-  { name: "SDS2", desc: "BOM CSV import (live now)", status: "active", icon: "📐" },
+  { name: "Tekla Structures", desc: "BOM CSV / XLSX import (live now)", status: "active", icon: "📐" },
+  { name: "SDS2", desc: "BOM CSV / XLSX import (live now)", status: "active", icon: "📐" },
   { name: "DocuSign", desc: "Sign AIA G702 applications", status: "coming-soon", icon: "✍️" },
   { name: "Slack", desc: "Notify channels on inspection failures", status: "coming-soon", icon: "💬" },
 ];
