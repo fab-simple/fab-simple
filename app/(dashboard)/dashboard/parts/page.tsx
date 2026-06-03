@@ -128,8 +128,9 @@ export default function PartsPage() {
     { key: "asm",    label: "Assembly",  mono: true,                  sortField: "assembly_mark", sortAccessor: (r) => r.assembly_mark, render: (r) => r.assembly_mark ?? "—" },
     { key: "profile",label: "Profile",                                sortField: "profile",       sortAccessor: (r) => r.profile,       render: (r) => <span style={{ color: "var(--muted)" }}>{r.profile}</span> },
     { key: "grade",  label: "Grade",                                  sortField: "grade",         sortAccessor: (r) => r.grade,         render: (r) => r.grade ?? "—" },
+    { key: "length", label: "Length",    align: "right", mono: true,  sortField: "length",        sortAccessor: (r) => r.length ?? 0,   render: (r) => r.length != null ? Number(r.length).toFixed(2) + " in" : "—" },
     { key: "qty",    label: "Qty",       align: "right", mono: true,  sortField: "quantity",      sortAccessor: (r) => r.quantity,      render: (r) => r.quantity },
-    { key: "weight", label: "Weight",    align: "right", mono: true,  sortField: "weight",        sortAccessor: (r) => r.weight ?? 0,   render: (r) => r.weight ? Number(r.weight).toFixed(0) + " lb" : "—" },
+    { key: "weight", label: "Weight",    align: "right", mono: true,  sortField: "weight",        sortAccessor: (r) => r.weight ?? 0,   render: (r) => r.weight != null ? Number(r.weight).toFixed(0) + " lb" : "—" },
     { key: "heat",   label: "Heat #",    mono: true,                  sortField: "heat_number",   sortAccessor: (r) => r.heat_number,   render: (r) => r.heat_number ?? "—" },
     { key: "status", label: "Status",                                 sortField: "status",        sortAccessor: (r) => r.status,        render: (r) => <StatusPill status={r.status} /> },
   ];
