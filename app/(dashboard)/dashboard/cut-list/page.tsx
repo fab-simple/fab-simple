@@ -32,8 +32,7 @@ export default function CutListPage() {
   const [minRemnant, setMinRemnant] = useState("6");
   const [projectId, setProjectId] = useState("");
   const [cuts, setCuts] = useState<CutInput[]>([
-    { length: "120", qty: "3", mark: "B-101" },
-    { length: "96", qty: "2", mark: "B-102" },
+    { length: "", qty: "1", mark: "" },
   ]);
   const [plan, setPlan] = useState<CutPlan | null>(null);
   const [busy, setBusy] = useState(false);

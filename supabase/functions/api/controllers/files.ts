@@ -28,6 +28,26 @@ const UPLOAD_RBAC: Record<string, string[]> = {
   parts:              ["owner", "pm", "foreman", "worker"],
 };
 
+// Map entity → required role(s) to READ attachments on it. Mirrors the
+// SELECT permissions in supabase/functions/api/lib/permissions.ts so a
+// worker can't drain billing PDFs via /files/sign-read.
+const READ_RBAC: Record<string, string[]> = {
+  drawings:             ["owner", "pm", "estimator", "foreman", "qc", "worker"],
+  ncr_reports:          ["owner", "pm", "foreman", "qc"],
+  paint_inspections:    ["owner", "pm", "qc"],
+  weld_inspections:     ["owner", "pm", "qc"],
+  receiving_logs:       ["owner", "pm", "foreman", "accounting"],
+  shipping_tickets:     ["owner", "pm", "foreman", "accounting"],
+  billing_applications: ["owner", "pm", "accounting"],
+  daily_production_log: ["owner", "pm", "foreman"],
+  parts:                ["owner", "pm", "estimator", "foreman", "qc", "accounting", "worker"],
+};
+
+function allowedReadRoles(entityType: string): string[] {
+  // Default closed — unknown entity types require owner approval.
+  return READ_RBAC[entityType] ?? ["owner"];
+}
+
 export async function signUpload(ctx: Ctx): Promise<Response> {
   const body = await ctx.req.json().catch(() => ({}));
   const { entity_type, entity_id, bucket, filename, mime, size } = body;
@@ -72,10 +92,19 @@ export async function signUpload(ctx: Ctx): Promise<Response> {
 }
 
 export async function signRead(ctx: Ctx, id: string): Promise<Response> {
-  const { data: att, error } = await ctx.sb.from("file_attachments")
-    .select("storage_bucket, storage_path, mime_type, size_bytes, entity_type, entity_id, created_at")
+  // Use sbAdmin to look up the attachment so we can run the role check
+  // ourselves; relying on RLS would 404 first for entities the caller
+  // *could* read otherwise and hide the real reason.
+  const { data: att, error } = await ctx.sbAdmin.from("file_attachments")
+    .select("storage_bucket, storage_path, mime_type, size_bytes, entity_type, entity_id, company_id, created_at")
     .eq("id", id).maybeSingle();
   if (error || !att) return err("File not found", 404, "not_found");
+  if (att.company_id !== ctx.user.company_id) return err("File not found", 404, "not_found");
+
+  const entityType = String(att.entity_type);
+  if (!allowedReadRoles(entityType).includes(ctx.user.role)) {
+    return err("Forbidden", 403, "forbidden");
+  }
 
   const { data, error: sErr } = await ctx.sbAdmin.storage
     .from(att.storage_bucket as string)
@@ -96,6 +125,12 @@ export async function listAttachments(ctx: Ctx): Promise<Response> {
   const entityType = ctx.url.searchParams.get("entity_type");
   const entityId = ctx.url.searchParams.get("entity_id");
   if (!entityType || !entityId) return err("entity_type and entity_id required", 422, "validation");
+
+  // Entity-type level RBAC: a worker should never be able to enumerate
+  // billing_applications attachments, etc.
+  if (!allowedReadRoles(entityType).includes(ctx.user.role)) {
+    return err("Forbidden", 403, "forbidden");
+  }
 
   const { data, error } = await ctx.sb.from("file_attachments")
     .select("id, storage_bucket, storage_path, mime_type, size_bytes, created_at, uploaded_by")

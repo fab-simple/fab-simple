@@ -5,7 +5,7 @@ import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
-import { useResourceList, useCreate } from "@/hooks/useResource";
+import { useResourceList, useCreate, useOrganization } from "@/hooks/useResource";
 import { Plus, FileDown } from "lucide-react";
 import { generateAiaG702, type BillingApp } from "@/lib/pdf";
 
@@ -16,21 +16,94 @@ interface Bill {
   previous_billed: number; amount_due: number; pct_complete: number;
   status: string; project_id: string;
 }
-interface Project { id: string; name: string; }
+interface Project { id: string; name: string; number?: string; gc_name?: string | null; }
 
 const STATUSES = ["draft", "submitted", "certified", "paid"];
 
 export default function BillingPage() {
   const projects = useResourceList<Project>("projects", { limit: "100" });
+  const org = useOrganization();
   const [projectId, setProjectId] = useState<string>("");
   const project = projectId || projects.data?.[0]?.id;
+  const projectRow = projects.data?.find((p) => p.id === project);
   const list = useResourceList<Bill>("billing_applications", project ? { project_id: project, order_by: "application_number", dir: "asc" } : undefined);
   const create = useCreate<Bill>("billing_applications");
   const [showNew, setShowNew] = useState(false);
 
-  const projectName = projects.data?.find((p) => p.id === project)?.name ?? "";
+  // G703 Schedule of Values for the currently selected project. Drives the
+  // line-item table on the printed AIA continuation sheet.
+  const scheduleOfValues = useResourceList<{
+    id: string;
+    description: string;
+    scheduled_value: number | string;
+    sort_order: number;
+  }>(
+    "billing_line_items",
+    project ? { project_id: project, order_by: "sort_order", dir: "asc", limit: "200" } : undefined,
+  );
+
+  const projectName = projectRow?.name ?? "";
+  const projectNumber = projectRow?.number ?? project ?? "";
+  const gcName = projectRow?.gc_name ?? "—";
+  // Legal entity name lives on the org profile; fall back to the display
+  // name only if the owner hasn't set a legal_name yet.
+  const contractorName = org.data?.legal_name ?? org.data?.name ?? "—";
 
   function downloadPdf(bill: Bill) {
+    // Spread `completed_to_date` and `materials_stored` proportionally across
+    // each line-item's scheduled value so the printed G703 reads like a real
+    // pay app rather than a blank table. If the project has no schedule of
+    // values, we render a single "Lump sum" row with the totals.
+    const sov = (scheduleOfValues.data ?? []).map((line) => ({
+      id: line.id,
+      description: line.description,
+      scheduled_value: Number(line.scheduled_value),
+    }));
+    const totalSov = sov.reduce((s, l) => s + l.scheduled_value, 0);
+
+    const completedToDate = Number(bill.completed_to_date);
+    const materialsStored = Number(bill.materials_stored);
+    const previousBilled = Number(bill.previous_billed);
+    const retainagePct = Number(bill.retainage_percent);
+
+    const lines = totalSov > 0
+      ? sov.map((l, idx) => {
+          const share = l.scheduled_value / totalSov;
+          const completedToDateLine = completedToDate * share;
+          const previousLine = previousBilled * share;
+          const thisPeriod = Math.max(0, completedToDateLine - previousLine);
+          const materialsLine = materialsStored * share;
+          const totalDone = completedToDateLine + materialsLine;
+          const pct = l.scheduled_value > 0 ? (totalDone / l.scheduled_value) * 100 : 0;
+          return {
+            line_number: idx + 1,
+            description: l.description,
+            scheduled_value: l.scheduled_value,
+            from_previous: previousLine,
+            this_period: thisPeriod,
+            materials_stored: materialsLine,
+            total_completed: totalDone,
+            completion_pct: Math.round(pct * 10) / 10,
+            balance_to_finish: Math.max(0, l.scheduled_value - totalDone),
+            retainage: (totalDone * retainagePct) / 100,
+          };
+        })
+      : [{
+          line_number: 1,
+          description: "Lump sum (no schedule of values configured)",
+          scheduled_value: Number(bill.original_contract) + Number(bill.change_orders_total),
+          from_previous: previousBilled,
+          this_period: Math.max(0, completedToDate - previousBilled),
+          materials_stored: materialsStored,
+          total_completed: completedToDate + materialsStored,
+          completion_pct: Number(bill.pct_complete),
+          balance_to_finish: Math.max(
+            0,
+            Number(bill.original_contract) + Number(bill.change_orders_total) - completedToDate - materialsStored,
+          ),
+          retainage: Number(bill.retainage_withheld),
+        }];
+
     const data: BillingApp = {
       application_number: bill.application_number,
       application_date: new Date().toISOString(),
@@ -46,10 +119,10 @@ export default function BillingPage() {
       less_previous: Number(bill.previous_billed),
       current_payment_due: Number(bill.amount_due),
       project_name: projectName,
-      project_number: project ?? "",
-      gc_name: "—",
-      contractor_name: "FabSimple Steel",
-      lines: [],
+      project_number: projectNumber,
+      gc_name: gcName,
+      contractor_name: contractorName,
+      lines,
     };
     const doc = generateAiaG702(data);
     doc.save(`AIA-G702-${projectName.replace(/\s+/g, "-")}-App${bill.application_number}.pdf`);

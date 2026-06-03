@@ -12,7 +12,21 @@ import { getInsertSchema, getUpdateSchema } from "../schemas/validation.ts";
 import { sanitize } from "../lib/sanitize.ts";
 import { writeAudit, writeActivity } from "../services/audit.ts";
 
-const MAX_LIMIT = 1000;
+// Hard cap on a single list response. Customers with bigger windows must
+// paginate (page / per_page). At ~200 KB per row × 200 rows we're under the
+// Edge Function 6 MB response limit even on the heaviest tables.
+const MAX_PER_PAGE = 200;
+const DEFAULT_PER_PAGE = 25;
+
+// Field name validator for sort/filter — only allow snake_case identifiers
+// so callers can't smuggle SQL via order_by.
+const FIELD_RE = /^[a-z_][a-z0-9_]*$/;
+
+function parseInteger(raw: string | null, fallback: number): number {
+  if (raw == null) return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 export async function listOrGet(ctx: Ctx, table: string, id?: string): Promise<Response> {
   const cfg = tableConfig(table);
@@ -27,33 +41,107 @@ export async function listOrGet(ctx: Ctx, table: string, id?: string): Promise<R
   }
 
   const params = ctx.url.searchParams;
-  const limit = Math.min(parseInt(params.get("limit") ?? "100", 10) || 100, MAX_LIMIT);
-  const offset = parseInt(params.get("offset") ?? "0", 10) || 0;
-  const orderBy = params.get("order_by") ?? "created_at";
-  const direction = params.get("dir") === "asc" ? true : false;
 
-  let q = ctx.sb.from(table).select("*", { count: "exact" }).range(offset, offset + limit - 1).order(orderBy, { ascending: direction });
+  // Pagination — supports BOTH legacy (?limit=&offset=) and the new
+  // (?page=&per_page=) style. The legacy form is kept so existing pages and
+  // hooks don't break the moment this ships.
+  let perPage: number;
+  let offset: number;
+  let page: number;
 
-  // Apply field=value filters from query params (skipping reserved keys)
-  const reserved = new Set(["limit", "offset", "order_by", "dir", "q"]);
+  const perPageRaw = params.get("per_page") ?? params.get("limit");
+  perPage = Math.min(
+    Math.max(parseInteger(perPageRaw, DEFAULT_PER_PAGE), 1),
+    MAX_PER_PAGE,
+  );
+
+  const pageParam = params.get("page");
+  if (pageParam != null) {
+    page = Math.max(parseInteger(pageParam, 1), 1);
+    offset = (page - 1) * perPage;
+  } else {
+    offset = Math.max(parseInteger(params.get("offset"), 0), 0);
+    page = Math.floor(offset / perPage) + 1;
+  }
+
+  const rawOrderBy = params.get("order_by") ?? "created_at";
+  const orderBy = FIELD_RE.test(rawOrderBy) ? rawOrderBy : "created_at";
+  const ascending = params.get("dir") === "asc";
+
+  // Always include a deterministic tiebreaker (id). Without it, rows with
+  // identical primary sort keys (e.g. 96 parts seeded in one transaction
+  // share the exact same created_at) shuffle between requests and pages
+  // start overlapping — the classic "scroll-and-see-the-same-row-again"
+  // pagination bug. Skip the tiebreaker when the caller is already
+  // sorting by id.
+  let q = ctx.sb
+    .from(table)
+    .select("*", { count: "exact" })
+    .range(offset, offset + perPage - 1)
+    .order(orderBy, { ascending });
+  if (orderBy !== "id") {
+    q = q.order("id", { ascending: true });
+  }
+
+  // Apply field=value filters. The format is either:
+  //   `column=value`              → eq
+  //   `column__op=value`          → op ∈ in, neq, gt, gte, lt, lte, ilike, like, is_null, not_null
+  const reserved = new Set([
+    "limit", "offset", "per_page", "page", "order_by", "dir", "q",
+  ]);
+  const SUFFIXES = [
+    "__in", "__neq", "__gt", "__gte", "__lt", "__lte",
+    "__ilike", "__like", "__is_null", "__not_null",
+  ] as const;
+
   for (const [k, v] of params.entries()) {
     if (reserved.has(k)) continue;
-    if (k.endsWith("__in")) {
-      q = q.in(k.replace(/__in$/, ""), v.split(","));
-    } else if (k.endsWith("__gte")) {
-      q = q.gte(k.replace(/__gte$/, ""), v);
-    } else if (k.endsWith("__lte")) {
-      q = q.lte(k.replace(/__lte$/, ""), v);
-    } else if (k.endsWith("__ilike")) {
-      q = q.ilike(k.replace(/__ilike$/, ""), `%${v}%`);
-    } else {
-      q = q.eq(k, v);
+
+    let column = k;
+    let op: typeof SUFFIXES[number] | "__eq" = "__eq";
+    for (const suf of SUFFIXES) {
+      if (k.endsWith(suf)) {
+        column = k.slice(0, -suf.length);
+        op = suf;
+        break;
+      }
+    }
+    if (!FIELD_RE.test(column)) continue; // ignore garbage param names
+
+    switch (op) {
+      case "__in":      q = q.in(column, v.split(",").map((s) => s.trim()).filter(Boolean)); break;
+      case "__neq":     q = q.neq(column, v); break;
+      case "__gt":      q = q.gt(column, v); break;
+      case "__gte":     q = q.gte(column, v); break;
+      case "__lt":      q = q.lt(column, v); break;
+      case "__lte":     q = q.lte(column, v); break;
+      case "__ilike":   q = q.ilike(column, v.includes("%") ? v : `%${v}%`); break;
+      case "__like":    q = q.like(column, v.includes("%") ? v : `%${v}%`); break;
+      case "__is_null": q = q.is(column, null); break;
+      case "__not_null": q = q.not(column, "is", null); break;
+      case "__eq":
+      default:          q = q.eq(column, v); break;
     }
   }
 
   const { data, error, count } = await q;
   if (error) return err(error.message, 400, "db_error");
-  return ok(data ?? [], { count: count ?? 0, limit, offset });
+
+  const total = count ?? 0;
+  const has_more = offset + (data?.length ?? 0) < total;
+
+  // Dual-shape response: top-level `data` stays a bare array for legacy
+  // callers (`FabAPI.list` unwraps `data` directly into `T[]`). The new
+  // `pagination` envelope sits alongside for new callers (`listPaged`)
+  // that need total / page / per_page / has_more.
+  return ok(data ?? [], {
+    pagination: { total, page, per_page: perPage, has_more, offset },
+    // Legacy keys (so old code that read `count` / `limit` / `offset` at
+    // the top level still works).
+    count: total,
+    limit: perPage,
+    offset,
+  });
 }
 
 export async function create(ctx: Ctx, table: string): Promise<Response> {

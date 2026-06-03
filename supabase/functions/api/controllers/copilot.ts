@@ -30,7 +30,16 @@ async function buildContext(ctx: Ctx, projectId?: string): Promise<string> {
   return parts.join("\n");
 }
 
+// SECURITY: workers cannot reach the Copilot. The system prompt pulls
+// project contract values and NCR descriptions which they shouldn't see,
+// and in production the same data is shipped to a third-party LLM.
+const COPILOT_ROLES = new Set(["owner", "pm", "estimator", "foreman", "qc", "accounting"]);
+
 export async function copilot(ctx: Ctx): Promise<Response> {
+  if (!COPILOT_ROLES.has(ctx.user.role)) {
+    return err("Forbidden", 403, "forbidden");
+  }
+
   const body = await ctx.req.json().catch(() => ({}));
   const { messages, project_id } = body as { messages: ChatMessage[]; project_id?: string };
   if (!Array.isArray(messages) || messages.length === 0) {

@@ -15,8 +15,12 @@ export default function ForgotPage() {
     e.preventDefault();
     setLoading(true); setError(null);
     const supabase = createClient();
+    // Point the magic link back through /auth/callback, which detects the
+    // `type=recovery` flow and routes the user into /auth/update-password so
+    // they can actually set a new password (otherwise they'd just land on
+    // /dashboard still using the password they forgot).
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback`,
+      redirectTo: `${window.location.origin}/auth/callback?type=recovery`,
     });
     setLoading(false);
     if (error) setError(error.message);

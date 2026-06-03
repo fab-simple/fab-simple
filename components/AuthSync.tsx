@@ -50,6 +50,9 @@ export function AuthSync({ children }: { children: React.ReactNode }) {
 
       if (!profile) {
         setSession(session.access_token, null);
+        // Surface the "loaded but no profile" state to the UI so it can render
+        // an empty header instead of falling back to stale defaults.
+        dispatch(setUser({ userId: null, name: "", email: "", role: "", initials: "" }));
         return;
       }
       setSession(session.access_token, profile.role as string);

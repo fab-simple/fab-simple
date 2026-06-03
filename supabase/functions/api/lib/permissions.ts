@@ -223,6 +223,18 @@ export const TABLES: Record<string, TableConfig> = {
     hasCompanyId: true,
     activity: { entity_type: "billing_applications", label_field: "application_number" },
   },
+  // G703 Schedule-of-Values line items. Estimators can manage these so the
+  // estimate → billing handoff is editable post-conversion. Owner/Accounting
+  // are the canonical owners; PM reads for context.
+  billing_line_items: {
+    table: "billing_line_items",
+    insertable: ["owner", "accounting", "estimator"],
+    updatable: ["owner", "accounting", "estimator"],
+    deletable: ["owner", "accounting"],
+    readable: ["owner", "pm", "accounting", "estimator"],
+    hasCompanyId: true,
+    activity: { entity_type: "billing_line_items", label_field: "description" },
+  },
   // Job Cost: Owner Full · Estimator View · PM Full · Accounting Full
   job_costs: {
     table: "job_costs",

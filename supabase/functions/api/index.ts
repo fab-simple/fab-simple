@@ -6,6 +6,7 @@ import { log, requestId } from "./lib/log.ts";
 import { authenticate } from "./middleware/auth.ts";
 import { rateLimit } from "./middleware/rateLimit.ts";
 import { listOrGet, create, update, remove } from "./controllers/crud.ts";
+import { bulkUpdate } from "./controllers/bulk.ts";
 import { dashboard } from "./controllers/dashboard.ts";
 import { importCsv } from "./controllers/import.ts";
 import { cutOptimize } from "./controllers/cutOptimizer.ts";
@@ -20,7 +21,9 @@ import {
 import { signUpload, signRead, listAttachments, deleteAttachment } from "./controllers/files.ts";
 import { copilot } from "./controllers/copilot.ts";
 import { signupBootstrap } from "./controllers/signup.ts";
+import { acceptInvite } from "./controllers/acceptInvite.ts";
 import { search } from "./controllers/search.ts";
+import { getOrganization, updateOrganization } from "./controllers/organization.ts";
 
 const TABLE_RE = /^\/api\/?([a-z_]+)(?:\/([0-9a-f-]{36}))?\/?$/i;
 
@@ -61,6 +64,12 @@ Deno.serve(async (req) => {
     return signupBootstrap(req);
   }
 
+  // Public: accept-invite (no JWT yet — the invitee doesn't have one until
+  // they consume the invitation token and sign in for the first time).
+  if (url.pathname.endsWith("/accept-invite") && req.method === "POST") {
+    return acceptInvite(req);
+  }
+
   // Authenticate
   const ctxOrResponse = await authenticate(req, url);
   if (ctxOrResponse instanceof Response) return ctxOrResponse;
@@ -76,6 +85,8 @@ Deno.serve(async (req) => {
 
     // Specials first
     if (path === "/dashboard" && method === "GET") return dashboard(ctx);
+    if (path === "/organization" && method === "GET") return getOrganization(ctx);
+    if (path === "/organization" && method === "PATCH") return updateOrganization(ctx);
     if (path === "/import/csv" && method === "POST") return importCsv(ctx);
     if (path === "/cut-optimize" && method === "POST") return cutOptimize(ctx);
     if (path === "/seed-aisc" && method === "POST") return seedAisc(ctx);
@@ -99,6 +110,14 @@ Deno.serve(async (req) => {
 
     // Global search
     if (path === "/search" && method === "GET") return search(ctx);
+
+    // Bulk update on a table: /{table}/bulk-update
+    // Matches *before* the generic /{table}/{id} route so "bulk-update" isn't
+    // interpreted as a UUID.
+    const bulkMatch = path.match(/^\/([a-z_]+)\/bulk-update$/i);
+    if (bulkMatch && method === "POST") {
+      return bulkUpdate(ctx, bulkMatch[1]);
+    }
 
     // Generic CRUD: /{table} or /{table}/{id}
     const match = url.pathname.match(TABLE_RE);

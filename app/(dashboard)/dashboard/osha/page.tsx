@@ -38,7 +38,27 @@ export default function OshaPage() {
         </div>
       </div>
 
-      {Object.entries(grouped).map(([cat, list]) => (
+      {items.error ? (
+        <div className="card" style={{ padding: 24, color: "var(--danger, #b91c1c)" }}>
+          <strong>Failed to load OSHA checklist.</strong>
+          <div style={{ marginTop: 6, fontSize: 12 }}>{items.error.message}</div>
+          <button className="btn" style={{ marginTop: 12, height: 30 }} onClick={() => items.refetch()}>Retry</button>
+        </div>
+      ) : items.isLoading ? (
+        <div className="card" style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>Loading…</div>
+      ) : (items.data?.length ?? 0) === 0 ? (
+        <div className="card" style={{ padding: 32, textAlign: "center" }}>
+          <CheckCircle2 size={28} style={{ color: "var(--muted)", margin: "0 auto 12px" }} />
+          <div className="text-[16px] font-bold" style={{ color: "var(--text)", marginBottom: 6 }}>
+            No OSHA checklist items yet
+          </div>
+          <div className="text-[13px]" style={{ color: "var(--muted)" }}>
+            OSHA 29 CFR items are seeded per-shop. Ask your owner or PM to seed
+            the default catalogue, or add items by hand once your safety lead
+            has reviewed which ones apply to your shop.
+          </div>
+        </div>
+      ) : Object.entries(grouped).map(([cat, list]) => (
         <div className="card" key={cat} style={{ marginBottom: 20 }}>
           <div className="card-header">
             <div className="card-title">{cat}</div>
