@@ -33,6 +33,40 @@ export function setSession(accessToken: string | null, userRole?: string | null)
 export function getRole() { return role; }
 export function getToken() { return token; }
 
+// Page refresh sequence:
+//   1. middleware reads cookie → user is signed in → page renders
+//   2. React mounts → useDashboard/useResource* queries fire **immediately**
+//   3. AuthSync's useEffect runs **after** that first render, so setSession
+//      hasn't populated `token` yet → first API call ships no Bearer → 401
+//      → old behaviour was signOut() → user bounced to /auth/signin
+//
+// To kill that race, every request asks the Supabase browser client for the
+// current session if our in-memory cache is empty. getSession() resolves in a
+// microtask when the cookies are already present (no network), so this is
+// effectively free on the hot path.
+async function ensureAccessToken(): Promise<string | null> {
+  if (token) return token;
+  if (typeof window === "undefined") return null;
+  try {
+    const sb = createClient();
+    const { data: { session } } = await sb.auth.getSession();
+    if (session?.access_token) {
+      token = session.access_token;
+      lastActivity = Date.now();
+      return token;
+    }
+  } catch { /* swallow — caller falls through to the no-token path */ }
+  return null;
+}
+
+// Same as above but force-skips the cache. Used after a 401 to give the SDK
+// a chance to rotate the access_token (Supabase silently refreshes when the
+// stored refresh_token is still valid) before we give up and sign the user out.
+async function refreshAccessToken(): Promise<string | null> {
+  token = null;
+  return ensureAccessToken();
+}
+
 function isIdle(): boolean {
   const limit = IDLE_LIMITS[role ?? "default"] ?? IDLE_LIMITS.default;
   return Date.now() - lastActivity > limit;
@@ -114,10 +148,12 @@ async function callEnvelope<T>(path: string, method: string, opts: FetchOpts = {
     apikey: ANON_KEY,
     "content-type": "application/json",
   };
-  if (token) headers.authorization = `Bearer ${token}`;
+  const initialToken = await ensureAccessToken();
+  if (initialToken) headers.authorization = `Bearer ${initialToken}`;
 
   const retries = opts.retries ?? 3;
   let lastError: FabApiError | null = null;
+  let didReauth = false;
 
   for (let attempt = 0; attempt < retries; attempt++) {
     const res = await fetch(url.toString(), { method, headers, body });
@@ -139,6 +175,20 @@ async function callEnvelope<T>(path: string, method: string, opts: FetchOpts = {
     if (!res.ok) {
       const msg = json.error?.message ?? `HTTP ${res.status}`;
       const code = json.error?.code ?? "http_error";
+      // 401 can fire for two reasons we can recover from:
+      //   • race: AuthSync hasn't pushed the token into module state yet
+      //   • drift: our cached access_token rotated server-side
+      // Give the Supabase SDK one shot to hand us a fresh token before we
+      // give up and sign the user out — otherwise refreshes feel like
+      // random signouts even though the session is still valid.
+      if (res.status === 401 && !didReauth) {
+        didReauth = true;
+        const fresh = await refreshAccessToken();
+        if (fresh && fresh !== initialToken) {
+          headers.authorization = `Bearer ${fresh}`;
+          continue;
+        }
+      }
       if (res.status === 401) await signOut();
       const fabErr = new FabApiError(msg, res.status, code);
       if (res.status >= 500) captureException(fabErr, { route: path, method, status: res.status });
