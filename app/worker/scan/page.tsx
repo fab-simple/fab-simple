@@ -7,14 +7,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Camera, AlertCircle, Keyboard, X } from "lucide-react";
+import jsQR from "jsqr";
 
-type DetectFn = (video: HTMLVideoElement) => Promise<string | null>;
-
-declare global {
-  interface Window {
-    BarcodeDetector?: new (opts?: { formats: string[] }) => { detect: (s: HTMLVideoElement | ImageBitmap) => Promise<{ rawValue: string }[]> };
-  }
-}
+type DetectFn = (video: HTMLVideoElement) => string | null;
 
 function parseFabUri(raw: string): string | null {
   try {
@@ -38,8 +33,8 @@ export default function ScanPage() {
   useEffect(() => {
     if (manual) return;
     if (typeof window === "undefined" || !navigator.mediaDevices) { setError("Camera not available on this device"); return; }
-    if (!window.BarcodeDetector) { setError("This browser cannot scan QR — use manual entry."); return; }
 
+    stoppedRef.current = false;
     let stream: MediaStream | null = null;
     (async () => {
       try {
@@ -48,19 +43,30 @@ export default function ScanPage() {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
         }
-        const detector = new window.BarcodeDetector!({ formats: ["qr_code"] });
-        const detect: DetectFn = async (v) => {
-          try {
-            const res = await detector.detect(v);
-            return res[0]?.rawValue ?? null;
-          } catch { return null; }
-        };
-        const loop = async () => {
-          if (stoppedRef.current || !videoRef.current) return;
-          const raw = await detect(videoRef.current);
-          if (raw) {
-            const id = parseFabUri(raw);
-            if (id) { stoppedRef.current = true; router.push(`/worker/parts/${id}`); return; }
+
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+
+        const loop = () => {
+          if (stoppedRef.current || !videoRef.current || !context) return;
+          const video = videoRef.current;
+          if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: "dontInvert",
+            });
+            if (code) {
+              const raw = code.data;
+              const id = parseFabUri(raw);
+              if (id) {
+                stoppedRef.current = true;
+                router.push(`/worker/parts/${id}`);
+                return;
+              }
+            }
           }
           requestAnimationFrame(loop);
         };
@@ -72,7 +78,9 @@ export default function ScanPage() {
 
     return () => {
       stoppedRef.current = true;
-      stream?.getTracks().forEach((t) => t.stop());
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
     };
   }, [manual, router]);
 
