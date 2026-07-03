@@ -26,6 +26,7 @@ interface Part {
   status: string;
   assembly_mark: string | null;
   heat_number: string | null;
+  finish?: string | null;
   weight: number | null;
   project_name?: string | null;
   project_number?: string | null;
@@ -244,9 +245,10 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
             </div>
 
             {/* Metadata Grid */}
-            <div className="grid grid-cols-3 gap-3 !mt-5 pt-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 !mt-5 pt-4">
               <Info label="Assembly" value={part.assembly_mark ?? "—"} />
               <Info label="Heat #" value={part.heat_number ?? "—"} />
+              <Info label="Finish / Shop" value={part.finish ?? "SHOP PRIMER"} />
               <Info label="Weight" value={part.weight ? `${part.weight} lb` : "—"} />
             </div>
           </div>

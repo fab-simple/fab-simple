@@ -7,7 +7,7 @@ import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI } from "@/lib/api";
 import { QRCodeCanvas } from "qrcode.react";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
-import { Printer, Paperclip, AlertCircle, Loader2, Flame, Check } from "lucide-react";
+import { Printer, Paperclip, AlertCircle, Loader2, Flame, Paintbrush, Check } from "lucide-react";
 
 interface Part {
   id: string;
@@ -17,6 +17,7 @@ interface Part {
   name: string | null;
   grade: string | null;
   heat_number: string | null;
+  finish: string | null;
   quantity: number | null;
   project_id: string;
 }
@@ -182,6 +183,7 @@ export default function QrCodesPage() {
         .mark { font-size: 13pt; font-weight: 800; font-family: ui-monospace, SFMono-Regular, monospace; letter-spacing: 0.5px; color: #0f172a; margin-top: 1mm; }
         .prof { font-size: 8.5pt; font-weight: 600; color: #334155; margin-top: 1mm; }
         .heat { display: inline-block; background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5; font-size: 7.5pt; font-weight: 700; font-family: ui-monospace, SFMono-Regular, monospace; padding: 1.5px 7px; border-radius: 3px; margin-top: 1.5mm; }
+        .shop { display: inline-block; background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; font-size: 7.5pt; font-weight: 700; font-family: ui-monospace, SFMono-Regular, monospace; padding: 1.5px 7px; border-radius: 3px; margin-top: 1.5mm; margin-left: 1mm; }
         .meta { font-size: 7.5pt; color: #64748b; margin-top: 1mm; font-family: ui-monospace, SFMono-Regular, monospace; }
         .nopdf { font-size: 7.5pt; color: #dc2626; font-weight: 700; margin-top: 1.5mm; background: #fef2f2; padding: 1px 4px; border-radius: 2px; }
         .rev { font-size: 7.5pt; color: #16a34a; font-weight: 700; margin-top: 1.5mm; }
@@ -216,6 +218,7 @@ export default function QrCodesPage() {
             <div class="mark">${escapeHtml(p.part_mark)}</div>
             <div class="prof">${escapeHtml(p.profile)}${p.grade ? ` · ${escapeHtml(p.grade)}` : ""}</div>
             <div class="heat">HEAT #: ${escapeHtml(p.heat_number || "Unassigned")}</div>
+            <div class="shop">SHOP: ${escapeHtml(p.finish || "SHOP PRIMER")}</div>
             ${p.assembly_mark ? `<div class="meta">Asm: ${escapeHtml(p.assembly_mark)}${p.quantity != null ? ` · Qty: ${p.quantity}` : ""}</div>` : ""}
             ${noPdf
               ? `<div class="nopdf">⚠ NO DRAWING ATTACHED</div>`
@@ -433,8 +436,8 @@ export default function QrCodesPage() {
                     )}
                   </div>
 
-                  {/* Heat Number Badge */}
-                  <div className="flex justify-center mt-1">
+                  {/* Heat Number & Shop Finish Badges */}
+                  <div className="flex items-center justify-center gap-1.5 flex-wrap mt-1">
                     <div
                       className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold"
                       style={{
@@ -446,6 +449,19 @@ export default function QrCodesPage() {
                     >
                       <Flame size={11} style={{ color: p.heat_number ? "#fb923c" : "var(--muted)" }} />
                       <span>Heat: {p.heat_number || "Unassigned"}</span>
+                    </div>
+
+                    <div
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold"
+                      style={{
+                        background: "rgba(99, 102, 241, 0.15)",
+                        color: "#818cf8",
+                        border: "1px solid rgba(99, 102, 241, 0.3)",
+                      }}
+                      title={`Shop Finish: ${p.finish || "SHOP PRIMER"}`}
+                    >
+                      <Paintbrush size={11} style={{ color: "#818cf8" }} />
+                      <span>Shop: {p.finish || "SHOP PRIMER"}</span>
                     </div>
                   </div>
 

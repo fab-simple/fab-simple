@@ -24,7 +24,7 @@ export async function GET(
   // 1. Fetch part
   const { data: part, error: partErr } = await supabaseAdmin
     .from("parts")
-    .select("id, part_mark, profile, status, assembly_mark, heat_number, weight, project_id")
+    .select("id, part_mark, profile, status, assembly_mark, heat_number, finish, weight, project_id")
     .eq("id", id)
     .maybeSingle();
 
