@@ -131,24 +131,68 @@ export async function convertEstimate(ctx: Ctx): Promise<Response> {
   const { data: est, error: eErr } = await ctx.sb.from("estimates").select("*").eq("id", estimate_id).maybeSingle();
   if (eErr || !est) return err("Estimate not found", 404, "not_found");
 
-  // Generate PRJ-YYYY-NNNN
-  const { data: projNum } = await ctx.sbAdmin.rpc("next_sequence_number", {
-    p_company_id: ctx.user.company_id,
-    p_table_name: "projects",
-    p_prefix: `PRJ-${new Date().getFullYear()}`,
-    p_width: 4,
-  });
+  // Calculate pricing breakdown totals from the estimate
+  const materials = Array.isArray(est.materials_breakdown) ? est.materials_breakdown : [];
+  let materialTotal = 0;
+  let totalTons = 0;
+  for (const m of materials) {
+    const tons = Number(m.tons || 0);
+    const ppt = Number(m.price_per_ton || 0);
+    materialTotal += tons * ppt;
+    totalTons += tons;
+  }
+
+  const laborHours = Number(est.detailing_hours || 0) + Number(est.fabrication_hours || 0) + Number(est.erection_hours || 0);
+  const laborTotal = laborHours * Number(est.labor_rate || 75.00);
+
+  const freightTotal = Number(est.freight_mill_to_shop || 0) + Number(est.freight_shop_to_site || 0);
+
+  let coatingTotal = 0;
+  if (est.paint_coating_required) {
+    if (est.coating_pricing_method === "per_ton") {
+      coatingTotal = totalTons * Number(est.coating_price_per_ton || 0);
+    } else {
+      coatingTotal = Number(est.coating_lump_sum || 0);
+    }
+  }
+
+  const subtotal = materialTotal + laborTotal + freightTotal + coatingTotal;
+  const marginTotal = subtotal * (Number(est.margin_pct || 15) / 100);
+  const contingencyTotal = subtotal * (Number(est.contingency_pct || 0) / 100);
+  const totalBidPrice = subtotal + marginTotal + contingencyTotal;
+
+  const finalContractValue = est.total_amount && Number(est.total_amount) > 0 
+    ? Number(est.total_amount) 
+    : totalBidPrice;
+
+  const baselineBudget = {
+    material: materialTotal,
+    labor: laborTotal,
+    freight: freightTotal,
+    coating: coatingTotal,
+    subtotal: subtotal,
+    margin: marginTotal,
+    contingency: contingencyTotal,
+    total: finalContractValue
+  };
 
   const { data: project, error: pErr } = await ctx.sb.from("projects").insert({
     company_id: ctx.user.company_id,
     name: est.project_name,
-    number: projNum,
+    number: null, // blank Job Number on creation
     gc_name: est.gc_name,
-    contract_value: est.total_amount,
-    est_tonnage: est.structural_tons,
+    architect_eor: est.architect_eor,
+    project_location: est.project_location,
+    contract_value: finalContractValue,
+    est_tonnage: totalTons || est.structural_tons,
+    unique_piece_marks: est.unique_piece_marks,
+    baseline_budget: baselineBudget,
+    drawing_set_ref: est.drawing_set_ref,
+    exclusions_qualifications: est.exclusions_qualifications,
+    estimate_id: est.id,
     pm_id: pm_id ?? null,
-    deadline: deadline ?? null,
-    status: "active",
+    deadline: deadline ?? est.bid_due_date ?? null,
+    status: "awarded_setup", // Pending Job Number
     created_by: ctx.user.id,
   }).select().single();
   if (pErr) return err(pErr.message, 400, "db_error");
@@ -160,31 +204,81 @@ export async function convertEstimate(ctx: Ctx): Promise<Response> {
     converted_project_id: project.id,
   }).eq("id", estimate_id);
 
-  // Carry estimate line items over to the new project's billing schedule of
-  // values so AIA G703 + job-cost rollups have something to point at on day 1.
-  let linesCarried = 0;
-  const { data: estLines } = await ctx.sb.from("estimate_line_items")
-    .select("description, quantity, unit, unit_cost, total_cost, sort_order")
-    .eq("estimate_id", estimate_id);
+  // Seed baseline budgets into job_costs tracker
+  const baselineCosts = [
+    { company_id: ctx.user.company_id, project_id: project.id, cost_code: "material", description: "Material Baseline Budget", budget_amount: materialTotal },
+    { company_id: ctx.user.company_id, project_id: project.id, cost_code: "labor", description: "Labor Baseline Budget", budget_amount: laborTotal },
+    { company_id: ctx.user.company_id, project_id: project.id, cost_code: "freight", description: "Freight Baseline Budget", budget_amount: freightTotal },
+    { company_id: ctx.user.company_id, project_id: project.id, cost_code: "coating", description: "Paint/Coating Baseline Budget", budget_amount: coatingTotal },
+  ];
+  await ctx.sb.from("job_costs").insert(baselineCosts);
 
-  if (estLines && estLines.length > 0) {
-    const billingRows = estLines.map((line, idx) => ({
+  // Seed billing_line_items for AIA G703 Billing
+  const billingRows = [];
+  let sortOrder = 0;
+  for (const m of materials) {
+    const tons = Number(m.tons || 0);
+    const ppt = Number(m.price_per_ton || 0);
+    if (tons > 0) {
+      billingRows.push({
+        company_id: ctx.user.company_id,
+        project_id: project.id,
+        description: `Material - ${m.shape}`,
+        quantity: tons,
+        unit: "ton",
+        unit_cost: ppt,
+        total_cost: tons * ppt,
+        sort_order: sortOrder++,
+        source: "estimate_conversion",
+      });
+    }
+  }
+
+  if (laborHours > 0) {
+    billingRows.push({
       company_id: ctx.user.company_id,
       project_id: project.id,
-      description: line.description ?? `Line ${idx + 1}`,
-      quantity: line.quantity ?? 1,
-      unit: line.unit ?? "ls",
-      unit_cost: line.unit_cost ?? 0,
-      total_cost: line.total_cost ?? 0,
-      sort_order: line.sort_order ?? idx,
+      description: `Labor - Detailing/Fabrication/Erection`,
+      quantity: laborHours,
+      unit: "hr",
+      unit_cost: Number(est.labor_rate || 75.00),
+      total_cost: laborTotal,
+      sort_order: sortOrder++,
       source: "estimate_conversion",
-    }));
-    // billing_line_items may not exist on every deployment yet — degrade
-    // gracefully if the table is absent so the project conversion itself
-    // still succeeds.
-    const { error: liErr } = await ctx.sbAdmin
-      .from("billing_line_items")
-      .insert(billingRows);
+    });
+  }
+
+  if (freightTotal > 0) {
+    billingRows.push({
+      company_id: ctx.user.company_id,
+      project_id: project.id,
+      description: `Freight`,
+      quantity: 1,
+      unit: "ls",
+      unit_cost: freightTotal,
+      total_cost: freightTotal,
+      sort_order: sortOrder++,
+      source: "estimate_conversion",
+    });
+  }
+
+  if (coatingTotal > 0) {
+    billingRows.push({
+      company_id: ctx.user.company_id,
+      project_id: project.id,
+      description: `Paint/Coating (${est.coating_type || "Shop Primer"})`,
+      quantity: 1,
+      unit: "ls",
+      unit_cost: coatingTotal,
+      total_cost: coatingTotal,
+      sort_order: sortOrder++,
+      source: "estimate_conversion",
+    });
+  }
+
+  let linesCarried = 0;
+  if (billingRows.length > 0) {
+    const { error: liErr } = await ctx.sbAdmin.from("billing_line_items").insert(billingRows);
     if (!liErr) {
       linesCarried = billingRows.length;
     } else {
@@ -204,6 +298,7 @@ export async function convertEstimate(ctx: Ctx): Promise<Response> {
     entity_id: project.id as string,
     entity_label: project.name as string,
   });
+
   return ok({ ...project, lines_carried: linesCarried });
 }
 

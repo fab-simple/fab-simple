@@ -5,6 +5,7 @@ import { PageWrapper } from "@/components/ui/PageWrapper";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { useResourceList, useCreate } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { Plus } from "lucide-react";
 
 interface JC {
@@ -15,9 +16,9 @@ interface JC {
 interface Project { id: string; name: string; }
 
 export default function JobCostPage() {
+  const { selectedProjectId } = useGlobalProject();
   const projects = useResourceList<Project>("projects", { limit: "100" });
-  const [projectId, setProjectId] = useState<string>("");
-  const project = projectId || projects.data?.[0]?.id;
+  const project = selectedProjectId ?? projects.data?.[0]?.id;
   const list = useResourceList<JC>("job_costs", project ? { project_id: project, order_by: "cost_code", dir: "asc" } : undefined);
   const create = useCreate<JC>("job_costs");
   const [showNew, setShowNew] = useState(false);
@@ -50,10 +51,6 @@ export default function JobCostPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ height: 32, width: 240 }}>
-            <option value="">{projects.data?.[0]?.name ?? "Select project"}</option>
-            {projects.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
           <button className="btn btn-primary" onClick={() => setShowNew(true)} disabled={!project}><Plus size={14} /> Add code</button>
         </div>
       </div>

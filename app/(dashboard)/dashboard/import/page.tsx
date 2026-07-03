@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { useResourceList } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI, uploadFile } from "@/lib/api";
 import {
   Upload, FileText, Loader2, CheckCircle2, AlertCircle, Info,
@@ -37,18 +38,34 @@ function dropBlankRows(rows: Record<string, string>[]): Record<string, string>[]
 // preamble (PROJECT NAME, JOB NUMBER, Date, Time). We scan the first 30
 // rows for the one that *looks* like a header — ≥2 cells match a known
 // BOM field keyword — and treat that as row 0.
+// Tekla column keyword hints used to auto-detect which row in the uploaded
+// file is the actual header row (Tekla exports prepend metadata rows).
+// ≥2 matches in a row → that row is treated as the header.
 const HEADER_HINTS = new Set([
-  "mark", "partmark", "piecemark", "pieceid", "partid", "partpos", "memberid", "membermark",
-  "assembly", "assemblymark", "assemblypos", "mainpart", "name",
+  // Part identification
+  "mark", "partmark", "piecemark", "pieceid", "partid", "partpos", "membermark",
+  "assembly", "assemblymark", "assemblypos", "mainpart",
+  // Member descriptor (Tekla "Name" column)
+  "name", "description", "desc", "membertype", "membername", "type",
+  // Section / profile
   "profile", "section", "shape", "size", "profilename", "sectionsize",
+  // Material
   "material", "grade", "spec", "matl", "materialgrade",
+  // Length
   "length", "len", "lengthmm", "lengthin", "cutlength",
-  "weight", "wt", "weightlbs", "weightkg", "weightea",
-  "extweight", "extendedweight", "totalweight", "unitweight",
+  // Weight — per-piece and extended/total variants
+  "weight", "wt", "partweight", "part weight", "unitweight", "unit weight",
+  "weightlbs", "weightkg", "weightea",
+  "extweight", "extendedweight", "totalweight",
+  // Surface area / paint (imported but not stored)
   "extarea", "surfacearea", "paintarea",
+  // Quantity
   "qty", "quantity", "count", "pcs", "pieces", "noofpieces",
+  // Scheduling
   "phase", "lot", "sequence", "seq", "lotnumber",
-  "heat", "heatno", "heatnumber",
+  // Traceability
+  "heat", "heatno", "heatnumber", "heat number",
+  // Finish
   "finish", "paint", "coating",
 ]);
 const normHeader = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -118,6 +135,7 @@ type TabId = "bom" | "pdf";
 export default function ImportPage() {
   const [tab, setTab] = useState<TabId>("bom");
   const projects = useResourceList<Project>("projects", { per_page: 100 });
+  const { selectedProjectId } = useGlobalProject();
 
   return (
     <PageWrapper title="Import">
@@ -140,8 +158,8 @@ export default function ImportPage() {
       <TabSwitcher value={tab} onChange={setTab} />
 
       {tab === "bom"
-        ? <BomTab projects={projects.data ?? []} />
-        : <PdfPackageTab projects={projects.data ?? []} />
+        ? <BomTab projects={projects.data ?? []} defaultProjectId={selectedProjectId ?? ""} />
+        : <PdfPackageTab projects={projects.data ?? []} defaultProjectId={selectedProjectId ?? ""} />
       }
     </PageWrapper>
   );
@@ -208,8 +226,8 @@ interface ImportResult {
   mapping?: { matched_fields: string[]; unmapped_headers: string[] };
 }
 
-function BomTab({ projects }: { projects: Project[] }) {
-  const [projectId, setProjectId] = useState<string>("");
+function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultProjectId: string }) {
+  const [projectId, setProjectId] = useState<string>(defaultProjectId);
   const [file, setFile] = useState<File | null>(null);
   const [units, setUnits] = useState<"auto" | "imperial" | "metric">("auto");
   const [importing, setImporting] = useState(false);
@@ -243,7 +261,7 @@ function BomTab({ projects }: { projects: Project[] }) {
         <div className="card-header">
           <div>
             <div className="card-title">Tekla / SDS2 BOM Import</div>
-            <div className="card-sub">CSV or XLSX export — auto-detects units and 9 column variants</div>
+            <div className="card-sub">CSV or XLSX export — maps QTY, Mark, Profile, Name, Length, Grade, Part Weight, Heat Number</div>
           </div>
         </div>
         <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -429,8 +447,8 @@ interface PdfRow extends PdfMatchResult {
   errorMessage?: string;
 }
 
-function PdfPackageTab({ projects }: { projects: Project[] }) {
-  const [projectId, setProjectId] = useState<string>("");
+function PdfPackageTab({ projects, defaultProjectId }: { projects: Project[]; defaultProjectId: string }) {
+  const [projectId, setProjectId] = useState<string>(defaultProjectId);
   const [classification, setClassification] = useState<Classification>("shop");
   const [rows, setRows] = useState<PdfRow[]>([]);
   const [dragOver, setDragOver] = useState(false);

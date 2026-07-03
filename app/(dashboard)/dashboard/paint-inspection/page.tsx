@@ -6,6 +6,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { useResourceList, useCreate } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
 import { Plus, Paperclip } from "lucide-react";
 
@@ -22,9 +23,13 @@ interface Part { id: string; part_mark: string; }
 const SURFACE_PREPS = ["SSPC-SP1", "SSPC-SP2", "SSPC-SP3", "SSPC-SP5", "SSPC-SP6", "SSPC-SP10", "SSPC-SP11"];
 
 export default function PaintInspectionPage() {
-  const list = useResourceList<PaintInsp>("paint_inspections", { order_by: "inspection_date", dir: "desc" });
+  const { selectedProjectId } = useGlobalProject();
+  const paintQuery = selectedProjectId
+    ? { order_by: "inspection_date", dir: "desc", project_id: selectedProjectId }
+    : { order_by: "inspection_date", dir: "desc" };
+  const list = useResourceList<PaintInsp>("paint_inspections", paintQuery);
   const projects = useResourceList<Project>("projects", { limit: "100" });
-  const parts = useResourceList<Part>("parts", { limit: "200" });
+  const parts = useResourceList<Part>("parts", selectedProjectId ? { limit: "200", project_id: selectedProjectId } : { limit: "200" });
   const create = useCreate<PaintInsp>("paint_inspections");
   const [showNew, setShowNew] = useState(false);
   const [attachTarget, setAttachTarget] = useState<PaintInsp | null>(null);

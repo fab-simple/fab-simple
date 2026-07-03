@@ -7,6 +7,7 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { useResourceList, useResourcePaged, useCreate, useUpdate } from "@/hooks/useResource";
 import { useCsvExport } from "@/hooks/useCsvExport";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI } from "@/lib/api";
 import { Plus, Search, Loader2, X } from "lucide-react";
 
@@ -14,6 +15,7 @@ interface Part {
   id: string;
   part_mark: string;
   assembly_mark: string | null;
+  name: string | null;          // Tekla "Name" column — member type/label (e.g. W-BEAM, COLUMN)
   profile: string;
   grade: string | null;
   length: number | null;
@@ -31,11 +33,24 @@ interface Project { id: string; name: string; number: string; }
 
 const STATUS_OPTIONS = ["not_started", "in_progress", "complete", "shipped", "on_hold"];
 
+// Display length stored as decimal inches in feet-inches notation (17'-9")
+// so it matches what the user sees in their Tekla/SDS2 sheet.
+function formatLength(inches: number | null): string {
+  if (inches == null) return "—";
+  const totalIn = Number(inches);
+  if (!isFinite(totalIn) || totalIn <= 0) return "—";
+  if (totalIn < 12) return `${totalIn.toFixed(3).replace(/\.?0+$/, "")}\u2033`; // pure inches if tiny
+  const ft = Math.floor(totalIn / 12);
+  const inPart = totalIn - ft * 12;
+  const inStr = inPart < 0.001 ? "0" : inPart.toFixed(3).replace(/\.?0+$/, "");
+  return `${ft}\u2032-${inStr}\u2033`; // e.g.  17′-9″
+}
+
 export default function PartsPage() {
+  const { selectedProjectId } = useGlobalProject();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [projectFilter, setProjectFilter] = useState<string>("");
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState<Part | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -53,10 +68,10 @@ export default function PartsPage() {
   const filters = useMemo(() => {
     const f: Record<string, string | undefined> = {};
     if (statusFilter) f.status = statusFilter;
-    if (projectFilter) f.project_id = projectFilter;
+    if (selectedProjectId) f.project_id = selectedProjectId;
     if (search) f.part_mark__ilike = search;
     return f;
-  }, [statusFilter, projectFilter, search]);
+  }, [statusFilter, selectedProjectId, search]);
 
   const list = useResourcePaged<Part>("parts", {
     initialPerPage: 25,
@@ -65,7 +80,7 @@ export default function PartsPage() {
     filters,
   });
   const projects = useResourceList<Project>("projects", { per_page: 100 });
-  const create = useCreate<Part>("parts");
+  const create = useCreate<Part>("parts"); // projects still needed for the "create new part" modal
   const update = useUpdate<Part>("parts");
 
   // Reset to page 1 whenever the filter set changes. (useResourcePaged
@@ -75,7 +90,7 @@ export default function PartsPage() {
     list.setPage(1);
     setSelected(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter, projectFilter]);
+  }, [search, statusFilter, selectedProjectId]);
 
   async function bulkUpdateStatus(status: string) {
     if (selected.size === 0) return;
@@ -116,25 +131,30 @@ export default function PartsPage() {
     filename: "parts",
     data: list.data?.rows,
     transform: (p) => ({
-      part_mark: p.part_mark, assembly_mark: p.assembly_mark, profile: p.profile,
-      grade: p.grade, length_in: p.length, weight_lb: p.weight, quantity: p.quantity,
-      heat_number: p.heat_number, status: p.status,
+      qty:         p.quantity,
+      mark:        p.part_mark,
+      profile:     p.profile,
+      name:        p.name,
+      length_in:   p.length,
+      grade:       p.grade,
+      part_weight_lb: p.weight,
+      heat_number: p.heat_number,
+      assembly:    p.assembly_mark,
+      status:      p.status,
     }),
   });
 
-  // Columns: client-side sortAccessor is kept as a fallback for the rare
-  // demo-mode usage; sortField is what the server-mode <DataTable> uses
-  // to drive the ORDER BY on the API call.
+  // Columns match the source sheet order: QTY | Mark | Profile | Name | Length | Grade | Part Weight | Heat # | Status
   const cols: Column<Part>[] = [
-    { key: "mark",   label: "Part Mark", mono: true,                  sortField: "part_mark",     sortAccessor: (r) => r.part_mark,     render: (r) => r.part_mark },
-    { key: "asm",    label: "Assembly",  mono: true,                  sortField: "assembly_mark", sortAccessor: (r) => r.assembly_mark, render: (r) => r.assembly_mark ?? "—" },
-    { key: "profile",label: "Profile",                                sortField: "profile",       sortAccessor: (r) => r.profile,       render: (r) => <span style={{ color: "var(--muted)" }}>{r.profile}</span> },
-    { key: "grade",  label: "Grade",                                  sortField: "grade",         sortAccessor: (r) => r.grade,         render: (r) => r.grade ?? "—" },
-    { key: "length", label: "Length",    align: "right", mono: true,  sortField: "length",        sortAccessor: (r) => r.length ?? 0,   render: (r) => r.length != null ? Number(r.length).toFixed(2) + " in" : "—" },
-    { key: "qty",    label: "Qty",       align: "right", mono: true,  sortField: "quantity",      sortAccessor: (r) => r.quantity,      render: (r) => r.quantity },
-    { key: "weight", label: "Weight",    align: "right", mono: true,  sortField: "weight",        sortAccessor: (r) => r.weight ?? 0,   render: (r) => r.weight != null ? Number(r.weight).toFixed(0) + " lb" : "—" },
-    { key: "heat",   label: "Heat #",    mono: true,                  sortField: "heat_number",   sortAccessor: (r) => r.heat_number,   render: (r) => r.heat_number ?? "—" },
-    { key: "status", label: "Status",                                 sortField: "status",        sortAccessor: (r) => r.status,        render: (r) => <StatusPill status={r.status} /> },
+    { key: "qty",     label: "QTY",         align: "right", mono: true,  sortField: "quantity",    sortAccessor: (r) => r.quantity,      render: (r) => r.quantity },
+    { key: "mark",   label: "Mark",         mono: true,                  sortField: "part_mark",   sortAccessor: (r) => r.part_mark,     render: (r) => <strong style={{ fontWeight: 600 }}>{r.part_mark}</strong> },
+    { key: "profile",label: "Profile",      mono: true,                  sortField: "profile",     sortAccessor: (r) => r.profile,       render: (r) => r.profile },
+    { key: "name",   label: "Name",                                      sortField: "name",        sortAccessor: (r) => r.name,          render: (r) => r.name ? <span style={{ color: "var(--muted)" }}>{r.name}</span> : "—" },
+    { key: "length", label: "Length",       align: "right", mono: true,  sortField: "length",      sortAccessor: (r) => r.length ?? 0,   render: (r) => formatLength(r.length) },
+    { key: "grade",  label: "Grade",                                     sortField: "grade",       sortAccessor: (r) => r.grade,         render: (r) => r.grade ?? "—" },
+    { key: "weight", label: "Part Weight",  align: "right", mono: true,  sortField: "weight",      sortAccessor: (r) => r.weight ?? 0,   render: (r) => r.weight != null ? Number(r.weight).toFixed(1) + " lb" : "—" },
+    { key: "heat",   label: "Heat #",       mono: true,                  sortField: "heat_number", sortAccessor: (r) => r.heat_number,   render: (r) => r.heat_number ?? "—" },
+    { key: "status", label: "Status",                                    sortField: "status",      sortAccessor: (r) => r.status,        render: (r) => <StatusPill status={r.status} /> },
   ];
 
   const total = list.data?.total ?? 0;
@@ -146,7 +166,7 @@ export default function PartsPage() {
           <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Parts List</div>
           <div className="text-[12px]" style={{ color: "var(--muted)" }}>
             {total} part{total === 1 ? "" : "s"}
-            {(statusFilter || projectFilter || search) && total > 0 && " (filtered)"}
+            {(statusFilter || selectedProjectId || search) && total > 0 && " (filtered)"}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -154,14 +174,7 @@ export default function PartsPage() {
             <Search size={13} className="absolute" style={{ left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--muted)" }} />
             <input className="input" placeholder="Search part marks…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} style={{ paddingLeft: 30, width: 240, height: 32 }} />
           </div>
-          <select className="input" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} style={{ height: 32, width: 200 }}>
-            <option value="">All projects</option>
-            {(projects.data ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.number ? `${p.number} — ${p.name}` : p.name}
-              </option>
-            ))}
-          </select>
+
           <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ height: 32, width: 160 }}>
             <option value="">All statuses</option>
             {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
@@ -253,17 +266,18 @@ function PartModal({
   error: string | null;
 }) {
   const [form, setForm] = useState({
-    project_id: initial?.project_id ?? projects[0]?.id ?? "",
-    part_mark: initial?.part_mark ?? "",
+    project_id:    initial?.project_id    ?? projects[0]?.id ?? "",
+    part_mark:     initial?.part_mark     ?? "",
     assembly_mark: initial?.assembly_mark ?? "",
-    profile: initial?.profile ?? "",
-    grade: initial?.grade ?? "A992",
-    length: initial?.length?.toString() ?? "",
-    weight: initial?.weight?.toString() ?? "",
-    quantity: initial?.quantity?.toString() ?? "1",
-    heat_number: initial?.heat_number ?? "",
-    phase: initial?.phase ?? "",
-    status: initial?.status ?? "not_started",
+    name:          initial?.name          ?? "",
+    profile:       initial?.profile       ?? "",
+    grade:         initial?.grade         ?? "A992",
+    length:        initial?.length?.toString()  ?? "",
+    weight:        initial?.weight?.toString()  ?? "",
+    quantity:      initial?.quantity?.toString() ?? "1",
+    heat_number:   initial?.heat_number   ?? "",
+    phase:         initial?.phase         ?? "",
+    status:        initial?.status        ?? "not_started",
   });
 
   return (
@@ -273,17 +287,18 @@ function PartModal({
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit({
-          project_id: form.project_id,
-          part_mark: form.part_mark,
+          project_id:    form.project_id,
+          part_mark:     form.part_mark,
           assembly_mark: form.assembly_mark || undefined,
-          profile: form.profile,
-          grade: form.grade || undefined,
-          length: form.length ? Number(form.length) : undefined,
-          weight: form.weight ? Number(form.weight) : undefined,
-          quantity: Number(form.quantity || 1),
-          heat_number: form.heat_number || undefined,
-          phase: form.phase || undefined,
-          status: form.status as Part["status"],
+          name:          form.name || undefined,
+          profile:       form.profile,
+          grade:         form.grade || undefined,
+          length:        form.length  ? Number(form.length)  : undefined,
+          weight:        form.weight  ? Number(form.weight)  : undefined,
+          quantity:      Number(form.quantity || 1),
+          heat_number:   form.heat_number || undefined,
+          phase:         form.phase || undefined,
+          status:        form.status as Part["status"],
         });
       }}
       submitting={submitting}
@@ -307,34 +322,39 @@ function PartModal({
         <Field label="Profile" required>
           <input className="input" required value={form.profile} onChange={(e) => setForm({ ...form, profile: e.target.value })} placeholder="W14x82" />
         </Field>
+        <Field label="Name">
+          <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="W-BEAM, COLUMN, BRACE…" />
+        </Field>
+      </div>
+      <div className="grid-2" style={{ gap: 12 }}>
         <Field label="Grade">
           <input className="input" value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} />
         </Field>
+        <Field label="Heat #">
+          <input className="input" value={form.heat_number} onChange={(e) => setForm({ ...form, heat_number: e.target.value })} />
+        </Field>
       </div>
       <div className="grid-3" style={{ gap: 12 }}>
-        <Field label="Length (in)">
+        <Field label="Length (decimal in.)">
           <input className="input" type="number" step="0.001" value={form.length} onChange={(e) => setForm({ ...form, length: e.target.value })} />
         </Field>
-        <Field label="Weight (lb)">
+        <Field label="Part Weight (lb)">
           <input className="input" type="number" step="0.01" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} />
         </Field>
-        <Field label="Qty">
+        <Field label="QTY">
           <input className="input" type="number" min="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
         </Field>
       </div>
       <div className="grid-2" style={{ gap: 12 }}>
-        <Field label="Heat #">
-          <input className="input" value={form.heat_number} onChange={(e) => setForm({ ...form, heat_number: e.target.value })} />
-        </Field>
         <Field label="Phase">
           <input className="input" value={form.phase} onChange={(e) => setForm({ ...form, phase: e.target.value })} placeholder="P1" />
         </Field>
+        <Field label="Status">
+          <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+            {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
+          </select>
+        </Field>
       </div>
-      <Field label="Status">
-        <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
-        </select>
-      </Field>
     </ResourceModal>
   );
 }

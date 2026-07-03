@@ -410,6 +410,7 @@ export interface Organization {
   max_projects: number;
   max_users: number;
   active: boolean;
+  default_exclusions_qualifications?: string | null;
 }
 
 export interface DashboardData {

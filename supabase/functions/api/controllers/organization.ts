@@ -9,7 +9,7 @@ import { writeAudit } from "../services/audit.ts";
 const ORG_SELECT =
   "id, name, legal_name, address_line1, address_line2, city, state, zip, " +
   "phone, email, website, license_number, tax_id, logo_url, plan, " +
-  "aisc_cert, max_parts, max_projects, max_users, active";
+  "aisc_cert, max_parts, max_projects, max_users, active, default_exclusions_qualifications";
 
 // Fields a non-owner could in principle update if we ever expose them.
 // Owner-only for now; this whitelist guards against payload-injection of
@@ -21,6 +21,7 @@ const ORG_UPDATABLE = new Set<string>([
   "license_number", "tax_id",
   "logo_url",
   "aisc_cert",
+  "default_exclusions_qualifications",
 ]);
 
 export async function getOrganization(ctx: Ctx): Promise<Response> {

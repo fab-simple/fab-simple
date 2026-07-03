@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { useResourceList, useResourcePaged } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI } from "@/lib/api";
 import { QRCodeCanvas } from "qrcode.react";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
@@ -31,7 +32,7 @@ function escapeHtml(s: string): string {
 }
 
 export default function QrCodesPage() {
-  const [projectFilter, setProjectFilter] = useState<string>("");
+  const { selectedProjectId } = useGlobalProject();
   const [missingOnly, setMissingOnly] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [attachTarget, setAttachTarget] = useState<Part | null>(null);
@@ -56,9 +57,9 @@ export default function QrCodesPage() {
   // useResourcePaged doesn't refetch on every keystroke.
   const filters = useMemo(() => {
     const f: Record<string, string | undefined> = {};
-    if (projectFilter) f.project_id = projectFilter;
+    if (selectedProjectId) f.project_id = selectedProjectId;
     return f;
-  }, [projectFilter]);
+  }, [selectedProjectId]);
 
   const list = useResourcePaged<Part>("parts", {
     initialPerPage: 100,
@@ -136,7 +137,7 @@ export default function QrCodesPage() {
   });
   const selectAll = () => setSelected(new Set(visible.map((p) => p.id)));
   const clearSel = () => setSelected(new Set());
-  const onProjectChange = (id: string) => { setProjectFilter(id); setSelected(new Set()); };
+  const onProjectChange = () => { setSelected(new Set()); };
 
   function printSheet() {
     const sheetParts = visible.filter((p) => selected.has(p.id));
@@ -211,19 +212,7 @@ export default function QrCodesPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <select
-            className="input"
-            value={projectFilter}
-            onChange={(e) => onProjectChange(e.target.value)}
-            style={{ height: 32, width: 220 }}
-          >
-            <option value="">All projects</option>
-            {(projects.data ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.number ? `${p.number} — ${p.name}` : p.name}
-              </option>
-            ))}
-          </select>
+
           <button
             className="btn"
             onClick={() => { setMissingOnly((v) => !v); setSelected(new Set()); }}

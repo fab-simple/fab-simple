@@ -6,6 +6,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { useResourceList, useCreate } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { Plus } from "lucide-react";
 
 interface Ship {
@@ -19,7 +20,11 @@ interface Project { id: string; name: string; }
 const STATUSES = ["pending", "loaded", "in_transit", "delivered"];
 
 export default function ShippingPage() {
-  const list = useResourceList<Ship>("shipping_tickets", { order_by: "ship_date", dir: "desc" });
+  const { selectedProjectId } = useGlobalProject();
+  const shipQuery = selectedProjectId
+    ? { order_by: "ship_date", dir: "desc", project_id: selectedProjectId }
+    : { order_by: "ship_date", dir: "desc" };
+  const list = useResourceList<Ship>("shipping_tickets", shipQuery);
   const projects = useResourceList<Project>("projects", { limit: "100" });
   const create = useCreate<Ship>("shipping_tickets");
   const [showNew, setShowNew] = useState(false);

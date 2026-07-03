@@ -6,6 +6,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { useResourceList, useCreate } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { Plus } from "lucide-react";
 
 interface Assembly {
@@ -16,7 +17,11 @@ interface Assembly {
 interface Project { id: string; name: string; }
 
 export default function AssembliesPage() {
-  const list = useResourceList<Assembly>("assemblies", { order_by: "assembly_mark", dir: "asc" });
+  const { selectedProjectId } = useGlobalProject();
+  const asmQuery = selectedProjectId
+    ? { order_by: "assembly_mark", dir: "asc", project_id: selectedProjectId }
+    : { order_by: "assembly_mark", dir: "asc" };
+  const list = useResourceList<Assembly>("assemblies", asmQuery);
   const projects = useResourceList<Project>("projects", { limit: "100" });
   const create = useCreate<Assembly>("assemblies");
   const [showNew, setShowNew] = useState(false);

@@ -5,6 +5,7 @@ import { PageWrapper } from "@/components/ui/PageWrapper";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { useResourceList, useCreate } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
 import { Plus, Paperclip } from "lucide-react";
 
@@ -18,7 +19,11 @@ interface Project { id: string; name: string; }
 const OPERATIONS = ["Cutting", "Drilling", "Welding", "Painting", "Assembly", "Shipping", "Other"];
 
 export default function DailyLogPage() {
-  const list = useResourceList<Log>("daily_production_log", { order_by: "log_date", dir: "desc" });
+  const { selectedProjectId } = useGlobalProject();
+  const logQuery = selectedProjectId
+    ? { order_by: "log_date", dir: "desc", project_id: selectedProjectId }
+    : { order_by: "log_date", dir: "desc" };
+  const list = useResourceList<Log>("daily_production_log", logQuery);
   const projects = useResourceList<Project>("projects", { limit: "100" });
   const create = useCreate<Log>("daily_production_log");
   const [showNew, setShowNew] = useState(false);

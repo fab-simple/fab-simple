@@ -68,8 +68,11 @@ export function statusToClass(status: string): string {
     "Fully Received": "pill-done",
     "Partial": "pill-warn",
     "Not Received": "pill-ns",
+    "under_review": "pill-warn",
+    "withdrawn": "pill-danger",
+    "awarded_setup": "pill-warn",
   };
-  return map[status] || "pill-ns";
+  return map[status] || map[status.toLowerCase()] || map[status.charAt(0).toUpperCase() + status.slice(1).toLowerCase()] || "pill-ns";
 }
 
 export function truncate(str: string, n: number): string {

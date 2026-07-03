@@ -4,6 +4,7 @@ import { useState } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { useResourceList, useUpdate, FAB_MODE } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI } from "@/lib/api";
 import { CheckCircle2, AlertCircle, MinusCircle, Loader2, Sparkles, FileDown } from "lucide-react";
 import { generateQcReport } from "@/lib/pdf";
@@ -23,9 +24,9 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
 const STATUSES = ["open", "done", "hold", "na"];
 
 export default function AiscPage() {
+  const { selectedProjectId } = useGlobalProject();
   const projects = useResourceList<Project>("projects", { limit: "100" });
-  const [projectId, setProjectId] = useState<string>("");
-  const project = projectId || projects.data?.[0]?.id;
+  const project = selectedProjectId ?? projects.data?.[0]?.id;
   const items = useResourceList<AiscItem>("aisc_checklist", project ? { project_id: project, order_by: "sort_order", dir: "asc", limit: "200" } : undefined, { enabled: FAB_MODE === "live" && !!project });
   const update = useUpdate<AiscItem>("aisc_checklist");
   const [seeding, setSeeding] = useState(false);
@@ -74,10 +75,6 @@ export default function AiscPage() {
           <div className="text-[12px]" style={{ color: "var(--muted)" }}>{total} items · {stats.done ?? 0} cleared · {pct}% complete</div>
         </div>
         <div className="flex items-center gap-2">
-          <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ height: 32, width: 220 }}>
-            <option value="">{projects.data?.[0]?.name ?? "Select project"}</option>
-            {projects.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
           <button className="btn" onClick={handleSeed} disabled={seeding || !project}>
             {seeding ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
             Seed catalogue (24 items)

@@ -6,6 +6,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { useResourceList, useCreate } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { Plus } from "lucide-react";
 
 interface Weld {
@@ -22,9 +23,13 @@ const PROCESSES = ["FCAW / E71T-1", "SMAW / E7018", "GMAW / ER70S-6", "SAW"];
 const METHODS = ["VT (Visual)", "UT (Ultrasonic)", "MT (Magnetic Particle)", "PT (Dye Penetrant)", "RT (Radiographic)"];
 
 export default function WeldLogPage() {
-  const list = useResourceList<Weld>("weld_inspections", { order_by: "inspection_date", dir: "desc" });
+  const { selectedProjectId } = useGlobalProject();
+  const weldQuery = selectedProjectId
+    ? { order_by: "inspection_date", dir: "desc", project_id: selectedProjectId }
+    : { order_by: "inspection_date", dir: "desc" };
+  const list = useResourceList<Weld>("weld_inspections", weldQuery);
   const projects = useResourceList<Project>("projects", { limit: "100" });
-  const parts = useResourceList<Part>("parts", { limit: "200" });
+  const parts = useResourceList<Part>("parts", selectedProjectId ? { limit: "200", project_id: selectedProjectId } : { limit: "200" });
   const create = useCreate<Weld>("weld_inspections");
   const [showNew, setShowNew] = useState(false);
 

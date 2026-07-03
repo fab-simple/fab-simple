@@ -1105,3 +1105,8 @@ tbody tr:last-child td {
 .btn-primary:hover { background: #4338CA; }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 .pill-red { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; border-radius: 6px; }
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

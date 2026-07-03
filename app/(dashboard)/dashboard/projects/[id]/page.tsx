@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { use } from "react";
+import { use, useEffect } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { useResource, useResourceList, useUpdate } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI } from "@/lib/api";
 import { useState } from "react";
 import { Loader2, AlertCircle, Archive, ArrowLeft, Wand2 } from "lucide-react";
@@ -15,6 +16,22 @@ interface Project {
   contract_value: number | null; est_tonnage: number | null; status: string;
   start_date: string | null; deadline: string | null; description: string | null;
   color: string | null; is_archived: boolean;
+  architect_eor?: string | null;
+  project_location?: string | null;
+  unique_piece_marks?: number | null;
+  baseline_budget?: {
+    material?: number;
+    labor?: number;
+    freight?: number;
+    coating?: number;
+    subtotal?: number;
+    margin?: number;
+    contingency?: number;
+    total?: number;
+  } | null;
+  drawing_set_ref?: string | null;
+  exclusions_qualifications?: string | null;
+  estimate_id?: string | null;
 }
 interface Part { id: string; part_mark: string; profile: string; status: string; quantity: number; }
 interface Drawing { id: string; drawing_number: string; revision: string; status: string; }
@@ -27,8 +44,27 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const drawings = useResourceList<Drawing>("drawings", { project_id: id, limit: "20" });
   const cos = useResourceList<CO>("change_orders", { project_id: id, limit: "20" });
   const update = useUpdate<Project>("projects");
+  const { selectProject, selectedProjectId } = useGlobalProject();
   const [archiving, setArchiving] = useState(false);
   const [seedingAisc, setSeedingAisc] = useState(false);
+
+  const [jobNumberInput, setJobNumberInput] = useState("");
+  const [isActivating, setIsActivating] = useState(false);
+
+  // Initialize input
+  useEffect(() => {
+    if (project.data?.number) {
+      setJobNumberInput(project.data.number);
+    }
+  }, [project.data?.number]);
+
+  // Auto-scope the whole app to this project when the user opens the detail view.
+  useEffect(() => {
+    if (project.data && project.data.id !== selectedProjectId) {
+      selectProject(project.data.id, project.data.name, project.data.number);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.data?.id]);
 
   if (project.isLoading) {
     return <PageWrapper title="…"><div className="flex items-center justify-center" style={{ padding: 60, color: "var(--muted)" }}><Loader2 size={18} className="animate-spin" /><span style={{ marginLeft: 10 }}>Loading project…</span></div></PageWrapper>;
@@ -56,6 +92,50 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         <Link href="/dashboard/projects" className="btn btn-sm"><ArrowLeft size={12} /> Back</Link>
       </div>
 
+      {(!p.number || p.status === "awarded_setup") && (
+        <div className="card" style={{ marginBottom: 24, border: "1.5px solid #EAB308", background: "rgba(234, 179, 8, 0.05)", padding: 20 }}>
+          <div className="flex items-start gap-3">
+            <AlertCircle size={18} style={{ color: "#EAB308", marginTop: 2 }} />
+            <div style={{ flex: 1 }}>
+              <div className="font-bold text-sm text-yellow-500">Project Pending Job Number</div>
+              <div className="text-xs text-slate-400 mt-1">
+                This project is won but cannot be activated across the shop floor until a PM assigns a Job Number.
+              </div>
+              <div className="flex items-center gap-2 mt-4 max-w-sm">
+                <input
+                  className="input text-xs"
+                  value={jobNumberInput}
+                  onChange={(e) => setJobNumberInput(e.target.value)}
+                  placeholder="Enter Job Number (e.g. PRJ-2026-004)"
+                  style={{ background: "rgba(0,0,0,0.2)" }}
+                />
+                <button
+                  className="btn btn-primary btn-sm flex-shrink-0 text-xs py-2 px-3"
+                  style={{ background: "#EAB308", borderColor: "#EAB308", color: "#0F172A" }}
+                  disabled={!jobNumberInput.trim() || isActivating}
+                  onClick={async () => {
+                    setIsActivating(true);
+                    try {
+                      await update.mutateAsync({
+                        id: p.id,
+                        body: { number: jobNumberInput.trim(), status: "active" },
+                      });
+                      project.refetch();
+                    } catch (e) {
+                      alert("Failed to activate project: " + (e as Error).message);
+                    } finally {
+                      setIsActivating(false);
+                    }
+                  }}
+                >
+                  Activate Project
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-body" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 24 }}>
           <div style={{ flex: 1 }}>
@@ -71,11 +151,11 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </div>
           <div className="flex flex-col gap-2 items-end">
             <StatusPill status={p.status} />
-            <button className="btn btn-sm" onClick={seedAisc} disabled={seedingAisc}>
+            <button className="btn btn-sm" onClick={seedAisc} disabled={seedingAisc || p.status === "awarded_setup"}>
               {seedingAisc ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
               Seed AISC checklist
             </button>
-            <button className="btn btn-sm" onClick={archive} disabled={archiving || p.is_archived}>
+            <button className="btn btn-sm" onClick={archive} disabled={archiving || p.is_archived || p.status === "awarded_setup"}>
               {archiving ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
               Archive
             </button>
@@ -147,6 +227,55 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </table>
         </div>
       </div>
+
+      {p.baseline_budget && (
+        <div className="card mt-section">
+          <div className="card-header flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)", paddingBottom: 12 }}>
+            <div className="card-title">Original Estimate & Baseline Budget</div>
+            {p.estimate_id && (
+              <Link href="/dashboard/estimating" className="text-xs font-semibold hover:underline" style={{ color: "var(--primary)" }}>
+                View in Estimating module &rarr;
+              </Link>
+            )}
+          </div>
+          <div className="card-body grid-2 gap-lg p-4" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32 }}>
+            <div>
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">BASELINE BUDGET BREAKDOWN</div>
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between text-xs border-b border-slate-800 pb-1.5">
+                  <span className="text-slate-400">Material Cost:</span>
+                  <span className="font-mono font-medium">${Number(p.baseline_budget.material || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-xs border-b border-slate-800 pb-1.5">
+                  <span className="text-slate-400">Labor Cost:</span>
+                  <span className="font-mono font-medium">${Number(p.baseline_budget.labor || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-xs border-b border-slate-800 pb-1.5">
+                  <span className="text-slate-400">Freight Cost:</span>
+                  <span className="font-mono font-medium">${Number(p.baseline_budget.freight || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-xs border-b border-slate-800 pb-1.5">
+                  <span className="text-slate-400">Paint/Coating Cost:</span>
+                  <span className="font-mono font-medium">${Number(p.baseline_budget.coating || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-xs pt-1">
+                  <span className="font-bold text-slate-300">Total Awarded Budget:</span>
+                  <span className="font-mono font-bold text-sm text-green-500">${Number(p.baseline_budget.total || p.contract_value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">EXCLUSIONS & QUALIFICATIONS</div>
+              <div
+                className="text-xs font-mono p-3 rounded border border-slate-800 bg-slate-950/30 overflow-y-auto"
+                style={{ maxHeight: 150, whiteSpace: "pre-wrap", border: "1px solid var(--border)" }}
+              >
+                {p.exclusions_qualifications || "No exclusions specified."}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </PageWrapper>
   );
 }

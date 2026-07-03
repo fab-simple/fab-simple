@@ -7,6 +7,7 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
 import { useResourceList, useCreate, useUpdate } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { Plus, Paperclip, Archive } from "lucide-react";
 
 interface Drawing {
@@ -20,7 +21,11 @@ const TYPES = ["shop", "erection", "connection"];
 const STATUSES = ["in_progress", "submitted", "approved", "released", "superseded"];
 
 export default function DrawingsPage() {
-  const list = useResourceList<Drawing>("drawings", { order_by: "drawing_number", dir: "asc" });
+  const { selectedProjectId } = useGlobalProject();
+  const listQuery = selectedProjectId
+    ? { order_by: "drawing_number", dir: "asc", project_id: selectedProjectId }
+    : { order_by: "drawing_number", dir: "asc" };
+  const list = useResourceList<Drawing>("drawings", listQuery);
   const projects = useResourceList<Project>("projects", { limit: "100" });
   const create = useCreate<Drawing>("drawings");
   const update = useUpdate<Drawing>("drawings");

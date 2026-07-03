@@ -6,6 +6,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { useResourceList, useCreate } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { Plus } from "lucide-react";
 
 interface RFI {
@@ -17,7 +18,11 @@ interface RFI {
 interface Project { id: string; name: string; }
 
 export default function RfisPage() {
-  const list = useResourceList<RFI>("rfis", { order_by: "created_at", dir: "desc" });
+  const { selectedProjectId } = useGlobalProject();
+  const listQuery = selectedProjectId
+    ? { order_by: "created_at", dir: "desc", project_id: selectedProjectId }
+    : { order_by: "created_at", dir: "desc" };
+  const list = useResourceList<RFI>("rfis", listQuery);
   const projects = useResourceList<Project>("projects", { limit: "100" });
   const create = useCreate<RFI>("rfis");
   const [showNew, setShowNew] = useState(false);

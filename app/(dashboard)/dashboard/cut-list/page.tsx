@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { useResourceList } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI } from "@/lib/api";
 import { Plus, Trash2, Wand2, Loader2 } from "lucide-react";
 
@@ -25,12 +26,13 @@ interface CutPlan {
 }
 
 export default function CutListPage() {
+  const { selectedProjectId } = useGlobalProject();
   const projects = useResourceList<Project>("projects", { limit: "100" });
   const [profile, setProfile] = useState("W12x40");
   const [stockLength, setStockLength] = useState("480");
   const [kerf, setKerf] = useState("0.125");
   const [minRemnant, setMinRemnant] = useState("6");
-  const [projectId, setProjectId] = useState("");
+  const [projectId, setProjectId] = useState(selectedProjectId ?? "");
   const [cuts, setCuts] = useState<CutInput[]>([
     { length: "", qty: "1", mark: "" },
   ]);

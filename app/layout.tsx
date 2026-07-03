@@ -44,7 +44,7 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${jetbrainsMono.variable} h-full`}
     >
-      <body className="h-full antialiased">
+      <body className="h-full antialiased" suppressHydrationWarning>
         <Providers>{children}</Providers>
         <PWAInstall />
       </body>

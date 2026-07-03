@@ -4,6 +4,7 @@ import { Bell, Menu, Download, Search } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/hooks/useAppRedux";
 import { toggleSidebar, toggleNotifPanel, closeNotifPanel } from "@/store/uiSlice";
 import { NotifPanel } from "./NotifPanel";
+import { ProjectPicker } from "./ProjectPicker";
 import { useNotifications } from "@/hooks/useNotifications";
 import { downloadCurrentCsv } from "@/lib/csv-export";
 import { useEffect, useRef } from "react";
@@ -43,9 +44,14 @@ export function Topbar() {
         <Menu size={16} />
       </button>
 
-      <h1 className="flex-1 font-bold text-[16px]" style={{ color: "var(--text)" }}>
+      <h1 className="font-bold text-[16px] flex-shrink-0" style={{ color: "var(--text)" }}>
         {pageTitle}
       </h1>
+
+      {/* Global project picker — fills remaining space on the left side */}
+      <div className="flex-1 flex items-center min-w-0">
+        <ProjectPicker />
+      </div>
 
       <button
         onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
@@ -96,3 +102,4 @@ export function Topbar() {
     </header>
   );
 }
+

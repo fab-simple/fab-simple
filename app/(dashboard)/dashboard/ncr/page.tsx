@@ -6,6 +6,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
 import { useResourceList, useUpdate } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { Paperclip, CheckCircle2 } from "lucide-react";
 
 interface NCR {
@@ -22,7 +23,11 @@ interface NCR {
 }
 
 export default function NCRPage() {
-  const list = useResourceList<NCR>("ncr_reports", { order_by: "created_at", dir: "desc" });
+  const { selectedProjectId } = useGlobalProject();
+  const listQuery = selectedProjectId
+    ? { order_by: "created_at", dir: "desc", project_id: selectedProjectId }
+    : { order_by: "created_at", dir: "desc" };
+  const list = useResourceList<NCR>("ncr_reports", listQuery);
   const update = useUpdate<NCR>("ncr_reports");
   const [attachTarget, setAttachTarget] = useState<NCR | null>(null);
 

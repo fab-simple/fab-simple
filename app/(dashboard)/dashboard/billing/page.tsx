@@ -6,6 +6,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { useResourceList, useCreate, useOrganization } from "@/hooks/useResource";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { Plus, FileDown } from "lucide-react";
 import { generateAiaG702, type BillingApp } from "@/lib/pdf";
 
@@ -21,10 +22,10 @@ interface Project { id: string; name: string; number?: string; gc_name?: string 
 const STATUSES = ["draft", "submitted", "certified", "paid"];
 
 export default function BillingPage() {
+  const { selectedProjectId } = useGlobalProject();
   const projects = useResourceList<Project>("projects", { limit: "100" });
   const org = useOrganization();
-  const [projectId, setProjectId] = useState<string>("");
-  const project = projectId || projects.data?.[0]?.id;
+  const project = selectedProjectId ?? projects.data?.[0]?.id;
   const projectRow = projects.data?.find((p) => p.id === project);
   const list = useResourceList<Bill>("billing_applications", project ? { project_id: project, order_by: "application_number", dir: "asc" } : undefined);
   const create = useCreate<Bill>("billing_applications");
@@ -153,10 +154,6 @@ export default function BillingPage() {
           <div className="text-[12px]" style={{ color: "var(--muted)" }}>Pay applications by period with retainage and stored materials</div>
         </div>
         <div className="flex items-center gap-2">
-          <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ height: 32, width: 240 }}>
-            <option value="">{projects.data?.[0]?.name ?? "Select project"}</option>
-            {projects.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
           <button className="btn btn-primary" onClick={() => setShowNew(true)} disabled={!project}><Plus size={14} /> New application</button>
         </div>
       </div>

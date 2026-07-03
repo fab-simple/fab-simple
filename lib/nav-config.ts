@@ -69,12 +69,12 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
     ],
   },
   {
-    label: "Projects",
+    label: "Pre-Construction",
     items: [
-      // Projects: Owner Full · Estimator View · PM Full · Foreman View · QC View · Accounting View
-      { key: "projects",      label: "Projects",      href: "/dashboard/projects",        icon: FolderKanban, roles: [...ALL_NON_WORKER] },
       // Estimating: Owner Full · Estimator Full · PM View
       { key: "estimating",    label: "Estimating",    href: "/dashboard/estimating",      icon: Calculator,   roles: [...OWNER_ESTIMATOR_PM] },
+      // Projects: Owner Full · Estimator View · PM Full · Foreman View · QC View · Accounting View
+      { key: "projects",      label: "Projects",      href: "/dashboard/projects",        icon: FolderKanban, roles: [...ALL_NON_WORKER] },
       // Change Orders: Owner Full · PM Full · Accounting View
       { key: "change-orders", label: "Change Orders", href: "/dashboard/change-orders",   icon: FileDiff,     roles: [...OWNER_PM_ACCT] },
       // RFIs: Owner Full · PM Full · Foreman View · QC View
@@ -82,21 +82,6 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       // Drawing Log: Owner Full · PM Full · Foreman View · QC View · Worker View
       // (Worker accesses drawings inside the mobile worker view, not the sidebar.)
       { key: "drawings",      label: "Drawing Log",   href: "/dashboard/drawings",        icon: FileText,     roles: [...OWNER_PM_FOREMAN_QC] },
-    ],
-  },
-  {
-    label: "Production",
-    items: [
-      // Parts List: Owner Full · PM Full · Foreman Full · QC View · Worker View
-      { key: "parts",         label: "Parts List",            href: "/dashboard/parts",      icon: ListChecks,    roles: [...OWNER_PM_FOREMAN_QC] },
-      // Assemblies: Owner Full · PM Full · Foreman Full · QC View
-      { key: "assemblies",    label: "Assemblies",            href: "/dashboard/assemblies", icon: Layers,        roles: [...OWNER_PM_FOREMAN_QC] },
-      // Daily Log: Owner Full · PM Full · Foreman Full
-      { key: "daily-log",     label: "Daily Production Log",  href: "/dashboard/daily-log",  icon: ClipboardList, roles: [...OWNER_PM_FOREMAN] },
-      // Tekla / SDS2 BOM import (CSV + XLSX): Owner + PM (treat as Parts-write).
-      { key: "import",        label: "Import / Tekla BOM",    href: "/dashboard/import",     icon: Upload,        roles: [...OWNER_PM] },
-      // Cut List Optimizer: Owner Full · PM Full · Foreman Full
-      { key: "cut-list",      label: "Cut List Optimizer",    href: "/dashboard/cut-list",   icon: Hammer,        roles: [...OWNER_PM_FOREMAN] },
     ],
   },
   {
@@ -110,6 +95,21 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       { key: "inventory",       label: "Inventory",          href: "/dashboard/inventory",       icon: Warehouse,       roles: [...OWNER_ESTIMATOR_PM_FOREMAN_ACCT] },
       // Heat Numbers: Owner Full · PM View · QC Full
       { key: "heat-numbers",    label: "Heat Numbers",       href: "/dashboard/heat-numbers",    icon: FlameKindling,   roles: [...OWNER_PM_QC] },
+    ],
+  },
+  {
+    label: "Production",
+    items: [
+      // Parts List: Owner Full · PM Full · Foreman Full · QC View · Worker View
+      { key: "parts",         label: "Parts List",            href: "/dashboard/parts",      icon: ListChecks,    roles: [...OWNER_PM_FOREMAN_QC] },
+      // Assemblies: Owner Full · PM Full · Foreman Full · QC View
+      { key: "assemblies",    label: "Assemblies",            href: "/dashboard/assemblies", icon: Layers,        roles: [...OWNER_PM_FOREMAN_QC] },
+      // Cut List Optimizer: Owner Full · PM Full · Foreman Full
+      { key: "cut-list",      label: "Cut List Optimizer",    href: "/dashboard/cut-list",   icon: Hammer,        roles: [...OWNER_PM_FOREMAN] },
+      // Tekla / SDS2 BOM import (CSV + XLSX): Owner + PM (treat as Parts-write).
+      { key: "import",        label: "Import / Tekla BOM",    href: "/dashboard/import",     icon: Upload,        roles: [...OWNER_PM] },
+      // Daily Log: Owner Full · PM Full · Foreman Full
+      { key: "daily-log",     label: "Daily Production Log",  href: "/dashboard/daily-log",  icon: ClipboardList, roles: [...OWNER_PM_FOREMAN] },
     ],
   },
   {
