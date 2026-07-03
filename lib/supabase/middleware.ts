@@ -32,8 +32,14 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const path = request.nextUrl.pathname;
 
-  // Public auth flows — always allow.
-  if (PUBLIC_PATHS.has(path) || path.startsWith("/auth")) return response;
+  // Public auth flows + public worker QR scan paths — always allow.
+  if (
+    PUBLIC_PATHS.has(path) ||
+    path.startsWith("/auth") ||
+    path.startsWith("/worker/parts/")
+  ) {
+    return response;
+  }
 
   // Next.js internals + API passthrough.
   if (path.startsWith("/_next") || path.startsWith("/api") || path === "/favicon.ico") {

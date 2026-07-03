@@ -24,6 +24,7 @@ import { signupBootstrap } from "./controllers/signup.ts";
 import { acceptInvite } from "./controllers/acceptInvite.ts";
 import { search } from "./controllers/search.ts";
 import { getOrganization, updateOrganization } from "./controllers/organization.ts";
+import { getPublicPart } from "./controllers/publicPart.ts";
 
 const TABLE_RE = /^\/api\/?([a-z_]+)(?:\/([0-9a-f-]{36}))?\/?$/i;
 
@@ -68,6 +69,12 @@ Deno.serve(async (req) => {
   // they consume the invitation token and sign in for the first time).
   if (url.pathname.endsWith("/accept-invite") && req.method === "POST") {
     return acceptInvite(req);
+  }
+
+  // Public: QR scan part viewer (no JWT required)
+  if (url.pathname.includes("/public/parts/") && req.method === "GET") {
+    const publicPartMatch = url.pathname.match(/\/public\/parts\/([0-9a-f-]{36})/i);
+    if (publicPartMatch) return getPublicPart(publicPartMatch[1]);
   }
 
   // Authenticate
