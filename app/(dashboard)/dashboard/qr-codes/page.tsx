@@ -7,10 +7,17 @@ import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI } from "@/lib/api";
 import { QRCodeCanvas } from "qrcode.react";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
-import { Printer, Paperclip, AlertCircle, Loader2 } from "lucide-react";
+import { Printer, Paperclip, AlertCircle, Loader2, Flame, Check } from "lucide-react";
 
 interface Part {
-  id: string; part_mark: string; profile: string; assembly_mark: string | null;
+  id: string;
+  part_mark: string;
+  profile: string;
+  assembly_mark: string | null;
+  name: string | null;
+  grade: string | null;
+  heat_number: string | null;
+  quantity: number | null;
   project_id: string;
 }
 
@@ -157,35 +164,59 @@ export default function QrCodesPage() {
     const html = `
       <html><head><title>FabSimple QR Sheet — ${sheetParts.length} parts</title>
       <style>
-        @page { size: letter; margin: 12mm; }
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 12mm; color: #111; }
-        h2 { margin: 0 0 8mm 0; font-size: 12pt; }
-        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm; }
+        @page { size: letter; margin: 10mm; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 10mm; color: #0f172a; background: #fff; }
+        h2 { margin: 0 0 6mm 0; font-size: 13pt; font-weight: 700; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 3mm; display: flex; align-items: center; justify-between; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5mm; }
         .label {
-          border: 1px solid #d4d4d8; border-radius: 4mm; padding: 5mm 4mm; text-align: center;
-          page-break-inside: avoid; background: white;
+          border: 1px solid #cbd5e1; border-radius: 4mm; padding: 4mm; text-align: center;
+          page-break-inside: avoid; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); position: relative;
         }
-        .qr { width: 38mm; height: 38mm; margin: 0 auto 3mm auto; display: block; }
-        .job  { font-size: 8pt; font-weight: 600; color: #4f46e5; letter-spacing: 0.5px; margin-bottom: 1mm; text-transform: uppercase; font-family: ui-monospace, SFMono-Regular, monospace; }
-        .mark { font-size: 14pt; font-weight: 700; font-family: ui-monospace, SFMono-Regular, monospace; letter-spacing: 0.5px; }
-        .prof { font-size: 8.5pt; color: #52525b; margin-top: 1mm; }
-        .url  { font-size: 6.5pt; color: #71717a; margin-top: 2mm; font-family: monospace; }
-        .nopdf { font-size: 8pt; color: #DC2626; font-weight: 600; margin-top: 1mm; }
-        .rev { font-size: 8pt; color: #16A34A; font-weight: 600; margin-top: 1mm; }
+        .brand-hdr { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #cbd5e1; padding-bottom: 2.5mm; margin-bottom: 2.5mm; }
+        .brand-logo { display: flex; align-items: center; gap: 4px; font-weight: 800; font-size: 8.5pt; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; }
+        .proj-line { display: flex; align-items: center; justify-content: center; gap: 4px; margin-bottom: 2mm; font-family: ui-monospace, SFMono-Regular, monospace; }
+        .job-no { font-size: 8pt; font-weight: 700; color: #4f46e5; flex-shrink: 0; }
+        .proj-sep { font-size: 8pt; color: #94a3b8; }
+        .proj-title { font-size: 8pt; font-weight: 600; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
+        .qr { width: 35mm; height: 35mm; margin: 0 auto 2mm auto; display: block; }
+        .mark { font-size: 13pt; font-weight: 800; font-family: ui-monospace, SFMono-Regular, monospace; letter-spacing: 0.5px; color: #0f172a; margin-top: 1mm; }
+        .prof { font-size: 8.5pt; font-weight: 600; color: #334155; margin-top: 1mm; }
+        .heat { display: inline-block; background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5; font-size: 7.5pt; font-weight: 700; font-family: ui-monospace, SFMono-Regular, monospace; padding: 1.5px 7px; border-radius: 3px; margin-top: 1.5mm; }
+        .meta { font-size: 7.5pt; color: #64748b; margin-top: 1mm; font-family: ui-monospace, SFMono-Regular, monospace; }
+        .nopdf { font-size: 7.5pt; color: #dc2626; font-weight: 700; margin-top: 1.5mm; background: #fef2f2; padding: 1px 4px; border-radius: 2px; }
+        .rev { font-size: 7.5pt; color: #16a34a; font-weight: 700; margin-top: 1.5mm; }
         @media print { body { margin: 0; } h2 { display: none; } }
       </style></head><body>
         <h2>FabSimple QR Code Sheet — ${sheetParts.length} parts</h2>
         <div class="grid">${sheetParts.map((p) => {
           const project = projectById.get(p.project_id);
-          const jobLabel = project?.number ? `Job ${project.number}` : "";
           const count = pdfCount.get(p.id) ?? 0;
           const noPdf = count === 0;
           return `
           <div class="label">
+            <div class="brand-hdr">
+              <div class="brand-logo">
+                <svg width="12" height="12" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="0" y="0" width="8" height="8" fill="#4f46e5" rx="1.5" />
+                  <rect x="12" y="0" width="8" height="8" fill="#4f46e5" rx="1.5" opacity="0.5" />
+                  <rect x="0" y="12" width="8" height="8" fill="#4f46e5" rx="1.5" opacity="0.5" />
+                  <rect x="12" y="12" width="8" height="8" fill="#4f46e5" rx="1.5" opacity="0.85" />
+                </svg>
+                <span>FabSimple</span>
+              </div>
+            </div>
+            ${(project?.number || project?.name) ? `
+              <div class="proj-line">
+                ${project?.number ? `<span class="job-no">JOB ${escapeHtml(project.number)}</span>` : ""}
+                ${project?.number && project?.name ? `<span class="proj-sep">•</span>` : ""}
+                ${project?.name ? `<span class="proj-title">${escapeHtml(project.name)}</span>` : ""}
+              </div>
+            ` : ""}
             ${qrPng[p.id] ? `<img class="qr" src="${qrPng[p.id]}" alt="QR ${escapeHtml(p.part_mark)}" />` : ""}
-            ${jobLabel ? `<div class="job">${escapeHtml(jobLabel)}</div>` : ""}
             <div class="mark">${escapeHtml(p.part_mark)}</div>
-            <div class="prof">${escapeHtml(p.profile)}${p.assembly_mark ? ` · ${escapeHtml(p.assembly_mark)}` : ""}</div>
+            <div class="prof">${escapeHtml(p.profile)}${p.grade ? ` · ${escapeHtml(p.grade)}` : ""}</div>
+            <div class="heat">HEAT #: ${escapeHtml(p.heat_number || "Unassigned")}</div>
+            ${p.assembly_mark ? `<div class="meta">Asm: ${escapeHtml(p.assembly_mark)}${p.quantity != null ? ` · Qty: ${p.quantity}` : ""}</div>` : ""}
             ${noPdf
               ? `<div class="nopdf">⚠ NO DRAWING ATTACHED</div>`
               : count > 1 ? `<div class="rev">DRAWING REV ${count}</div>` : ""}
@@ -240,6 +271,18 @@ export default function QrCodesPage() {
         </div>
       </div>
 
+      {total > list.perPage && (
+        <div className="flex items-center justify-between mb-6 text-[12px]" style={{ color: "var(--muted)" }}>
+          <div>
+            Page {list.page} · showing {rows.length} of {total}{attLoading ? " · checking attachments…" : ""}
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="btn btn-sm" disabled={list.page <= 1} onClick={() => list.setPage(list.page - 1)}>← Prev</button>
+            <button className="btn btn-sm" disabled={!hasMore} onClick={() => list.setPage(list.page + 1)}>Next →</button>
+          </div>
+        </div>
+      )}
+
       {list.error ? (
         <div className="card" style={{ padding: 24, color: "#DC2626" }}>
           Failed to load parts: {list.error.message}
@@ -266,71 +309,154 @@ export default function QrCodesPage() {
             return (
               <div
                 key={p.id}
-                className="card project-card"
+                className="card project-card group relative flex flex-col justify-between overflow-hidden transition-all duration-200"
                 style={{
-                  padding: 12, textAlign: "center", position: "relative",
+                  padding: "14px 14px 12px 14px",
                   border: noPdf
-                    ? "2px solid #DC2626"
-                    : isSelected ? "2px solid var(--primary)" : "1px solid var(--border)",
-                  background: isSelected ? "rgba(79,70,229,0.05)" : "var(--bg-card)",
+                    ? "1.5px solid rgba(220, 38, 38, 0.4)"
+                    : isSelected
+                    ? "1.5px solid var(--primary)"
+                    : "1px solid var(--border)",
+                  background: isSelected
+                    ? "linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, var(--bg-card) 100%)"
+                    : "var(--bg-card)",
+                  boxShadow: isSelected ? "0 4px 20px rgba(99, 102, 241, 0.15)" : "var(--shadow-sm)",
                   cursor: "pointer",
+                  borderRadius: 12,
                 }}
                 onClick={() => toggle(p.id)}
               >
-                {/* Missing-PDF indicator dot in the corner */}
-                {noPdf && (
-                  <div
-                    title="No drawing PDF attached"
-                    style={{
-                      position: "absolute", top: 6, left: 6,
-                      width: 10, height: 10, borderRadius: "50%",
-                      background: "#DC2626",
-                      boxShadow: "0 0 0 2px var(--bg-card)",
-                    }}
-                  />
-                )}
-                {/* Inline PDF-upload trigger. Stops the click from also toggling
-                    selection so users can attach a PDF without re-selecting. */}
-                <button
-                  type="button"
-                  title={noPdf
-                    ? "Add drawing PDF"
-                    : `${count} drawing${count === 1 ? "" : "s"} attached (latest is rev ${count}) — view / manage`}
-                  onClick={(e) => { e.stopPropagation(); setAttachTarget(p); }}
-                  className="btn btn-sm"
+                {/* Header Bar inside card */}
+                <div
+                  className="flex items-center justify-between gap-2 border-b"
                   style={{
-                    position: "absolute", top: 6, right: 6,
-                    padding: "3px 6px",
-                    background: noPdf ? "#DC2626" : "#16A34A",
-                    color: "#fff",
-                    border: "none",
-                    display: "inline-flex", alignItems: "center", gap: 3,
+                    borderColor: "var(--border)",
+                    paddingBottom: 8,
+                    marginBottom: 10,
                   }}
                 >
-                  <Paperclip size={12} />
-                  {count > 1 && (
-                    <span style={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>v{count}</span>
-                  )}
-                </button>
+                  {/* Left: FabSimple branding logo */}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <div
+                      className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0"
+                      style={{ background: "var(--primary-bg, rgba(99, 102, 241, 0.15))" }}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="0" y="0" width="8" height="8" fill="var(--primary)" rx="1.5" />
+                        <rect x="12" y="0" width="8" height="8" fill="var(--primary)" rx="1.5" opacity="0.5" />
+                        <rect x="0" y="12" width="8" height="8" fill="var(--primary)" rx="1.5" opacity="0.5" />
+                        <rect x="12" y="12" width="8" height="8" fill="var(--primary)" rx="1.5" opacity="0.85" />
+                      </svg>
+                    </div>
+                    <span className="text-[11px] font-bold tracking-tight truncate" style={{ color: "var(--text)" }}>
+                      FabSimple
+                    </span>
+                  </div>
 
-                <div style={{ background: "white", padding: 8, borderRadius: 6, marginBottom: 8, marginTop: 4 }}>
-                  <QRCodeCanvas value={partUrl(p.id)} size={88} level="H" />
+                  {/* Right: Selection Check & PDF attachment trigger */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {isSelected && (
+                      <span className="w-4 h-4 rounded-full bg-indigo-500 text-white flex items-center justify-center">
+                        <Check size={10} strokeWidth={3} />
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      title={noPdf
+                        ? "Add drawing PDF"
+                        : `${count} drawing${count === 1 ? "" : "s"} attached (latest is rev ${count}) — view / manage`}
+                      onClick={(e) => { e.stopPropagation(); setAttachTarget(p); }}
+                      className="btn btn-sm"
+                      style={{
+                        padding: "2.5px 7px",
+                        height: 23,
+                        fontSize: 10,
+                        background: noPdf ? "rgba(220,38,38,0.15)" : "rgba(22,163,74,0.15)",
+                        color: noPdf ? "#ef4444" : "#22c55e",
+                        border: noPdf ? "1px solid rgba(220,38,38,0.3)" : "1px solid rgba(22,163,74,0.3)",
+                        display: "inline-flex", alignItems: "center", gap: 3,
+                      }}
+                    >
+                      <Paperclip size={10} />
+                      {noPdf ? (
+                        <span>Missing</span>
+                      ) : (
+                        <span>v{count}</span>
+                      )}
+                    </button>
+                  </div>
                 </div>
-                {project?.number && (
-                  <div className="font-mono text-[10px] font-bold" style={{ color: "var(--primary)", letterSpacing: 0.5, marginBottom: 2 }}>
-                    Job {project.number}
+
+                {/* Clean minimal project line (Job ID + Project Name) */}
+                {(project?.number || project?.name) && (
+                  <div className="flex items-center justify-center gap-1.5 text-center mx-auto mb-1 max-w-full px-1">
+                    {project?.number && (
+                      <span className="font-mono font-bold text-[10px] uppercase tracking-wider flex-shrink-0" style={{ color: "var(--primary)" }}>
+                        Job {project.number}
+                      </span>
+                    )}
+                    {project?.number && project?.name && (
+                      <span className="text-[10px]" style={{ color: "var(--muted)" }}>•</span>
+                    )}
+                    {project?.name && (
+                      <span className="text-[10.5px] font-semibold tracking-tight uppercase truncate" style={{ color: "var(--muted)" }} title={project.name}>
+                        {project.name}
+                      </span>
+                    )}
                   </div>
                 )}
-                <div className="font-mono font-bold text-[12px]" style={{ color: "var(--text)" }}>{p.part_mark}</div>
-                <div className="text-[10px]" style={{ color: "var(--muted)" }}>{p.profile}</div>
-                {p.assembly_mark && (
-                  <div className="text-[10px] font-mono" style={{ color: "var(--muted)" }}>asm: {p.assembly_mark}</div>
-                )}
-                {count > 1 && (
-                  <div className="text-[10px] font-semibold" style={{ color: "#16A34A", marginTop: 2 }}>
-                    Drawing rev {count} · {count} versions
+
+                {/* Center: QR Code Display */}
+                <div className="flex justify-center my-1">
+                  <div
+                    className="p-1.5 rounded-lg bg-white shadow-inner flex items-center justify-center transition-transform duration-200 group-hover:scale-[1.03]"
+                    style={{ border: "1px solid rgba(255,255,255,0.2)" }}
+                  >
+                    <QRCodeCanvas value={partUrl(p.id)} size={96} level="H" includeMargin={true} />
                   </div>
-                )}
+                </div>
+
+                {/* Bottom Details Section */}
+                <div className="flex flex-col gap-1 mt-2.5 text-center">
+                  {/* Part Mark */}
+                  <div className="font-mono font-extrabold text-[15.5px] tracking-wide" style={{ color: "var(--text)" }}>
+                    {p.part_mark}
+                  </div>
+
+                  {/* Profile & Grade */}
+                  <div className="text-[11px] font-medium flex items-center justify-center gap-1.5 flex-wrap" style={{ color: "var(--muted)" }}>
+                    <span>{p.profile}</span>
+                    {p.grade && (
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-white/5 border border-white/10" style={{ color: "var(--muted)" }}>
+                        {p.grade}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Heat Number Badge */}
+                  <div className="flex justify-center mt-1">
+                    <div
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold"
+                      style={{
+                        background: p.heat_number ? "rgba(249, 115, 22, 0.15)" : "rgba(255, 255, 255, 0.04)",
+                        color: p.heat_number ? "#fb923c" : "var(--muted)",
+                        border: p.heat_number ? "1px solid rgba(249, 115, 22, 0.3)" : "1px solid var(--border)",
+                      }}
+                      title={p.heat_number ? `Heat Number: ${p.heat_number}` : "No Heat Number assigned"}
+                    >
+                      <Flame size={11} style={{ color: p.heat_number ? "#fb923c" : "var(--muted)" }} />
+                      <span>Heat: {p.heat_number || "Unassigned"}</span>
+                    </div>
+                  </div>
+
+                  {/* Assembly & Quantity info */}
+                  {(p.assembly_mark || p.quantity != null) && (
+                    <div className="text-[10px] font-mono text-slate-400 flex items-center justify-center gap-2 mt-1">
+                      {p.assembly_mark && <span>Asm: {p.assembly_mark}</span>}
+                      {p.quantity != null && <span>Qty: {p.quantity}</span>}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -367,7 +493,7 @@ export default function QrCodesPage() {
                 value={partUrl(p.id)}
                 size={256}
                 level="H"
-                includeMargin={false}
+                includeMargin={true}
               />
             </div>
           ))}
