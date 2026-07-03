@@ -316,8 +316,8 @@ function SignInInner() {
                   <button
                     onClick={() => handleBadgeLogin(manualBadge)}
                     disabled={loading || !manualBadge}
-                    className="btn btn-primary px-6"
-                    style={{ height: 48, fontWeight: 700 }}
+                    className="btn btn-primary"
+                    style={{ height: 48, fontWeight: 700, paddingLeft: 24, paddingRight: 24 }}
                   >
                     Login
                   </button>

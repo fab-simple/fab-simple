@@ -608,7 +608,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                     {!auth.userId ? (
                       <Link
                         href={`/auth/signin?next=/worker/parts/${id}`}
-                        className="w-full h-18 rounded-2xl flex items-center justify-center bg-slate-800 text-slate-400 font-extrabold text-base border border-slate-700/80 cursor-pointer"
+                        className="w-full h-[72px] rounded-2xl flex items-center justify-center bg-slate-800 text-slate-400 font-extrabold text-base border border-slate-700/80 cursor-pointer"
                       >
                         🔒 Sign in to Complete
                       </Link>
@@ -622,7 +622,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                             cut_drop_length: localPart.cut_drop_length,
                           })
                         }
-                        className="w-full h-18 rounded-2xl flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base border border-emerald-500/20 cursor-pointer shadow-lg active:scale-[0.98]"
+                        className="w-full h-[72px] rounded-2xl flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base border border-emerald-500/20 cursor-pointer shadow-lg active:scale-[0.98]"
                       >
                         Mark Cut Done (Self-Check)
                       </button>
@@ -656,7 +656,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                       {!auth.userId ? (
                         <Link
                           href={`/auth/signin?next=/worker/parts/${id}`}
-                          className="flex-1 h-18 rounded-2xl flex items-center justify-center bg-slate-800 text-slate-400 font-extrabold text-base border border-slate-700/80 cursor-pointer"
+                          className="flex-1 h-[72px] rounded-2xl flex items-center justify-center bg-slate-800 text-slate-400 font-extrabold text-base border border-slate-700/80 cursor-pointer"
                         >
                           🔒 Sign in
                         </Link>
@@ -664,7 +664,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                         <>
                           <button
                             onClick={() => triggerAction({ fit_skipped: true })}
-                            className="px-6 h-18 rounded-2xl border border-slate-700 hover:bg-slate-800 text-slate-300 font-extrabold text-sm cursor-pointer active:scale-[0.98]"
+                            className="px-6 h-[72px] rounded-2xl border border-slate-700 hover:bg-slate-800 text-slate-300 font-extrabold text-sm cursor-pointer active:scale-[0.98]"
                           >
                             Skip Stage
                           </button>
@@ -676,7 +676,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                                 fit_hours: localPart.fit_hours,
                               })
                             }
-                            className="flex-1 h-18 rounded-2xl flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base border border-emerald-500/20 cursor-pointer shadow-lg active:scale-[0.98]"
+                            className="flex-1 h-[72px] rounded-2xl flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base border border-emerald-500/20 cursor-pointer shadow-lg active:scale-[0.98]"
                           >
                             Mark Fit-Up Done
                           </button>
@@ -723,7 +723,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                       {!auth.userId ? (
                         <Link
                           href={`/auth/signin?next=/worker/parts/${id}`}
-                          className="flex-1 h-18 rounded-2xl flex items-center justify-center bg-slate-800 text-slate-400 font-extrabold text-base border border-slate-700/80 cursor-pointer"
+                          className="flex-1 h-[72px] rounded-2xl flex items-center justify-center bg-slate-800 text-slate-400 font-extrabold text-base border border-slate-700/80 cursor-pointer"
                         >
                           🔒 Sign in
                         </Link>
@@ -731,7 +731,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                         <>
                           <button
                             onClick={() => triggerAction({ weld_skipped: true })}
-                            className="px-6 h-18 rounded-2xl border border-slate-700 hover:bg-slate-800 text-slate-300 font-extrabold text-sm cursor-pointer active:scale-[0.98]"
+                            className="px-6 h-[72px] rounded-2xl border border-slate-700 hover:bg-slate-800 text-slate-300 font-extrabold text-sm cursor-pointer active:scale-[0.98]"
                           >
                             Skip Stage
                           </button>
@@ -743,7 +743,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                                 weld_hours: localPart.weld_hours,
                               })
                             }
-                            className="flex-1 h-18 rounded-2xl flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base border border-emerald-500/20 cursor-pointer shadow-lg active:scale-[0.98]"
+                            className="flex-1 h-[72px] rounded-2xl flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base border border-emerald-500/20 cursor-pointer shadow-lg active:scale-[0.98]"
                           >
                             Mark Weld Done
                           </button>
@@ -815,7 +815,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                     {!auth.userId ? (
                       <Link
                         href={`/auth/signin?next=/worker/parts/${id}`}
-                        className="w-full h-18 rounded-2xl flex items-center justify-center bg-slate-800 text-slate-400 font-extrabold text-base border border-slate-700/80 cursor-pointer"
+                        className="w-full h-[72px] rounded-2xl flex items-center justify-center bg-slate-800 text-slate-400 font-extrabold text-base border border-slate-700/80 cursor-pointer"
                       >
                         🔒 Sign in to Complete
                       </Link>
@@ -828,7 +828,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                             finish_hours: localPart.finish_hours,
                           })
                         }
-                        className="w-full h-18 rounded-2xl flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base border border-emerald-500/20 cursor-pointer shadow-lg active:scale-[0.98]"
+                        className="w-full h-[72px] rounded-2xl flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base border border-emerald-500/20 cursor-pointer shadow-lg active:scale-[0.98]"
                       >
                         Mark Coating Completed
                       </button>
@@ -864,7 +864,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                                 insp_completed_by: auth.userId,
                               })
                             }
-                            className="w-full h-18 rounded-2xl flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base border border-emerald-500/20 cursor-pointer shadow-lg active:scale-[0.98]"
+                            className="w-full h-[72px] rounded-2xl flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base border border-emerald-500/20 cursor-pointer shadow-lg active:scale-[0.98]"
                           >
                             CWI Inspector Sign-off (Approved)
                           </button>
