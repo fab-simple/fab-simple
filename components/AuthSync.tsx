@@ -73,7 +73,32 @@ export function AuthSync({ children }: { children: React.ReactNode }) {
       load(session);
     });
 
-    return () => { subscription.unsubscribe(); };
+    // Idle session auto-expiry check (e.g. 4 hours)
+    const IDLE_TIMEOUT = 4 * 60 * 60 * 1000; // 4 hours
+    function resetActivity() {
+      localStorage.setItem("fab_last_activity", Date.now().toString());
+    }
+    if (!localStorage.getItem("fab_last_activity")) {
+      resetActivity();
+    }
+    const activityEvents = ["mousedown", "keydown", "touchstart", "scroll"];
+    activityEvents.forEach((ev) => window.addEventListener(ev, resetActivity));
+
+    const checkIdleInterval = setInterval(async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const lastActivity = parseInt(localStorage.getItem("fab_last_activity") || "0", 10);
+      if (lastActivity && (Date.now() - lastActivity > IDLE_TIMEOUT)) {
+        await supabase.auth.signOut();
+        window.location.href = "/auth/signin";
+      }
+    }, 30000);
+
+    return () => {
+      subscription.unsubscribe();
+      activityEvents.forEach((ev) => window.removeEventListener(ev, resetActivity));
+      clearInterval(checkIdleInterval);
+    };
   }, [dispatch]);
 
   return <>{children}</>;

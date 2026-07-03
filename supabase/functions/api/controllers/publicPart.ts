@@ -10,7 +10,7 @@ export async function getPublicPart(partId: string): Promise<Response> {
   // 1. Fetch part
   const { data: part, error: partErr } = await sbAdmin
     .from("parts")
-    .select("id, part_mark, profile, status, assembly_mark, heat_number, finish, weight, project_id")
+    .select("id, part_mark, profile, status, assembly_mark, heat_number, finish, weight, project_id, cut_completed_by, cut_completed_at, cut_hours, cut_drop_length, fit_completed_by, fit_completed_at, fit_hours, fit_skipped, weld_completed_by, weld_completed_at, weld_qc_by, weld_qc_at, weld_hours, weld_skipped, finish_completed_by, finish_completed_at, finish_hours, insp_completed_by, insp_completed_at")
     .eq("id", partId)
     .maybeSingle();
 
