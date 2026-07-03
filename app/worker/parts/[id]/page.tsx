@@ -3,7 +3,7 @@
 import { use, useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useResource, useUpdate } from "@/hooks/useResource";
-import { uploadFile, FabAPI, type FileAttachment } from "@/lib/api";
+import { uploadFile, type FileAttachment } from "@/lib/api";
 import { StatusPill } from "@/components/ui/StatusPill";
 import {
   Loader2,
@@ -130,10 +130,10 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
   // Combine part details from authenticated or public source
   const part: Part | null = authPart
     ? {
-        ...authPart,
-        project_name: publicData?.part.project_name ?? authPart.project_name,
-        project_number: publicData?.part.project_number ?? authPart.project_number,
-      }
+      ...authPart,
+      project_name: publicData?.part.project_name ?? authPart.project_name,
+      project_number: publicData?.part.project_number ?? authPart.project_number,
+    }
     : publicData?.part ?? null;
 
   const isLoading = authLoading && publicLoading;
@@ -160,34 +160,32 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0F172A", color: "white", maxWidth: 600, margin: "0 auto", padding: "16px 16px 100px" }}>
+    <div style={{ minHeight: "100vh", background: "#0B1120", color: "#F8FAFC", maxWidth: 760, margin: "0 auto", padding: "20px 20px 100px" }}>
       {/* Top Header Navigation */}
-      <header className="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
+      <header className="flex items-center justify-between mb-5 !pb-3 border-b border-slate-800/80">
         <button
           onClick={() => router.push("/worker")}
-          className="flex items-center gap-1 text-[13px] text-slate-400 hover:text-white"
-          style={{ background: "transparent", border: "none", cursor: "pointer" }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700/60 text-xs font-semibold text-slate-300 hover:text-white transition-colors"
         >
-          <ChevronLeft size={16} /> Worker Queue
+          <ChevronLeft size={16} /> Queue
         </button>
 
         {/* FabSimple Brand Badge */}
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-indigo-500/10 border border-indigo-500/20">
-          <div className="w-4 h-4 rounded bg-indigo-500/20 flex items-center justify-center">
-            <svg width="10" height="10" viewBox="0 0 20 20" fill="none">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-500/15 border border-indigo-500/30 shadow-sm">
+          <div className="w-4.5 h-4.5 rounded bg-indigo-500/30 flex items-center justify-center">
+            <svg width="11" height="11" viewBox="0 0 20 20" fill="none">
               <rect x="0" y="0" width="8" height="8" fill="#818CF8" rx="1.5" />
               <rect x="12" y="0" width="8" height="8" fill="#818CF8" rx="1.5" opacity="0.5" />
               <rect x="0" y="12" width="8" height="8" fill="#818CF8" rx="1.5" opacity="0.5" />
               <rect x="12" y="12" width="8" height="8" fill="#818CF8" rx="1.5" opacity="0.85" />
             </svg>
           </div>
-          <span className="text-[11px] font-bold tracking-tight text-indigo-300">FabSimple</span>
+          <span className="text-xs font-bold tracking-wide text-indigo-300 uppercase">FabSimple</span>
         </div>
 
         <button
           onClick={() => router.push("/worker/scan")}
-          className="p-1.5 rounded-md text-slate-400 hover:text-white border border-slate-800"
-          style={{ background: "transparent" }}
+          className="p-2 rounded-lg bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700/60 text-slate-400 hover:text-white transition-colors"
           title="Scan another QR code"
         >
           <X size={16} />
@@ -195,21 +193,21 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
       </header>
 
       {isLoading && (
-        <div className="text-center text-slate-400 py-12">
-          <Loader2 size={24} className="animate-spin inline mb-2" />
-          <div>Loading part & drawing PDF…</div>
+        <div className="text-center text-slate-400 py-16">
+          <Loader2 size={28} className="animate-spin inline mb-3 text-indigo-400" />
+          <div className="text-sm font-medium">Loading part details & drawing PDF…</div>
         </div>
       )}
 
       {error && !part && (
-        <div className="rounded-xl p-4 bg-red-950/80 border border-red-800 text-red-200 text-sm mb-4">
-          <div className="font-semibold mb-1">Could not load part</div>
-          <div>{error}</div>
+        <div className="rounded-xl p-5 bg-red-950/80 border border-red-800/80 text-red-200 text-sm mb-5 shadow-lg">
+          <div className="font-bold text-base mb-1">Could not load part</div>
+          <div className="text-xs text-red-300">{error}</div>
           <button
             onClick={() => loadPublicData()}
-            className="mt-3 text-xs flex items-center gap-1.5 px-3 py-1.5 rounded bg-red-800 text-white"
+            className="mt-4 text-xs font-semibold flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white shadow"
           >
-            <RefreshCw size={12} /> Retry
+            <RefreshCw size={13} /> Retry
           </button>
         </div>
       )}
@@ -217,138 +215,164 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
       {part && (
         <>
           {/* Main Part Card */}
-          <div className="rounded-xl p-5 bg-slate-800/80 border border-slate-700 mb-4 shadow-lg">
-            {/* Job ID + Project Name Minimal Header */}
+          <div className="rounded-2xl p-6 bg-slate-800/90 border border-slate-700/80 mb-5 shadow-xl">
+            {/* Job ID + Project Name Header */}
             {(part.project_number || part.project_name) && (
-              <div className="flex items-center gap-1.5 text-xs text-indigo-400 mb-2 font-medium">
+              <div className="flex items-center gap-2 text-xs text-indigo-400 mb-3 !pb-2 border-b border-slate-700/60 font-semibold tracking-wide">
                 {part.project_number && (
-                  <span className="font-mono font-bold uppercase">Job {part.project_number}</span>
+                  <span className="font-mono font-bold uppercase px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20">
+                    JOB {part.project_number}
+                  </span>
                 )}
                 {part.project_number && part.project_name && <span className="text-slate-500">•</span>}
                 {part.project_name && (
-                  <span className="uppercase text-slate-300 truncate">{part.project_name}</span>
+                  <span className="uppercase text-slate-300 truncate max-w-[400px]" title={part.project_name}>
+                    {part.project_name}
+                  </span>
                 )}
               </div>
             )}
 
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-2xl font-black font-mono text-white tracking-wide">{part.part_mark}</div>
-                <div className="text-sm font-medium text-slate-400 mt-0.5">{part.profile}</div>
+                <div className="text-3xl font-black font-mono text-white tracking-wider">{part.part_mark}</div>
+                <div className="text-sm font-semibold text-slate-400 mt-1">{part.profile}</div>
               </div>
-              <StatusPill status={part.status} />
+              <div className="flex-shrink-0 pt-1">
+                <StatusPill status={part.status} />
+              </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-700/60">
+            {/* Metadata Grid */}
+            <div className="grid grid-cols-3 gap-3 !mt-5 pt-4">
               <Info label="Assembly" value={part.assembly_mark ?? "—"} />
               <Info label="Heat #" value={part.heat_number ?? "—"} />
               <Info label="Weight" value={part.weight ? `${part.weight} lb` : "—"} />
             </div>
           </div>
 
-          {/* Drawing PDF Section */}
-          <div className="rounded-xl p-4 mb-4 bg-slate-800/80 border border-slate-700 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                <FileText size={16} className="text-indigo-400" />
-                <span>Structural Drawing PDF</span>
-                {drawings.length > 0 && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-normal">
-                    {drawings.length} file{drawings.length === 1 ? "" : "s"}
-                  </span>
-                )}
+          {/* Structural Drawing PDF Section */}
+          <div className="rounded-2xl p-6 mb-5 bg-slate-800/90 border border-slate-700/80 shadow-xl">
+            <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                  <FileText size={18} />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                    <span>Structural Drawing PDF</span>
+                    {drawings.length > 0 && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-semibold">
+                        {drawings.length} file{drawings.length === 1 ? "" : "s"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    Official shop drawing attached to QR code mark
+                  </div>
+                </div>
               </div>
 
               {activeDrawing?.url && (
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2.5">
                   <a
                     href={activeDrawing.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="btn text-xs px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1 text-[11px] font-semibold"
-                    title="Open PDF in native browser tab or reader"
+                    className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold shadow-md flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                    title="Open PDF in fullscreen tab or device reader"
                   >
-                    <ExternalLink size={12} /> Fullscreen
+                    <ExternalLink size={14} /> Fullscreen
                   </a>
                   <a
                     href={activeDrawing.url}
                     download={fileLabel(activeDrawing.storage_path)}
-                    className="btn text-xs p-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200"
-                    title="Download PDF"
+                    className="px-4 py-2 rounded-xl bg-slate-700/90 hover:bg-slate-600 text-slate-100 text-xs font-bold flex items-center gap-1.5 transition-all border border-slate-600/60 shadow-sm hover:scale-[1.02] active:scale-[0.98]"
+                    title="Download PDF file"
                   >
                     <Download size={14} />
+                    <span>Download</span>
                   </a>
                 </div>
               )}
             </div>
 
             {publicLoading ? (
-              <div className="text-xs text-slate-400 py-6 text-center flex items-center justify-center gap-2">
-                <Loader2 size={16} className="animate-spin text-indigo-400" /> Fetching drawing PDF…
+              <div className="text-xs text-slate-400 py-8 text-center flex items-center justify-center gap-2">
+                <Loader2 size={18} className="animate-spin text-indigo-400" /> Loading drawing PDF…
               </div>
             ) : drawings.length === 0 ? (
-              <div className="text-xs text-slate-400 p-4 bg-slate-900/50 rounded-lg text-center border border-slate-700/50">
+              <div className="text-xs text-slate-400 p-4 bg-slate-900/60 rounded-xl text-center border border-slate-700/60 font-medium">
                 ⚠️ No drawing PDF attached to this part mark yet.
               </div>
             ) : (
-              <div className="space-y-3">
-                {/* Multiple drawings selector tab */}
+              <div className="space-y-4">
+                {/* Multiple drawings revision tabs */}
                 {drawings.length > 1 && (
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                    {drawings.map((d, idx) => (
-                      <button
-                        key={d.id}
-                        onClick={() => setActiveDrawingId(d.id)}
-                        className={`text-xs px-3 py-1.5 rounded-lg font-mono truncate max-w-[180px] transition-colors ${
-                          d.id === activeDrawingId
-                            ? "bg-indigo-600 text-white font-bold"
-                            : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                        }`}
-                      >
-                        v{drawings.length - idx} • {fileLabel(d.storage_path)}
-                      </button>
-                    ))}
+                  <div className="flex items-center gap-3 overflow-x-auto pb-2 mb-4 pt-1">
+                    {drawings.map((d, idx) => {
+                      const isActive = d.id === activeDrawingId;
+                      const revNum = drawings.length - idx;
+                      return (
+                        <button
+                          key={d.id}
+                          onClick={() => setActiveDrawingId(d.id)}
+                          className={`text-xs px-3 py-1.5 rounded-xl font-mono font-bold transition-all flex items-center gap-2.5 flex-shrink-0 ${isActive
+                            ? "bg-indigo-600 text-white shadow-md border border-indigo-400/50"
+                            : "bg-slate-700/80 text-slate-300 hover:bg-slate-700 border border-slate-600/50"
+                            }`}
+                        >
+                          <span className={`text-[10px] px-2.5 py-0.5 rounded-md font-extrabold uppercase tracking-wide ${isActive ? "bg-white/20 text-white" : "bg-slate-900/60 text-slate-300"
+                            }`}>
+                            v{revNum}{idx === 0 ? " (Latest)" : ""}
+                          </span>
+                          <span className="truncate max-w-[200px] font-sans text-xs font-semibold px-1">{fileLabel(d.storage_path)}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
                 {/* Embedded Interactive PDF Viewer */}
                 {activeDrawing?.url ? (
-                  <div className="relative rounded-lg overflow-hidden border border-slate-600 bg-slate-950 shadow-inner">
-                    <div className="bg-slate-900 px-3 py-2 flex items-center justify-between border-b border-slate-700 text-xs text-slate-300">
-                      <div className="truncate font-mono font-semibold flex items-center gap-1.5">
-                        <FileText size={13} className="text-indigo-400 flex-shrink-0" />
-                        <span className="truncate">{fileLabel(activeDrawing.storage_path)}</span>
+                  <div className="rounded-xl overflow-hidden border border-slate-600/80 bg-slate-950 shadow-inner">
+                    <div className="bg-slate-900 px-4 py-1.5 flex items-center justify-between border-b border-slate-700/80 text-xs text-slate-200">
+                      <div className="truncate font-mono font-semibold flex items-center gap-2">
+                        <FileText size={14} className="text-indigo-400 flex-shrink-0" />
+                        <span className="truncate text-slate-200">{fileLabel(activeDrawing.storage_path)}</span>
                       </div>
                       <button
                         onClick={() => setIsFullscreenPdf(!isFullscreenPdf)}
-                        className="text-slate-400 hover:text-white p-1 rounded"
-                        title="Toggle full height"
+                        className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors flex items-center gap-1 text-[11px]"
+                        title="Toggle viewer height"
                       >
                         {isFullscreenPdf ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                        <span className="hidden sm:inline">{isFullscreenPdf ? "Standard View" : "Expand Height"}</span>
                       </button>
                     </div>
 
                     <iframe
                       src={`${activeDrawing.url}#view=FitH`}
-                      className={`w-full transition-all duration-200 ${
-                        isFullscreenPdf ? "h-[750px]" : "h-[450px]"
-                      }`}
+                      className={`w-full transition-all duration-200 ${isFullscreenPdf ? "h-[780px]" : "h-[500px]"
+                        }`}
                       style={{ border: "none" }}
-                      title="Part Drawing PDF"
+                      title="Part Structural Drawing PDF"
                     />
                   </div>
                 ) : (
-                  <div className="text-xs text-red-400 p-3 bg-red-950/40 rounded-lg">
-                    Could not load signed URL for drawing PDF.
+                  <div className="text-xs text-red-400 p-4 bg-red-950/40 rounded-xl border border-red-900/50">
+                    Could not generate signed URL for drawing PDF.
                   </div>
                 )}
               </div>
             )}
           </div>
 
-          {/* Photo evidence section */}
-          <div className="rounded-xl p-4 mb-4 bg-slate-800/80 border border-slate-700 shadow-lg">
-            <div className="text-xs font-bold text-slate-200 mb-2">Photos / Progress Evidence</div>
+          {/* Photos & Evidence Section */}
+          <div className="rounded-2xl p-6 mb-5 bg-slate-800/90 border border-slate-700/80 shadow-xl">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-3">
+              Photos & Progress Evidence
+            </div>
             <input
               ref={fileRef}
               type="file"
@@ -364,15 +388,15 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
             <button
               onClick={() => fileRef.current?.click()}
               disabled={photoBusy}
-              className="w-full p-3 rounded-lg flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold text-xs transition-colors"
+              className="w-full !p-2 rounded-xl flex items-center justify-center gap-2 bg-slate-700/80 hover:bg-slate-700 text-white font-bold text-xs border border-slate-600/60 shadow transition-colors"
             >
               {photoBusy ? <Loader2 size={16} className="animate-spin text-indigo-400" /> : <Camera size={16} />}
-              {photoBusy ? "Uploading…" : photoCount > 0 ? `Add another photo (${photoCount} attached)` : "Take photo"}
+              {photoBusy ? "Uploading…" : photoCount > 0 ? `Add another photo (${photoCount} attached)` : "Take Photo"}
             </button>
-            {photoErr && <div className="text-xs mt-2 text-red-400">{photoErr}</div>}
+            {photoErr && <div className="text-xs mt-2 text-red-400 font-medium">{photoErr}</div>}
           </div>
 
-          {/* Status update button (for signed-in workers) */}
+          {/* Status Update Action Button */}
           {NEXT_STATUS[part.status] ? (
             <button
               onClick={() =>
@@ -382,13 +406,13 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                 )
               }
               disabled={update.isPending}
-              className="w-full p-4 rounded-xl flex items-center justify-center gap-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-base shadow-lg transition-colors"
+              className="w-full p-4.5 rounded-xl flex items-center justify-center gap-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base shadow-lg transition-colors border border-emerald-500/30"
             >
               {update.isPending ? <Loader2 size={20} className="animate-spin" /> : <Check size={20} />}
               {STATUS_LABEL[part.status]}
             </button>
           ) : (
-            <div className="text-center text-slate-400 text-xs py-2">
+            <div className="text-center text-slate-400 text-xs font-semibold py-3 px-4 rounded-xl bg-slate-800/50 border border-slate-700/40">
               ✓ This part is marked as completed.
             </div>
           )}
@@ -400,9 +424,9 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">{label}</div>
-      <div className="text-xs font-mono font-semibold text-white mt-0.5 truncate">{value}</div>
+    <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-700/50 min-w-0">
+      <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 truncate">{label}</div>
+      <div className="text-xs font-mono font-bold text-white mt-1 truncate whitespace-nowrap">{value}</div>
     </div>
   );
 }
