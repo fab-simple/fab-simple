@@ -71,8 +71,8 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
   {
     label: "Pre-Construction",
     items: [
-      // Estimating: Owner Full · Estimator Full · PM View
-      { key: "estimating",    label: "Estimating",    href: "/dashboard/estimating",      icon: Calculator,   roles: [...OWNER_ESTIMATOR_PM] },
+      // Estimation: Owner Full · Estimator Full · PM View
+      { key: "estimating",    label: "Estimation",    href: "/dashboard/estimating",      icon: Calculator,   roles: [...OWNER_ESTIMATOR_PM] },
       // Projects: Owner Full · Estimator View · PM Full · Foreman View · QC View · Accounting View
       { key: "projects",      label: "Projects",      href: "/dashboard/projects",        icon: FolderKanban, roles: [...ALL_NON_WORKER] },
       // Change Orders: Owner Full · PM Full · Accounting View

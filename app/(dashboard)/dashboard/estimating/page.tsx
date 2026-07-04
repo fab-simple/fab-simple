@@ -138,10 +138,10 @@ export default function EstimatingPage() {
   ];
 
   return (
-    <PageWrapper title="Estimating">
+    <PageWrapper title="Estimation">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Estimating Module</div>
+          <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Estimation Module</div>
           <div className="text-[12px]" style={{ color: "var(--muted)" }}>
             Steel pricing and structural bidding panel · Won bids convert to project baseline budget automatically.
           </div>
@@ -402,19 +402,44 @@ function EstimateModal({
     }
   };
 
+  // Field-level validation errors
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Status validation
+    const errs: Record<string, string> = {};
+
+    // Required: project_name
+    if (!f.project_name.trim()) {
+      errs.project_name = "Project name is required.";
+    }
+
+    // Required: bid_due_date
+    if (!f.bid_due_date) {
+      errs.bid_due_date = "Bid due date is required.";
+    }
+
+    // Non-draft status checks
     if (f.status !== "draft") {
       if (totalTons <= 0) {
-        alert("Estimating total tons must be greater than 0 to submit, won, or review.");
-        return;
+        errs.materials = "Total tonnage must be greater than 0 to submit.";
       }
       if (!f.unique_piece_marks || Number(f.unique_piece_marks) <= 0) {
-        alert("Unique Piece Marks is required and must be greater than 0 to submit.");
-        return;
+        errs.unique_piece_marks = "Unique piece marks is required for non-draft estimates.";
       }
+    }
+
+    setFieldErrors(errs);
+
+    if (Object.keys(errs).length > 0) {
+      // Open the section containing the first error
+      if (errs.project_name || errs.bid_due_date) {
+        setSections(prev => ({ ...prev, bid_info: true }));
+      }
+      if (errs.materials || errs.unique_piece_marks) {
+        setSections(prev => ({ ...prev, material_labor: true }));
+      }
+      return;
     }
 
     const payload = {
@@ -489,9 +514,22 @@ function EstimateModal({
         
         {/* Left Column - Form Sections */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* Validation Errors Summary */}
+          {Object.keys(fieldErrors).length > 0 && (
+            <div className="flex items-start gap-2.5 p-3.5 rounded-lg" style={{ background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.25)" }}>
+              <AlertCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="text-[13px] font-bold text-red-400 mb-1">Please fix the following errors:</div>
+                <ul className="text-[12px] text-red-300 list-disc pl-4 flex flex-col gap-0.5">
+                  {Object.values(fieldErrors).map((msg, i) => <li key={i}>{msg}</li>)}
+                </ul>
+              </div>
+            </div>
+          )}
           
           {/* Section: Bid Info */}
-          <div className="card" style={{ border: "1px solid var(--border)" }}>
+          <div className="card" style={{ border: `1px solid ${(fieldErrors.project_name || fieldErrors.bid_due_date) ? "rgba(239, 68, 68, 0.4)" : "var(--border)"}` }}>
             <div
               onClick={() => toggleSection("bid_info")}
               className="card-header flex items-center justify-between cursor-pointer py-3 px-4"
@@ -504,10 +542,18 @@ function EstimateModal({
               <div className="card-body p-4 flex flex-col gap-3">
                 <div className="grid-2 gap-md">
                   <Field label="Project name" required>
-                    <input className="input" required value={f.project_name} onChange={(e) => setF({ ...f, project_name: e.target.value })} />
+                    <input
+                      className="input"
+                      required
+                      value={f.project_name}
+                      onChange={(e) => { setF({ ...f, project_name: e.target.value }); if (fieldErrors.project_name) setFieldErrors(prev => { const n = {...prev}; delete n.project_name; return n; }); }}
+                      style={fieldErrors.project_name ? { borderColor: "rgba(239, 68, 68, 0.6)" } : undefined}
+                      placeholder="e.g. Warehouse Expansion Phase 2"
+                    />
+                    {fieldErrors.project_name && <div className="text-[11px] font-semibold mt-1" style={{ color: "#ef4444" }}>{fieldErrors.project_name}</div>}
                   </Field>
                   <Field label="GC name">
-                    <input className="input" value={f.gc_name} onChange={(e) => setF({ ...f, gc_name: e.target.value })} />
+                    <input className="input" value={f.gc_name} onChange={(e) => setF({ ...f, gc_name: e.target.value })} placeholder="General Contractor" />
                   </Field>
                 </div>
                 <div className="grid-2 gap-md">
@@ -515,12 +561,20 @@ function EstimateModal({
                     <input className="input" value={f.architect_eor} onChange={(e) => setF({ ...f, architect_eor: e.target.value })} />
                   </Field>
                   <Field label="Project location">
-                    <input className="input" value={f.project_location} onChange={(e) => setF({ ...f, project_location: e.target.value })} />
+                    <input className="input" value={f.project_location} onChange={(e) => setF({ ...f, project_location: e.target.value })} placeholder="City, State" />
                   </Field>
                 </div>
                 <div className="grid-3 gap-sm">
                   <Field label="Bid due" required>
-                    <input className="input" type="date" required value={f.bid_due_date} onChange={(e) => setF({ ...f, bid_due_date: e.target.value })} />
+                    <input
+                      className="input"
+                      type="date"
+                      required
+                      value={f.bid_due_date}
+                      onChange={(e) => { setF({ ...f, bid_due_date: e.target.value }); if (fieldErrors.bid_due_date) setFieldErrors(prev => { const n = {...prev}; delete n.bid_due_date; return n; }); }}
+                      style={fieldErrors.bid_due_date ? { borderColor: "rgba(239, 68, 68, 0.6)" } : undefined}
+                    />
+                    {fieldErrors.bid_due_date && <div className="text-[11px] font-semibold mt-1" style={{ color: "#ef4444" }}>{fieldErrors.bid_due_date}</div>}
                   </Field>
                   <Field label="Bid type">
                     <select className="input" value={f.bid_type} onChange={(e) => setF({ ...f, bid_type: e.target.value })}>
@@ -538,8 +592,9 @@ function EstimateModal({
             )}
           </div>
 
+
           {/* Section: Material & Labor */}
-          <div className="card" style={{ border: "1px solid var(--border)" }}>
+          <div className="card" style={{ border: `1px solid ${(fieldErrors.materials || fieldErrors.unique_piece_marks) ? "rgba(239, 68, 68, 0.4)" : "var(--border)"}` }}>
             <div
               onClick={() => toggleSection("material_labor")}
               className="card-header flex items-center justify-between cursor-pointer py-3 px-4"
@@ -614,6 +669,7 @@ function EstimateModal({
                     Take-off: <strong className="text-white">{totalTons.toFixed(2)} tons</strong> blended at <strong className="text-white">${totalTons > 0 ? (materialCost / totalTons).toFixed(2) : "0"}/ton</strong>
                   </div>
                 </div>
+                {fieldErrors.materials && <div className="text-[11px] font-semibold" style={{ color: "#ef4444" }}>{fieldErrors.materials}</div>}
 
                 <hr style={{ borderColor: "var(--border)", margin: "8px 0" }} />
 
@@ -623,9 +679,11 @@ function EstimateModal({
                       className="input font-mono"
                       type="number"
                       value={f.unique_piece_marks}
-                      onChange={(e) => setF({ ...f, unique_piece_marks: e.target.value })}
+                      onChange={(e) => { setF({ ...f, unique_piece_marks: e.target.value }); if (fieldErrors.unique_piece_marks) setFieldErrors(prev => { const n = {...prev}; delete n.unique_piece_marks; return n; }); }}
                       placeholder="e.g. 150"
+                      style={fieldErrors.unique_piece_marks ? { borderColor: "rgba(239, 68, 68, 0.6)" } : undefined}
                     />
+                    {fieldErrors.unique_piece_marks && <div className="text-[11px] font-semibold mt-1" style={{ color: "#ef4444" }}>{fieldErrors.unique_piece_marks}</div>}
                   </Field>
                   <Field label="Connection Complexity">
                     <select
