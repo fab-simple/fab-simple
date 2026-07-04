@@ -72,7 +72,7 @@ Manual entry remains available, but is deliberately friction-heavier than the au
 
 ## Part 8 — Discrepancy and correction visibility
 
-- Any receiving-time CMTR mismatch flag, any manual correction, and any legacy re-verification action must remain permanently visible in that heat number's history — this module is the audit trail, not just the current-state display.
+- Any receiving-time CMTR mismatch flag, any manual correction, and any legacy re-verification action must remain permanently visible in that heat number's history — this module is the audit trail, not just the current-state to show.
 
 ---
 
