@@ -607,6 +607,30 @@ function PdfPackageTab({ projects, defaultProjectId }: { projects: Project[]; de
             });
             extraCount = res.created;
           }
+
+          // 3) If classification is E-Plans (ga), auto-register in Drawing Log table
+          if (classification === "ga") {
+            const prefix = row.filenamePrefix || row.file.name.replace(/\.[^/.]+$/, "").split("_")[0];
+            try {
+              const dwg = await FabAPI.create<{ id: string }>("drawings", {
+                drawing_number: prefix || "E-PLAN",
+                revision: "R0",
+                title: `${prefix || "Erection Plan"} General Arrangement`,
+                type: "erection_plan",
+                status: "released",
+                current_revision: true,
+                project_id: projectId,
+              });
+              if (dwg?.id) {
+                await FabAPI.shareFile({
+                  source_attachment_id: attachment_id,
+                  target_entity_type: "drawings",
+                  target_entity_ids: [dwg.id],
+                });
+              }
+            } catch (_dwgErr) {}
+          }
+
           const total = 1 + extraCount;
           setRows((prev) => prev.map((r) => (r.uid === row.uid ? {
             ...r, status: "done", uploadedTo: total,
