@@ -552,14 +552,14 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
         <div className="flex gap-2">
           <button
             onClick={() => router.push("/worker")}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-300 hover:text-white transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-4 !py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-300 hover:text-white transition-colors cursor-pointer"
           >
             <ChevronLeft size={16} /> Queue
           </button>
           {localPart && (
             <button
               onClick={printPaperTraveller}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-300 hover:text-white transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-4 !py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-300 hover:text-white transition-colors cursor-pointer"
             >
               <Printer size={15} /> Fallback Traveller
             </button>
