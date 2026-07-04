@@ -105,6 +105,7 @@ export async function GET(
       return {
         id: att.id,
         filename,
+        storage_bucket: att.storage_bucket,
         storage_path: att.storage_path,
         mime_type: att.mime_type,
         size_bytes: att.size_bytes,

@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useRef, useEffect, useCallback } from "react";
+import { use, useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useResource, useUpdate, useResourceList, useCreate } from "@/hooks/useResource";
 import { useAppSelector } from "@/hooks/useAppRedux";
@@ -70,6 +70,7 @@ interface PublicDrawing {
   size_bytes: number | null;
   created_at: string;
   url: string | null;
+  storage_bucket?: string | null;
 }
 
 interface UserRow {
@@ -544,7 +545,18 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
   };
 
   const isLoading = authLoading && publicLoading;
-  const activeDrawing = drawings.find((d) => d.id === activeDrawingId) || drawings[0] || null;
+
+  const pdfDrawings = useMemo(() => {
+    return drawings.filter((d) => d.mime_type === "application/pdf" || d.filename.toLowerCase().endsWith(".pdf"));
+  }, [drawings]);
+
+  const photoSnapshots = useMemo(() => {
+    return drawings.filter((d) => d.storage_bucket === "photos" || d.mime_type?.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(d.filename));
+  }, [drawings]);
+
+  const activeDrawing = useMemo(() => {
+    return pdfDrawings.find((d) => d.id === activeDrawingId) ?? pdfDrawings[0] ?? null;
+  }, [pdfDrawings, activeDrawingId]);
 
   async function snap(file: File) {
     setPhotoBusy(true);
@@ -552,6 +564,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
     try {
       await uploadFile({ file, entity_type: "parts", entity_id: id, bucket: "photos" });
       setPhotoCount((n) => n + 1);
+      loadPublicData();
     } catch (e) {
       setPhotoErr("Photo upload failed");
     } finally {
@@ -984,9 +997,16 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
             </div>
           </div>
 
-          {/* Photo capture attachments */}
+          {/* Shop Floor Photo & QC Snapshot Log */}
           <div className="rounded-2xl p-6 bg-slate-800/90 border border-slate-700/80 mb-5 shadow-xl">
-            <h4 className="font-bold text-white text-base mb-3">Shop Floor Photo Log</h4>
+            <h4 className="font-bold text-white text-base mb-3 flex items-center justify-between">
+              <span>Shop Floor Photo Log</span>
+              {photoSnapshots.length > 0 && (
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  {photoSnapshots.length} snapshot{photoSnapshots.length > 1 ? "s" : ""}
+                </span>
+              )}
+            </h4>
             <input
               ref={fileRef}
               type="file"
@@ -1002,15 +1022,45 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
             <button
               onClick={() => fileRef.current?.click()}
               disabled={photoBusy}
-              className="w-full h-14 rounded-2xl flex items-center justify-center gap-2 bg-slate-700/80 hover:bg-slate-700 text-white font-bold text-sm border border-slate-600 shadow transition-colors cursor-pointer"
+              className="w-full h-14 rounded-2xl flex items-center justify-center gap-2 bg-slate-700/80 hover:bg-slate-700 text-white font-bold text-sm border border-slate-600 shadow transition-colors cursor-pointer mb-3"
             >
               {photoBusy ? <Loader2 size={18} className="animate-spin text-indigo-400" /> : <Camera size={18} />}
-              {photoBusy ? "Uploading to Cloud…" : photoCount > 0 ? `Attach another photo (${photoCount} logged)` : "Snapshot (DFT Gauge / Weld)"}
+              {photoBusy ? "Uploading to Cloud…" : photoCount > 0 || photoSnapshots.length > 0 ? `Attach another photo (${photoSnapshots.length || photoCount} logged)` : "Snapshot (DFT Gauge / Weld)"}
             </button>
-            {photoErr && <div className="text-xs mt-2 text-red-400 font-medium">{photoErr}</div>}
+            {photoErr && <div className="text-xs mt-2 text-red-400 font-medium mb-3">{photoErr}</div>}
+
+            {/* QC & DFT Gauge Snapshots Grid */}
+            {photoSnapshots.length > 0 && (
+              <div className="mt-4 border-t border-slate-700/60 pt-4">
+                <h5 className="text-xs font-bold text-slate-300 mb-2.5 flex items-center gap-1.5">
+                  <Camera size={14} className="text-indigo-400" />
+                  DFT Gauge &amp; Weld Snapshots ({photoSnapshots.length})
+                </h5>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  {photoSnapshots.map((snapItem) => (
+                    <a
+                      key={snapItem.id}
+                      href={snapItem.url ?? "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group relative rounded-xl overflow-hidden border border-slate-700 bg-slate-950 aspect-video block shadow hover:border-indigo-500 transition-colors"
+                    >
+                      <img
+                        src={snapItem.url ?? ""}
+                        alt={snapItem.filename}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-1.5 text-[10px] text-white font-medium truncate">
+                        {snapItem.filename}
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Structural Drawing & Attachment Documents Section */}
+          {/* Structural Drawing PDF Section (PDFs only) */}
           <div className="rounded-2xl p-6 mb-5 bg-slate-800/90 border border-slate-700/80 shadow-xl">
             <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
               <div className="flex items-center gap-2.5">
@@ -1018,20 +1068,20 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                   <FileText size={18} />
                 </div>
                 <div>
-                  <h4 className="font-bold text-sm text-white">Structural Drawings &amp; Documents ({drawings.length})</h4>
+                  <h4 className="font-bold text-sm text-white">Structural Drawing PDF ({pdfDrawings.length})</h4>
                   <p className="text-[11px] text-slate-400">Worker drawing, part sheets &amp; revision history</p>
                 </div>
               </div>
             </div>
 
-            {drawings.length > 0 ? (
+            {pdfDrawings.length > 0 ? (
               <div>
-                {/* Horizontal scrollable tab buttons for document list */}
+                {/* Horizontal scrollable tab buttons for PDF list */}
                 <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide border-b border-white/5 mb-4">
-                  {drawings.map((d, index) => {
+                  {pdfDrawings.map((d, index) => {
                     const isLatest = index === 0;
-                    const isActive = d.id === activeDrawingId;
-                    const revLabel = `R${drawings.length - 1 - index}`;
+                    const isActive = d.id === (activeDrawing?.id ?? activeDrawingId);
+                    const revLabel = `R${pdfDrawings.length - 1 - index}`;
                     return (
                       <button
                         key={d.id}
@@ -1061,30 +1111,20 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                         rel="noreferrer"
                         className="text-indigo-400 hover:text-indigo-300 font-medium underline flex-shrink-0"
                       >
-                        Open full document ↗
+                        Open full PDF ↗
                       </a>
                     </div>
                     <div className="rounded-xl overflow-hidden border border-slate-700/60 bg-slate-900 shadow-inner relative group" style={{ height: "420px" }}>
-                      {activeDrawing.mime_type?.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(activeDrawing.filename) ? (
-                        <div className="w-full h-full flex items-center justify-center p-2 bg-slate-950">
-                          <img
-                            src={activeDrawing.url}
-                            alt={activeDrawing.filename}
-                            className="max-w-full max-h-full object-contain rounded"
-                          />
-                        </div>
-                      ) : (
-                        <iframe
-                          src={activeDrawing.url}
-                          className="w-full h-full border-0"
-                          title={activeDrawing.filename}
-                        />
-                      )}
+                      <iframe
+                        src={activeDrawing.url}
+                        className="w-full h-full border-0"
+                        title={activeDrawing.filename}
+                      />
                     </div>
                   </div>
                 ) : (
                   <div className="text-center text-slate-400 py-8 bg-slate-900/60 rounded-xl border border-slate-800 text-xs font-medium">
-                    Could not generate view link for document.
+                    Could not generate view link for drawing.
                   </div>
                 )}
               </div>
