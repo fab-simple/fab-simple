@@ -262,6 +262,35 @@ export const FabAPI = {
       has_more: p?.has_more ?? false,
     };
   },
+  /**
+   * Fetch EVERY row matching `query`, transparently paging past the server's
+   * per-request cap (200). Use for small/medium reference tables that a view
+   * needs in full for client-side filtering or aggregate counts (e.g. the
+   * Drawing Log, which renders per-type tab totals from the complete set).
+   *
+   * Not for unbounded tables (parts, audit_log): a hard page ceiling caps the
+   * walk at `maxPages × 200` rows so a runaway table can't fan out into an
+   * unbounded request storm — it stops and returns what it has.
+   *
+   * @param query   Filters/sort (page/per_page are managed internally).
+   * @param maxPages Safety ceiling on pages walked. Default 25 → up to 5 000 rows.
+   */
+  async listAll<T = unknown>(
+    table: string,
+    query?: Record<string, string | number | boolean | undefined>,
+    maxPages = 25,
+  ): Promise<T[]> {
+    const perPage = 200; // server hard-caps here; asking for more is floored down.
+    const rows: T[] = [];
+
+    for (let page = 1; page <= maxPages; page++) {
+      const result = await this.listPaged<T>(table, { ...query, page, per_page: perPage });
+      rows.push(...result.rows);
+      if (!result.has_more || result.rows.length === 0) break;
+    }
+
+    return rows;
+  },
   get<T = unknown>(table: string, id: string) {
     return call<T>(`/${table}/${id}`, "GET");
   },

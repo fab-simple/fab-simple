@@ -20,6 +20,27 @@ export function useResourceList<T = unknown>(
   });
 }
 
+/**
+ * Fetches EVERY row matching `query`, paging past the server's 200-row cap.
+ * Use for small/medium reference tables a view needs in full for client-side
+ * filtering or aggregate counts (e.g. the Drawing Log's per-type tab totals).
+ *
+ * Mirrors `useResourceList`'s signature so it's a drop-in swap. Do NOT use it
+ * for unbounded tables (parts, audit_log) — reach for `useResourcePaged` there.
+ */
+export function useResourceListAll<T = unknown>(
+  table: string,
+  query?: Record<string, string | number | boolean | undefined>,
+  options?: Omit<UseQueryOptions<T[], FabApiError>, "queryKey" | "queryFn">,
+) {
+  return useQuery<T[], FabApiError>({
+    queryKey: [table, "list-all", query],
+    queryFn: () => FabAPI.listAll<T>(table, query),
+    enabled: FAB_MODE === "live" && (options?.enabled ?? true),
+    ...options,
+  });
+}
+
 export interface UseResourcePagedOptions<T> {
   initialPage?: number;
   initialPerPage?: number;
