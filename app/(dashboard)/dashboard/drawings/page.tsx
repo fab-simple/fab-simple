@@ -87,39 +87,56 @@ export default function DrawingsPage() {
         <button className="btn btn-primary" onClick={() => setShowNew(true)}><Plus size={14} /> New drawing</button>
       </div>
 
-      {/* Type Filter Pills */}
-      <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1 scrollbar-hide">
+      {/* Type Filter Segment Bar */}
+      <div className="flex items-center gap-2 mb-6 flex-wrap" style={{ borderBottom: "1px solid var(--border)", paddingBottom: "12px" }}>
         <button
+          type="button"
           onClick={() => setSelectedType("all")}
-          className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer border transition-colors ${
-            selectedType === "all" ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
-          }`}
+          className={`btn ${selectedType === "all" ? "btn-primary" : "btn-subtle"}`}
+          style={{ gap: "6px", fontSize: "13px", fontWeight: 600 }}
         >
-          All Drawings ({list.data?.length ?? 0})
+          <span>All Drawings</span>
+          <span className="px-2 py-0.5 rounded-full text-[11px] font-mono" style={{ background: "rgba(255,255,255,0.18)" }}>
+            {list.data?.length ?? 0}
+          </span>
         </button>
+
         <button
+          type="button"
           onClick={() => setSelectedType("erection_plan")}
-          className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer border transition-colors ${
-            selectedType === "erection_plan" ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
-          }`}
+          className={`btn ${selectedType === "erection_plan" ? "btn-primary" : "btn-subtle"}`}
+          style={{ gap: "6px", fontSize: "13px", fontWeight: 600 }}
         >
-          E-Plans / GA ({list.data?.filter((d) => d.type === "erection_plan" || d.type === "erection").length ?? 0})
+          <Compass size={14} />
+          <span>E-Plans / GA</span>
+          <span className="px-2 py-0.5 rounded-full text-[11px] font-mono" style={{ background: "rgba(255,255,255,0.18)" }}>
+            {list.data?.filter((d) => d.type === "erection_plan" || d.type === "erection").length ?? 0}
+          </span>
         </button>
+
         <button
+          type="button"
           onClick={() => setSelectedType("shop")}
-          className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer border transition-colors ${
-            selectedType === "shop" ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
-          }`}
+          className={`btn ${selectedType === "shop" ? "btn-primary" : "btn-subtle"}`}
+          style={{ gap: "6px", fontSize: "13px", fontWeight: 600 }}
         >
-          Shop Drawings ({list.data?.filter((d) => d.type === "shop").length ?? 0})
+          <FileText size={14} />
+          <span>Shop Drawings</span>
+          <span className="px-2 py-0.5 rounded-full text-[11px] font-mono" style={{ background: "rgba(255,255,255,0.18)" }}>
+            {list.data?.filter((d) => d.type === "shop").length ?? 0}
+          </span>
         </button>
+
         <button
+          type="button"
           onClick={() => setSelectedType("connection")}
-          className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer border transition-colors ${
-            selectedType === "connection" ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
-          }`}
+          className={`btn ${selectedType === "connection" ? "btn-primary" : "btn-subtle"}`}
+          style={{ gap: "6px", fontSize: "13px", fontWeight: 600 }}
         >
-          Connection Drawings ({list.data?.filter((d) => d.type === "connection").length ?? 0})
+          <span>Connection Drawings</span>
+          <span className="px-2 py-0.5 rounded-full text-[11px] font-mono" style={{ background: "rgba(255,255,255,0.18)" }}>
+            {list.data?.filter((d) => d.type === "connection").length ?? 0}
+          </span>
         </button>
       </div>
 
@@ -179,7 +196,12 @@ function NewModal({ projects, onClose, onSubmit, submitting, error }: {
       </Field>
       <div className="grid-3" style={{ gap: 12 }}>
         <Field label="Type">
-          <select className="input" value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>{TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+          <select className="input" value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>
+            <option value="shop">Shop Drawing</option>
+            <option value="erection_plan">Erection Plan (E-Plan / GA)</option>
+            <option value="erection">Erection</option>
+            <option value="connection">Connection</option>
+          </select>
         </Field>
         <Field label="Status">
           <select className="input" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>{STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
