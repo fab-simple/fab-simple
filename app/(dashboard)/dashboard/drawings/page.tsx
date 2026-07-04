@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
@@ -8,7 +8,7 @@ import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
 import { useResourceList, useCreate, useUpdate } from "@/hooks/useResource";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
-import { Plus, Paperclip, Archive } from "lucide-react";
+import { Plus, Paperclip, Archive, FileText, Compass } from "lucide-react";
 
 interface Drawing {
   id: string; drawing_number: string; revision: string; title: string | null;
@@ -17,7 +17,7 @@ interface Drawing {
 }
 interface Project { id: string; name: string; }
 
-const TYPES = ["shop", "erection", "erection_plan", "connection"];
+const TYPES = ["shop", "erection_plan", "erection", "connection"];
 const STATUSES = ["in_progress", "submitted", "approved", "released", "superseded"];
 
 export default function DrawingsPage() {
@@ -31,6 +31,16 @@ export default function DrawingsPage() {
   const update = useUpdate<Drawing>("drawings");
   const [showNew, setShowNew] = useState(false);
   const [attachTarget, setAttachTarget] = useState<Drawing | null>(null);
+  const [selectedType, setSelectedType] = useState<string>("all");
+
+  const filteredData = useMemo(() => {
+    if (!list.data) return [];
+    if (selectedType === "all") return list.data;
+    if (selectedType === "erection_plan") {
+      return list.data.filter((d) => d.type === "erection_plan" || d.type === "erection");
+    }
+    return list.data.filter((d) => d.type === selectedType);
+  }, [list.data, selectedType]);
 
   async function markSuperseded(d: Drawing) {
     if (!confirm(`Mark ${d.drawing_number} Rev ${d.revision} as superseded?`)) return;
@@ -41,9 +51,19 @@ export default function DrawingsPage() {
     { key: "num", label: "Drawing #", mono: true, render: (r) => <strong>{r.drawing_number}</strong> },
     { key: "rev", label: "Rev", mono: true, render: (r) => r.revision + (r.current_revision ? " ★" : "") },
     { key: "title", label: "Title", render: (r) => r.title ?? "—" },
-    { key: "type", label: "Type", render: (r) => <span style={{ textTransform: "capitalize" }}>{r.type}</span> },
+    { key: "type", label: "Type", render: (r) => (
+      <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase ${
+        r.type === "erection_plan" || r.type === "erection"
+          ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+          : r.type === "shop"
+          ? "bg-sky-500/20 text-sky-300 border border-sky-500/30"
+          : "bg-slate-700 text-slate-300"
+      }`}>
+        {r.type === "erection_plan" ? "E-Plan (GA)" : r.type}
+      </span>
+    ) },
     { key: "issued", label: "Issued", render: (r) => r.date_issued ? new Date(r.date_issued).toLocaleDateString() : "—" },
-    { key: "parts", label: "Parts", align: "right", mono: true, render: (r) => r.parts_count },
+    { key: "parts", label: "Parts", align: "right", mono: true, render: (r) => r.parts_count ?? 0 },
     { key: "status", label: "Status", render: (r) => <StatusPill status={r.status} /> },
     { key: "actions", label: "", render: (r) => (
       <div className="flex items-center gap-1">
@@ -62,13 +82,49 @@ export default function DrawingsPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Drawing Log</div>
-          <div className="text-[12px]" style={{ color: "var(--muted)" }}>Revs auto-supersede when a new one is approved</div>
+          <div className="text-[12px]" style={{ color: "var(--muted)" }}>Manage Shop Drawings, Erection Plans (E-Plans), and Revision Sets</div>
         </div>
         <button className="btn btn-primary" onClick={() => setShowNew(true)}><Plus size={14} /> New drawing</button>
       </div>
 
-      <DataTable data={list.data} columns={cols} loading={list.isLoading} error={list.error}
-        empty={{ title: "No drawings yet" }} rowKey={(r) => r.id} />
+      {/* Type Filter Pills */}
+      <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1 scrollbar-hide">
+        <button
+          onClick={() => setSelectedType("all")}
+          className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer border transition-colors ${
+            selectedType === "all" ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+          }`}
+        >
+          All Drawings ({list.data?.length ?? 0})
+        </button>
+        <button
+          onClick={() => setSelectedType("erection_plan")}
+          className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer border transition-colors ${
+            selectedType === "erection_plan" ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+          }`}
+        >
+          E-Plans / GA ({list.data?.filter((d) => d.type === "erection_plan" || d.type === "erection").length ?? 0})
+        </button>
+        <button
+          onClick={() => setSelectedType("shop")}
+          className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer border transition-colors ${
+            selectedType === "shop" ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+          }`}
+        >
+          Shop Drawings ({list.data?.filter((d) => d.type === "shop").length ?? 0})
+        </button>
+        <button
+          onClick={() => setSelectedType("connection")}
+          className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer border transition-colors ${
+            selectedType === "connection" ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+          }`}
+        >
+          Connection Drawings ({list.data?.filter((d) => d.type === "connection").length ?? 0})
+        </button>
+      </div>
+
+      <DataTable data={filteredData} columns={cols} loading={list.isLoading} error={list.error}
+        empty={{ title: "No drawings found for selected type" }} rowKey={(r) => r.id} />
 
       {showNew && (
         <NewModal projects={projects.data ?? []} onClose={() => setShowNew(false)}
