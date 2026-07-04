@@ -643,29 +643,6 @@ function PdfPackageTab({ projects, defaultProjectId }: { projects: Project[]; de
           }
 
           const total = 1 + extraCount;
-
-          // 3) Also register in Drawing Log (drawings table) under Shop Drawings
-          const prefix = row.filenamePrefix || row.file.name.replace(/\.[^/.]+$/, "").split("_")[0];
-          if (prefix) {
-            try {
-              const dwg = await FabAPI.create<{ id: string }>("drawings", {
-                drawing_number: prefix,
-                revision: "R0",
-                title: `${prefix} Shop Assembly Drawing`,
-                type: "shop",
-                status: "released",
-                current_revision: true,
-                project_id: projectId,
-              });
-              if (dwg?.id) {
-                await FabAPI.shareFile({
-                  source_attachment_id: attachment_id,
-                  target_entity_type: "drawings",
-                  target_entity_ids: [dwg.id],
-                });
-              }
-            } catch (_err) {}
-          }
           setRows((prev) => prev.map((r) => (r.uid === row.uid ? {
             ...r, status: "done", uploadedTo: total,
           } : r)));
