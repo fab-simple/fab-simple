@@ -103,7 +103,7 @@ export default function WorkerPage() {
       </button>
 
       {/* Glove-friendly station select horizontal scroll bar */}
-      <div className="flex gap-2 overflow-x-auto pb-3 mb-4 scrollbar-hide snap-x">
+      <div className="flex gap-2 overflow-x-auto !pb-3 mb-4 scrollbar-hide snap-x">
         {STATIONS.map((st) => (
           <button
             key={st.id}
