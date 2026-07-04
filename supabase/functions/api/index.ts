@@ -27,6 +27,7 @@ import { getOrganization, updateOrganization } from "./controllers/organization.
 import { getPublicPart } from "./controllers/publicPart.ts";
 import { resolveEPlanPiece, logEPlanPrint } from "./controllers/ePlan.ts";
 import { overrideSafetyGate, recordFieldBoltInspection, logErectionDelay } from "./controllers/erectionOps.ts";
+import { previewPoFromParts, createPoFromParts } from "./controllers/purchaseOrder.ts";
 
 const TABLE_RE = /^\/api\/?([a-z_]+)(?:\/([0-9a-f-]{36}))?\/?$/i;
 
@@ -125,6 +126,10 @@ Deno.serve(async (req) => {
     if (path === "/convert-estimate" && method === "POST") return convertEstimate(ctx);
     if (path === "/qc-report" && method === "GET") return qcReport(ctx);
     if (path === "/notifications/mark-all-read" && method === "POST") return markAllNotificationsRead(ctx);
+    // Purchase order from not-started parts (declared before generic CRUD so the
+    // hyphenated sub-paths aren't misread as a table/id).
+    if (path === "/purchase-orders/preview-from-parts" && method === "GET") return previewPoFromParts(ctx);
+    if (path === "/purchase-orders/from-parts" && method === "POST") return createPoFromParts(ctx);
     const archMatch = path.match(/^\/archive-project\/([0-9a-f-]{36})$/i);
     if (archMatch && method === "POST") return archiveProject(ctx, archMatch[1]);
 

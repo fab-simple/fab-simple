@@ -5,11 +5,18 @@ import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
-import { useResourceList, useResourcePaged, useCreate, useUpdate } from "@/hooks/useResource";
+import {
+  useResourceList,
+  useResourcePaged,
+  useCreate,
+  useUpdate,
+  usePoFromPartsPreview,
+  useCreatePoFromParts,
+} from "@/hooks/useResource";
 import { useCsvExport } from "@/hooks/useCsvExport";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
-import { FabAPI } from "@/lib/api";
-import { Plus, Search, Loader2, X } from "lucide-react";
+import { FabAPI, getRole, type CreatePoFromPartsResult } from "@/lib/api";
+import { Plus, Search, Loader2, X, ShoppingCart } from "lucide-react";
 
 interface Part {
   id: string;
@@ -31,7 +38,10 @@ interface Part {
 
 interface Project { id: string; name: string; number: string; }
 
-const STATUS_OPTIONS = ["not_started", "in_progress", "complete", "shipped", "on_hold"];
+const STATUS_OPTIONS = ["not_started", "ordered", "in_progress", "complete", "shipped", "on_hold"];
+
+// Roles allowed to create purchase orders (mirrors purchase_orders.insertable).
+const PO_ROLES = ["owner", "pm", "accounting"];
 
 // Display length stored as decimal inches in feet-inches notation (17'-9")
 // so it matches what the user sees in their Tekla/SDS2 sheet.
@@ -52,6 +62,7 @@ export default function PartsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [showNew, setShowNew] = useState(false);
+  const [showCreatePo, setShowCreatePo] = useState(false);
   const [editing, setEditing] = useState<Part | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -159,6 +170,11 @@ export default function PartsPage() {
 
   const total = list.data?.total ?? 0;
 
+  // "Create PO from not-started parts" is available to procurement roles only,
+  // and requires a specific project to be selected in the global project bar.
+  const canCreatePo = PO_ROLES.includes(getRole() ?? "");
+  const selectedProject = projects.data?.find((p) => p.id === selectedProjectId) ?? null;
+
   return (
     <PageWrapper title="Parts">
       <div className="flex items-center justify-between mb-6">
@@ -179,6 +195,16 @@ export default function PartsPage() {
             <option value="">All statuses</option>
             {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
           </select>
+          {canCreatePo && (
+            <button
+              className="btn"
+              onClick={() => setShowCreatePo(true)}
+              disabled={!selectedProjectId}
+              title={selectedProjectId ? "Create a purchase order from this project's not-started parts" : "Select a project first"}
+            >
+              <ShoppingCart size={14} /> Create PO
+            </button>
+          )}
           <button className="btn btn-primary" onClick={() => setShowNew(true)}>
             <Plus size={14} /> New Part
           </button>
@@ -250,7 +276,132 @@ export default function PartsPage() {
           error={update.error?.message ?? null}
         />
       )}
+      {showCreatePo && selectedProjectId && (
+        <CreatePoModal
+          projectId={selectedProjectId}
+          projectName={selectedProject?.name ?? "this project"}
+          onClose={() => setShowCreatePo(false)}
+          onCreated={() => {
+            setShowCreatePo(false);
+            list.refetch();
+          }}
+        />
+      )}
     </PageWrapper>
+  );
+}
+
+/**
+ * Turns a project's not_started parts into a new draft purchase order,
+ * aggregated by material (profile + grade). Shows a server-computed preview so
+ * the user sees exactly what will be ordered before confirming.
+ */
+function CreatePoModal({
+  projectId,
+  projectName,
+  onClose,
+  onCreated,
+}: {
+  projectId: string;
+  projectName: string;
+  onClose: () => void;
+  onCreated: (result: CreatePoFromPartsResult) => void;
+}) {
+  const preview = usePoFromPartsPreview(projectId, true);
+  const createPo = useCreatePoFromParts();
+  const [form, setForm] = useState({ vendor: "", expected_date: "", total_amount: "", notes: "" });
+
+  const partsCount = preview.data?.parts_count ?? 0;
+  const hasParts = partsCount > 0;
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    createPo.mutate(
+      {
+        project_id: projectId,
+        vendor: form.vendor,
+        expected_date: form.expected_date || undefined,
+        total_amount: form.total_amount ? Number(form.total_amount) : undefined,
+        notes: form.notes || undefined,
+      },
+      { onSuccess: onCreated },
+    );
+  }
+
+  return (
+    <ResourceModal
+      title="Create PO from not-started parts"
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      submitting={createPo.isPending}
+      error={createPo.error?.message ?? null}
+      submitLabel={hasParts ? `Create PO (${partsCount} parts)` : "Create PO"}
+      submitDisabled={!hasParts || preview.isLoading}
+      width={640}
+    >
+      <div className="text-[12px] mb-3" style={{ color: "var(--muted)" }}>
+        Project: <strong style={{ color: "var(--text)" }}>{projectName}</strong>
+      </div>
+
+      {/* Aggregated material preview */}
+      {preview.isLoading ? (
+        <div className="flex items-center gap-2 text-[13px] py-6 justify-center" style={{ color: "var(--muted)" }}>
+          <Loader2 size={14} className="animate-spin" /> Loading not-started parts…
+        </div>
+      ) : preview.error ? (
+        <div className="text-[13px] py-4" style={{ color: "var(--danger, #dc2626)" }}>
+          Failed to load preview: {preview.error.message}
+        </div>
+      ) : !hasParts ? (
+        <div className="card text-[13px] py-6 text-center" style={{ color: "var(--muted)" }}>
+          No <strong>not-started</strong> parts in this project to order.
+        </div>
+      ) : (
+        <div className="card mb-4" style={{ padding: 0, overflow: "hidden" }}>
+          <div className="flex items-center justify-between px-3 py-2 text-[12px]" style={{ borderBottom: "1px solid var(--border)", color: "var(--muted)" }}>
+            <span>{preview.data!.line_items.length} material line(s) · {partsCount} parts</span>
+            <span>{preview.data!.total_weight_lb.toLocaleString()} lb total</span>
+          </div>
+          <div style={{ maxHeight: 220, overflowY: "auto" }}>
+            <table className="w-full text-[12px]" style={{ borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ color: "var(--muted)", textAlign: "left" }}>
+                  <th className="px-3 py-1.5" style={{ fontWeight: 600 }}>Profile</th>
+                  <th className="px-3 py-1.5" style={{ fontWeight: 600 }}>Grade</th>
+                  <th className="px-3 py-1.5" style={{ fontWeight: 600, textAlign: "right" }}>Qty</th>
+                  <th className="px-3 py-1.5" style={{ fontWeight: 600, textAlign: "right" }}>Weight (lb)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.data!.line_items.map((it) => (
+                  <tr key={`${it.profile}-${it.grade ?? ""}`} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td className="px-3 py-1.5 font-mono">{it.profile}</td>
+                    <td className="px-3 py-1.5">{it.grade ?? "—"}</td>
+                    <td className="px-3 py-1.5 font-mono" style={{ textAlign: "right" }}>{it.qty}</td>
+                    <td className="px-3 py-1.5 font-mono" style={{ textAlign: "right" }}>{it.total_weight_lb.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="grid-2" style={{ gap: 12 }}>
+        <Field label="Vendor" required>
+          <input className="input" required value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} placeholder="Triple S Steel" />
+        </Field>
+        <Field label="Expected date">
+          <input className="input" type="date" value={form.expected_date} onChange={(e) => setForm({ ...form, expected_date: e.target.value })} />
+        </Field>
+      </div>
+      <Field label="Total amount ($)">
+        <input className="input" type="number" step="0.01" min="0" value={form.total_amount} onChange={(e) => setForm({ ...form, total_amount: e.target.value })} placeholder="Optional — parts carry no cost" />
+      </Field>
+      <Field label="Notes">
+        <textarea className="input" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} style={{ height: "auto", padding: "8px 12px", resize: "vertical" }} />
+      </Field>
+    </ResourceModal>
   );
 }
 

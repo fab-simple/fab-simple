@@ -35,7 +35,7 @@ export const Schemas = {
     length: numeric.optional(),
     weight: numeric.optional(),
     quantity: intish.positive().default(1),
-    status: z.enum(["not_started", "in_progress", "complete", "shipped", "on_hold"]).optional(),
+    status: z.enum(["not_started", "ordered", "in_progress", "complete", "shipped", "on_hold"]).optional(),
     phase: z.string().max(20).optional(),
     heat_number: z.string().max(60).optional(),
     drawing_id: uuid.optional(),

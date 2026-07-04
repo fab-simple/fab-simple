@@ -27,6 +27,7 @@ export function daysUntil(dateStr: string): number {
 export function statusToClass(status: string): string {
   const map: Record<string, string> = {
     "Not Started": "pill-ns",
+    Ordered: "pill-blue",
     Cutting: "pill-cut",
     Welding: "pill-weld",
     Painting: "pill-paint",
