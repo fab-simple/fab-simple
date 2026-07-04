@@ -560,13 +560,37 @@ function PdfPackageTab({ projects, defaultProjectId }: { projects: Project[]; de
     try {
       for (const row of rows) {
         if (row.status !== "ready") continue;
-        const targets = row.matched.filter((p) => !row.excluded.has(p.id));
+        let targets = row.matched.filter((p) => !row.excluded.has(p.id));
         if (targets.length === 0) {
           setRows((prev) => prev.map((r) => (r.uid === row.uid ? {
             ...r, status: "error", errorMessage: "No part marks selected — pick at least one before uploading.",
           } : r)));
           continue;
         }
+
+        // When uploading Part Sheets, resolve targets to parent Assembly / Shop Drawing parts
+        // so the Part Sheet PDF is attached/linked to the Assembly QR Codes.
+        if (classification === "part_sheets") {
+          const assemblyTargetsMap = new Map<string, PartLite>();
+          for (const target of targets) {
+            if (!target.assembly_mark || target.assembly_mark === target.part_mark) {
+              assemblyTargetsMap.set(target.id, target);
+            } else {
+              const parentAssembly = parts.find(
+                (p) => p.part_mark === target.assembly_mark || (!p.assembly_mark && p.part_mark === target.assembly_mark)
+              );
+              if (parentAssembly) {
+                assemblyTargetsMap.set(parentAssembly.id, parentAssembly);
+              } else {
+                assemblyTargetsMap.set(target.id, target);
+              }
+            }
+          }
+          if (assemblyTargetsMap.size > 0) {
+            targets = Array.from(assemblyTargetsMap.values());
+          }
+        }
+
         setRows((prev) => prev.map((r) => (r.uid === row.uid ? { ...r, status: "uploading" } : r)));
         try {
           // 1) Upload PDF once, attached to the first matched part.

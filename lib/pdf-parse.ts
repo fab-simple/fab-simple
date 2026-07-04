@@ -26,6 +26,7 @@ if (typeof window !== "undefined") {
 export interface PartLite {
   id: string;
   part_mark: string;
+  assembly_mark?: string | null;
 }
 
 export interface PdfMatchResult {

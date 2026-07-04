@@ -137,9 +137,10 @@ export default function QrCodesPage() {
     return () => { cancelled = true; };
   }, [idsKey, attachmentsRev]);
 
-  // Apply search & missing PDF filters
+  // Filter out single detail parts from Part Sheets so QR codes are generated ONLY for Assembly / Shop Drawings.
+  // Detail parts have assembly_mark set AND assembly_mark !== part_mark.
   const visible = useMemo(() => {
-    let result = rows;
+    let result = rows.filter((p) => !p.assembly_mark || p.assembly_mark === p.part_mark);
     if (missingOnly) {
       result = result.filter((p) => !pdfCount.has(p.id));
     }
@@ -156,7 +157,7 @@ export default function QrCodesPage() {
     }
     return result;
   }, [rows, missingOnly, pdfCount, search]);
-  const missingCount = rows.reduce((n, p) => n + (pdfCount.has(p.id) ? 0 : 1), 0);
+  const missingCount = visible.reduce((n, p) => n + (pdfCount.has(p.id) ? 0 : 1), 0);
 
   const toggle = (id: string) => setSelected((s) => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
