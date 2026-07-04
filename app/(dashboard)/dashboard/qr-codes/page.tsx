@@ -354,7 +354,7 @@ export default function QrCodesPage() {
             return (
               <div
                 key={p.id}
-                className="card project-card group relative flex flex-col justify-between overflow-visible hover:z-30 transition-all duration-200"
+                className="card project-card group relative flex flex-col justify-between hover:z-30 transition-all duration-200"
                 style={{
                   padding: "14px 14px 12px 14px",
                   border: noPdf
@@ -368,6 +368,7 @@ export default function QrCodesPage() {
                   boxShadow: isSelected ? "0 4px 20px rgba(99, 102, 241, 0.15)" : "var(--shadow-sm)",
                   cursor: "pointer",
                   borderRadius: 12,
+                  overflow: "visible",
                 }}
                 onClick={() => toggle(p.id)}
               >
@@ -430,14 +431,14 @@ export default function QrCodesPage() {
                         )}
                       </button>
 
-                      {/* Instant Tooltip (0ms hover delay, unclipped with z-50) */}
-                      <div className="absolute right-0 bottom-full mb-1.5 hidden group-hover/tooltip:flex flex-col items-end pointer-events-none z-50 whitespace-nowrap">
-                        <div className="px-2.5 py-1 rounded-md bg-slate-900 border border-slate-700 text-slate-200 text-[10.5px] font-medium shadow-2xl">
+                      {/* Instant Tooltip (0ms hover delay, opens downwards to avoid top boundary clipping) */}
+                      <div className="absolute right-0 top-full mt-1.5 hidden group-hover/tooltip:flex flex-col items-end pointer-events-none z-50 whitespace-nowrap">
+                        <div className="w-1.5 h-1.5 bg-slate-900 border-l border-t border-slate-700 rotate-45 mr-3 -mb-1 z-10" />
+                        <div className="px-2.5 py-1.5 rounded-md bg-slate-900 border border-slate-700 text-slate-200 text-[10.5px] font-medium shadow-2xl">
                           {noPdf
                             ? "Add drawing PDF"
                             : `${count} drawing${count === 1 ? "" : "s"} attached (latest is R${count - 1}) — view / manage`}
                         </div>
-                        <div className="w-1.5 h-1.5 bg-slate-900 border-r border-b border-slate-700 rotate-45 mr-3 -mt-1" />
                       </div>
                     </div>
                   </div>
