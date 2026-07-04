@@ -50,18 +50,51 @@ export async function GET(
     }
   }
 
-  // 3. Fetch file attachments
+  // 3. Find all related assembly / sibling part IDs for this project
+  const targetPartIds = new Set<string>([part.id]);
+
+  if (part.project_id) {
+    const asmMark = part.assembly_mark || part.part_mark;
+    const baseAsmMatch = asmMark ? asmMark.match(/^([A-Za-z]?\d+)/) : null;
+    const baseAsm = baseAsmMatch ? baseAsmMatch[1] : asmMark;
+
+    const { data: siblingParts } = await supabaseAdmin
+      .from("parts")
+      .select("id, part_mark, assembly_mark")
+      .eq("project_id", part.project_id);
+
+    for (const p of siblingParts || []) {
+      if (
+        p.id === part.id ||
+        (asmMark && (p.part_mark === asmMark || p.assembly_mark === asmMark)) ||
+        (baseAsm && (p.part_mark === baseAsm || p.assembly_mark === baseAsm))
+      ) {
+        targetPartIds.add(p.id);
+      }
+    }
+  }
+
+  // 4. Fetch file attachments for all target part IDs
   const { data: attachments } = await supabaseAdmin
     .from("file_attachments")
     .select("id, storage_bucket, storage_path, mime_type, size_bytes, created_at")
     .eq("entity_type", "parts")
-    .eq("entity_id", part.id)
+    .in("entity_id", Array.from(targetPartIds))
     .eq("storage_bucket", "drawings")
     .order("created_at", { ascending: false });
 
-  // 4. Create signed URLs for drawing PDFs
+  // 5. Deduplicate attachments by storage_path (keep newest)
+  const uniqueAttsMap = new Map<string, NonNullable<typeof attachments>[number]>();
+  for (const att of attachments || []) {
+    if (!uniqueAttsMap.has(att.storage_path)) {
+      uniqueAttsMap.set(att.storage_path, att);
+    }
+  }
+  const uniqueAttachments = Array.from(uniqueAttsMap.values());
+
+  // 6. Create signed URLs for drawing PDFs
   const drawings = await Promise.all(
-    (attachments || []).map(async (att) => {
+    uniqueAttachments.map(async (att) => {
       const { data } = await supabaseAdmin.storage
         .from(att.storage_bucket)
         .createSignedUrl(att.storage_path, 86400);

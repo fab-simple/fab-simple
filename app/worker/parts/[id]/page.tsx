@@ -130,25 +130,65 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
     const url = `${apiBase}/public/parts/${id}`;
 
+    const handleSuccessData = (data: { part: Part; drawings: PublicDrawing[] }) => {
+      setPublicData(data);
+      const drawList: PublicDrawing[] = data.drawings || [];
+      setDrawings(drawList);
+      if (drawList.length > 0 && drawList[0].url) {
+        setActiveDrawingId(drawList[0].id);
+      }
+    };
+
     fetch(url, { headers: { apikey: anonKey } })
       .then((res) => res.json())
       .then((res) => {
         if (cancelled) return;
         if (res.ok && res.data) {
-          setPublicData(res.data);
-          const drawList: PublicDrawing[] = res.data.drawings || [];
-          setDrawings(drawList);
-          if (drawList.length > 0 && drawList[0].url) {
-            setActiveDrawingId(drawList[0].id);
+          handleSuccessData(res.data);
+          // If edge returned no drawings, try local next.js route as a fallback
+          if ((!res.data.drawings || res.data.drawings.length === 0)) {
+            fetch(`/api/public/parts/${id}`)
+              .then((r) => r.json())
+              .then((fb) => {
+                if (cancelled) return;
+                if (fb.ok && fb.data && fb.data.drawings && fb.data.drawings.length > 0) {
+                  handleSuccessData(fb.data);
+                }
+              })
+              .catch(() => {});
           }
         } else {
-          setPublicError(res.error?.message || "Could not load part details");
+          // Fallback to local next.js route
+          fetch(`/api/public/parts/${id}`)
+            .then((r) => r.json())
+            .then((fb) => {
+              if (cancelled) return;
+              if (fb.ok && fb.data) {
+                handleSuccessData(fb.data);
+              } else {
+                setPublicError(res.error?.message || "Could not load part details");
+              }
+            })
+            .catch(() => {
+              if (!cancelled) setPublicError(res.error?.message || "Could not load part details");
+            });
         }
       })
       .catch((err) => {
-        if (!cancelled) {
-          setPublicError(err instanceof Error ? err.message : "Network error");
-        }
+        // Fallback to local next.js route on network error
+        fetch(`/api/public/parts/${id}`)
+          .then((r) => r.json())
+          .then((fb) => {
+            if (cancelled) return;
+            if (fb.ok && fb.data) {
+              handleSuccessData(fb.data);
+            } else {
+              setPublicError(err instanceof Error ? err.message : "Network error");
+            }
+          })
+          .catch(() => {
+            if (!cancelled) setPublicError(err instanceof Error ? err.message : "Network error");
+          });
       })
       .finally(() => {
         if (!cancelled) setPublicLoading(false);
