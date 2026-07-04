@@ -321,98 +321,162 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
     }
   };
 
-  const printPaperTraveler = () => {
+  const printPaperTraveller = () => {
     if (!localPart) return;
 
+    const users = usersList.data ?? [];
+    const userName = (uid: string | null) => {
+      if (!uid) return "";
+      const u = users.find((u) => u.id === uid);
+      return u ? u.full_name : uid.slice(0, 8);
+    };
+    const fmtDate = (iso: string | null) => {
+      if (!iso) return "";
+      return new Date(iso).toLocaleString();
+    };
+    const fmtHours = (h: number | null) => (h != null && h > 0 ? String(h) : "");
+
+    // Pre-compute row data for each stage
+    const cutBy = userName(localPart.cut_completed_by);
+    const cutDate = fmtDate(localPart.cut_completed_at);
+    const cutHrs = fmtHours(localPart.cut_hours);
+    const cutNotes = localPart.cut_drop_length ? `Drop: ${localPart.cut_drop_length}` : "";
+
+    const fitBy = localPart.fit_skipped ? "SKIPPED" : userName(localPart.fit_completed_by);
+    const fitDate = localPart.fit_skipped ? "N/A" : fmtDate(localPart.fit_completed_at);
+    const fitHrs = localPart.fit_skipped ? "—" : fmtHours(localPart.fit_hours);
+    const fitNotes = localPart.fit_skipped ? "[✓] Skipped" : "";
+
+    const weldBy = localPart.weld_skipped ? "SKIPPED" : userName(localPart.weld_completed_by);
+    const weldDate = localPart.weld_skipped ? "N/A" : fmtDate(localPart.weld_completed_at);
+    const weldHrs = localPart.weld_skipped ? "—" : fmtHours(localPart.weld_hours);
+    const weldNotes = localPart.weld_skipped ? "[✓] Skipped" : "";
+
+    const weldQcBy = userName(localPart.weld_qc_by);
+    const weldQcDate = fmtDate(localPart.weld_qc_at);
+    const weldQcNotes = localPart.weld_qc_at ? "[✓] Pass" : "";
+
+    const finishBy = userName(localPart.finish_completed_by);
+    const finishDate = fmtDate(localPart.finish_completed_at);
+    const finishHrs = fmtHours(localPart.finish_hours);
+
+    const inspBy = userName(localPart.insp_completed_by);
+    const inspDate = fmtDate(localPart.insp_completed_at);
+    const inspNotes = localPart.insp_completed_at ? "[✓] Pass" : "";
+
+    // Status summary
+    const completedCount = [
+      localPart.cut_completed_at,
+      localPart.fit_completed_at || localPart.fit_skipped,
+      localPart.weld_completed_at || localPart.weld_skipped,
+      localPart.finish_completed_at,
+      localPart.insp_completed_at,
+    ].filter(Boolean).length;
+
+    // Cell style helper — highlight completed rows with a light green bg
+    const doneBg = (val: string | null | boolean) => val ? "background: #f0fdf4;" : "";
+
     const html = `
-      <html><head><title>Paper Traveler — ${localPart.part_mark}</title>
+      <html><head><title>Traveller Sheet — ${localPart.part_mark}</title>
       <style>
-        body { font-family: system-ui, sans-serif; padding: 30px; color: #000; }
+        body { font-family: system-ui, -apple-system, sans-serif; padding: 30px; color: #000; }
         .hdr { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px double #000; padding-bottom: 12px; margin-bottom: 20px; }
-        .title { font-size: 24px; font-weight: 900; }
-        .job { font-family: monospace; font-size: 14px; font-weight: bold; }
-        .meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; }
-        .meta-item { font-size: 12px; color: #475569; }
+        .title { font-size: 22px; font-weight: 900; letter-spacing: 0.5px; }
+        .job { font-family: monospace; font-size: 13px; font-weight: bold; }
+        .summary { display: inline-block; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 4px; margin-left: 12px; }
+        .meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 24px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; }
+        .meta-item { font-size: 11px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; }
         .meta-val { font-family: monospace; font-size: 14px; font-weight: bold; color: #0f172a; margin-top: 4px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #000; padding: 12px; text-align: left; font-size: 13px; }
-        th { background: #f1f5f9; }
-        .sign { height: 40px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th, td { border: 1px solid #94a3b8; padding: 10px 12px; text-align: left; font-size: 12px; }
+        th { background: #e2e8f0; font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
+        .done { background: #f0fdf4; }
+        .skipped { background: #fefce8; color: #92400e; font-style: italic; }
+        .empty { color: #cbd5e1; }
+        .stage-name { font-weight: 700; }
+        .footer { margin-top: 40px; font-size: 10px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+        @media print {
+          body { padding: 15px; }
+          .no-print { display: none; }
+        }
       </style></head>
       <body>
         <div class="hdr">
-          <div class="title">FABSIMPLE TRAVELER SHEET</div>
-          <div class="job">JOB: ${localPart.project_number ?? "—"} • ${localPart.project_name ?? "—"}</div>
+          <div>
+            <span class="title">FABSIMPLE TRAVELLER SHEET</span>
+            <span class="summary" style="background: ${completedCount >= 5 ? "#dcfce7; color: #166534" : "#fef3c7; color: #92400e"}">${completedCount}/5 Stages Done</span>
+          </div>
+          <div class="job">JOB: ${localPart.project_number ?? "—"} &bull; ${localPart.project_name ?? "—"}</div>
         </div>
 
         <div class="meta-grid">
-          <div class="meta-item">PIECE MARK<div class="meta-val">${localPart.part_mark}</div></div>
-          <div class="meta-item">PROFILE<div class="meta-val">${localPart.profile}</div></div>
-          <div class="meta-item">HEAT NUMBER<div class="meta-val">${localPart.heat_number ?? "—"}</div></div>
-          <div class="meta-item">FINISH SPEC<div class="meta-val">${localPart.finish ?? "SHOP PRIMER"}</div></div>
+          <div class="meta-item">Piece Mark<div class="meta-val">${localPart.part_mark}</div></div>
+          <div class="meta-item">Profile<div class="meta-val">${localPart.profile}</div></div>
+          <div class="meta-item">Heat Number<div class="meta-val">${localPart.heat_number ?? "—"}</div></div>
+          <div class="meta-item">Finish Spec<div class="meta-val">${localPart.finish ?? "SHOP PRIMER"}</div></div>
         </div>
 
-        <h3>SHOP FLOOR SIGN-OFF TIMELINE</h3>
-        <p style="font-size: 12px; color: #475569; margin-top: -8px;">Use this sheet as a manual backup path in case of device/system outage. Supervisors will manually batch-log these entries.</p>
+        <h3 style="margin-bottom: 4px;">Shop Floor Sign-Off Timeline</h3>
+        <p style="font-size: 11px; color: #64748b; margin-top: 0;">Tracked statuses are auto-populated. Blank cells can be filled by hand as a fallback.</p>
 
         <table>
           <thead>
             <tr>
-              <th style="width: 25%;">Stage</th>
-              <th style="width: 25%;">Completed By (Sign)</th>
-              <th style="width: 20%;">Date / Time</th>
-              <th style="width: 15%;">Hours Spent</th>
-              <th style="width: 15%;">Drop / QC Notes</th>
+              <th style="width: 22%;">Stage</th>
+              <th style="width: 22%;">Completed By</th>
+              <th style="width: 22%;">Date / Time</th>
+              <th style="width: 12%;">Hours</th>
+              <th style="width: 22%;">Notes</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td><strong>1. Cutting</strong> (Self-Check)</td>
-              <td class="sign"></td>
-              <td></td>
-              <td></td>
-              <td>Drop Length:</td>
+            <tr class="${localPart.cut_completed_at ? "done" : ""}">
+              <td class="stage-name">1. Cutting <span style="font-weight:400;color:#64748b;">(Self-Check)</span></td>
+              <td>${cutBy || '<span class="empty">_______________</span>'}</td>
+              <td>${cutDate || '<span class="empty">_______________</span>'}</td>
+              <td>${cutHrs || '<span class="empty">____</span>'}</td>
+              <td>${cutNotes || "Drop Length: ________"}</td>
             </tr>
-            <tr>
-              <td><strong>2. Fit-Up</strong> (Self-Check)</td>
-              <td class="sign"></td>
-              <td></td>
-              <td></td>
-              <td>[ ] Skip Fit-Up</td>
+            <tr class="${localPart.fit_completed_at ? "done" : localPart.fit_skipped ? "skipped" : ""}">
+              <td class="stage-name">2. Fit-Up <span style="font-weight:400;color:#64748b;">(Self-Check)</span></td>
+              <td>${fitBy || '<span class="empty">_______________</span>'}</td>
+              <td>${fitDate || '<span class="empty">_______________</span>'}</td>
+              <td>${fitHrs || '<span class="empty">____</span>'}</td>
+              <td>${fitNotes || "[ ] Skip Fit-Up"}</td>
             </tr>
-            <tr>
-              <td><strong>3. Welding</strong> (AWS D1.1 Hold Point)</td>
-              <td class="sign"></td>
-              <td></td>
-              <td></td>
-              <td>[ ] Skip Weld</td>
+            <tr class="${localPart.weld_completed_at ? "done" : localPart.weld_skipped ? "skipped" : ""}">
+              <td class="stage-name">3. Welding <span style="font-weight:400;color:#64748b;">(AWS D1.1)</span></td>
+              <td>${weldBy || '<span class="empty">_______________</span>'}</td>
+              <td>${weldDate || '<span class="empty">_______________</span>'}</td>
+              <td>${weldHrs || '<span class="empty">____</span>'}</td>
+              <td>${weldNotes || "[ ] Skip Weld"}</td>
             </tr>
-            <tr>
-              <td><strong>Weld QC Sign-off</strong> (AWS CWI)</td>
-              <td class="sign"></td>
-              <td></td>
-              <td style="background: #e2e8f0;">N/A</td>
-              <td>Result: [ ] Pass [ ] Fail</td>
+            <tr class="${localPart.weld_qc_at ? "done" : ""}">
+              <td class="stage-name">Weld QC Sign-off <span style="font-weight:400;color:#64748b;">(CWI)</span></td>
+              <td>${weldQcBy || '<span class="empty">_______________</span>'}</td>
+              <td>${weldQcDate || '<span class="empty">_______________</span>'}</td>
+              <td style="background: #e2e8f0; text-align:center;">N/A</td>
+              <td>${weldQcNotes || "Result: [ ] Pass [ ] Fail"}</td>
             </tr>
-            <tr>
-              <td><strong>4. Paint / Finish Coating</strong></td>
-              <td class="sign"></td>
-              <td></td>
-              <td></td>
-              <td>DFT Mils:</td>
+            <tr class="${localPart.finish_completed_at ? "done" : ""}">
+              <td class="stage-name">4. Paint / Coating</td>
+              <td>${finishBy || '<span class="empty">_______________</span>'}</td>
+              <td>${finishDate || '<span class="empty">_______________</span>'}</td>
+              <td>${finishHrs || '<span class="empty">____</span>'}</td>
+              <td>DFT Mils: ________</td>
             </tr>
-            <tr>
-              <td><strong>5. Final Inspection</strong> (AISC CWI Gate)</td>
-              <td class="sign"></td>
-              <td></td>
-              <td style="background: #e2e8f0;">N/A</td>
-              <td>Result: [ ] Pass [ ] Fail</td>
+            <tr class="${localPart.insp_completed_at ? "done" : ""}">
+              <td class="stage-name">5. Final Inspection <span style="font-weight:400;color:#64748b;">(CWI Gate)</span></td>
+              <td>${inspBy || '<span class="empty">_______________</span>'}</td>
+              <td>${inspDate || '<span class="empty">_______________</span>'}</td>
+              <td style="background: #e2e8f0; text-align:center;">N/A</td>
+              <td>${inspNotes || "Result: [ ] Pass [ ] Fail"}</td>
             </tr>
           </tbody>
         </table>
 
-        <div style="margin-top: 40px; font-size: 11px; color: #64748b; text-align: center;">
-          Generated automatically via FabSimple Shop Traveler Engine. System Fallback Mode.
+        <div class="footer">
+          Generated ${new Date().toLocaleString()} via FabSimple Shop Traveller Engine &bull; Print Date: ${new Date().toLocaleDateString()}
         </div>
 
         <script>window.onload = function() { window.print(); }</script>
@@ -494,10 +558,10 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
           </button>
           {localPart && (
             <button
-              onClick={printPaperTraveler}
+              onClick={printPaperTraveller}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-300 hover:text-white transition-colors cursor-pointer"
             >
-              <Printer size={15} /> Fallback Traveler
+              <Printer size={15} /> Fallback Traveller
             </button>
           )}
         </div>
@@ -561,9 +625,9 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
             </div>
           </div>
 
-          {/* Traveler Stages List */}
+          {/* Traveller Stages List */}
           <div className="mb-6">
-            <h3 className="text-lg font-bold text-white mb-4">Traveler Stages</h3>
+            <h3 className="text-lg font-bold text-white mb-4">Traveller Stages</h3>
 
             <div className="flex flex-col gap-4">
               {/* STAGE 1: Cutting */}
