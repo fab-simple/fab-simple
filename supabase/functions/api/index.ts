@@ -26,6 +26,7 @@ import { search } from "./controllers/search.ts";
 import { getOrganization, updateOrganization } from "./controllers/organization.ts";
 import { getPublicPart } from "./controllers/publicPart.ts";
 import { resolveEPlanPiece, logEPlanPrint } from "./controllers/ePlan.ts";
+import { overrideSafetyGate, recordFieldBoltInspection, logErectionDelay } from "./controllers/erectionOps.ts";
 
 const TABLE_RE = /^\/api\/?([a-z_]+)(?:\/([0-9a-f-]{36}))?\/?$/i;
 
@@ -87,6 +88,17 @@ Deno.serve(async (req) => {
   // Public/Field: E-Plan print log auditor
   if (url.pathname.endsWith("/e-plan/print-log") && req.method === "POST") {
     return logEPlanPrint(req);
+  }
+
+  // Public/Field: Erection Operations Endpoints
+  if (url.pathname.endsWith("/erection-ops/safety-gate-override") && req.method === "POST") {
+    return overrideSafetyGate(req);
+  }
+  if (url.pathname.endsWith("/erection-ops/field-bolt-inspection") && req.method === "POST") {
+    return recordFieldBoltInspection(req);
+  }
+  if (url.pathname.endsWith("/erection-ops/delay") && req.method === "POST") {
+    return logErectionDelay(req);
   }
 
   // Authenticate

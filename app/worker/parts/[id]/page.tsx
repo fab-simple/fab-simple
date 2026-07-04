@@ -513,6 +513,13 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
               <td style="background: #e2e8f0; text-align:center;">N/A</td>
               <td>${inspNotes || "Result: [ ] Pass [ ] Fail"}</td>
             </tr>
+            <tr>
+              <td class="stage-name">6. Field RCSC Bolt Signoff <span style="font-weight:400;color:#64748b;">(RCSC Field QC)</span></td>
+              <td><span class="empty">_______________</span></td>
+              <td><span class="empty">_______________</span></td>
+              <td style="background: #e2e8f0; text-align:center;">N/A</td>
+              <td>Method: [ ] Turn-Nut [ ] DTI [ ] Wrench</td>
+            </tr>
           </tbody>
         </table>
 

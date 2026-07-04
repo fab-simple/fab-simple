@@ -29,6 +29,7 @@ import {
   Plug,
   Tag,
   Compass,
+  HardHat,
 } from "lucide-react";
 
 export interface NavItem {
@@ -133,16 +134,18 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
   {
     label: "Logistics",
     items: [
-      // Ground Station: Owner Full · PM Full · Foreman Full
-      { key: "ground-station", label: "Ground Station (E-Plan)", href: "/ground-station", icon: Compass, roles: [...OWNER_PM_FOREMAN] },
-      // Erection Sequence: Owner Full · PM Full · Foreman Full
-      { key: "erection",    label: "Erection Sequence", href: "/dashboard/erection",   icon: ArrowUpDown, roles: [...OWNER_PM_FOREMAN] },
+      // Ground Station: Owner Full · PM Full · Foreman Full · Erection Subcontractor
+      { key: "ground-station", label: "Ground Station (E-Plan)", href: "/ground-station", icon: Compass, roles: [...OWNER_PM_FOREMAN, "erection_subcontractor"] },
+      // Erection Operations: Owner Full · PM Full · Foreman Full · Erection Subcontractor
+      { key: "erection-ops",   label: "Erection Operations", href: "/dashboard/erection-ops", icon: HardHat, roles: [...OWNER_PM_FOREMAN, "erection_subcontractor"] },
+      // Erection Sequence: Owner Full · PM Full · Foreman Full · Erection Subcontractor
+      { key: "erection",       label: "Erection Sequence", href: "/dashboard/erection",   icon: ArrowUpDown, roles: [...OWNER_PM_FOREMAN, "erection_subcontractor"] },
       // Shipping Tickets: Owner Full · PM Full · Foreman Create · Accounting View
-      { key: "shipping",    label: "Shipping Tickets",  href: "/dashboard/shipping",   icon: Truck,       roles: [...OWNER_PM_FOREMAN_ACCT] },
+      { key: "shipping",       label: "Shipping Tickets",  href: "/dashboard/shipping",   icon: Truck,       roles: [...OWNER_PM_FOREMAN_ACCT] },
       // QR Codes: production tooling — Owner / PM / Foreman.
-      { key: "qr-codes",    label: "QR Codes",          href: "/dashboard/qr-codes",   icon: QrCode,      roles: [...OWNER_PM_FOREMAN] },
+      { key: "qr-codes",       label: "QR Codes",          href: "/dashboard/qr-codes",   icon: QrCode,      roles: [...OWNER_PM_FOREMAN] },
       // GC Contacts: Owner Full · Estimator Full · PM Full
-      { key: "gc-contacts", label: "GC Contacts",       href: "/dashboard/gc-contacts", icon: Phone,      roles: [...OWNER_ESTIMATOR_PM] },
+      { key: "gc-contacts",    label: "GC Contacts",       href: "/dashboard/gc-contacts", icon: Phone,      roles: [...OWNER_ESTIMATOR_PM] },
     ],
   },
   {
