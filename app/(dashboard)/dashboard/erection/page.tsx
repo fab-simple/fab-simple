@@ -13,6 +13,7 @@ interface Seq {
   id: string; project_id: string; sequence_number: number;
   description: string | null; load_number: string | null; priority: number;
   phase: string | null; status: string;
+  grid_location?: string | null; x_ratio?: number | null; y_ratio?: number | null;
 }
 interface Project { id: string; name: string; }
 
@@ -28,6 +29,8 @@ export default function ErectionPage() {
     { key: "seq", label: "Seq #", mono: true, render: (r) => <strong>{r.sequence_number}</strong> },
     { key: "desc", label: "Description", render: (r) => r.description ?? "—" },
     { key: "phase", label: "Phase", mono: true, render: (r) => r.phase ?? "—" },
+    { key: "grid", label: "Grid Location", mono: true, render: (r) => r.grid_location ?? "Col 101 / Axis A" },
+    { key: "pin", label: "Pin (X, Y)", mono: true, render: (r) => `${r.x_ratio ?? 45}% , ${r.y_ratio ?? 40}%` },
     { key: "load", label: "Load #", mono: true, render: (r) => r.load_number ?? "—" },
     { key: "prio", label: "Priority", align: "right", mono: true, render: (r) => r.priority },
     { key: "status", label: "Status", render: (r) => <StatusPill status={r.status} /> },
@@ -37,8 +40,8 @@ export default function ErectionPage() {
     <PageWrapper title="Erection Sequence">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Erection Sequence</div>
-          <div className="text-[12px]" style={{ color: "var(--muted)" }}>Field erection plan in load/lift order</div>
+          <div className="text-[20px] font-bold" style={{ color: "var(--text)" }}>Erection Sequence &amp; E-Plan Pointers</div>
+          <div className="text-[12px]" style={{ color: "var(--muted)" }}>Field erection steps linked to live E-Plan sheet grid pointers</div>
         </div>
         <div className="flex items-center gap-2">
           <button className="btn btn-primary" onClick={() => setShowNew(true)} disabled={!project}><Plus size={14} /> New step</button>
@@ -62,7 +65,16 @@ function NewModal({ projectId, onClose, onSubmit, submitting, error }: {
   projectId: string; onClose: () => void;
   onSubmit: (p: Record<string, unknown>) => void; submitting: boolean; error: string | null;
 }) {
-  const [f, setF] = useState({ sequence_number: "1", description: "", load_number: "", priority: "0", phase: "" });
+  const [f, setF] = useState({
+    sequence_number: "1",
+    description: "",
+    load_number: "",
+    priority: "0",
+    phase: "",
+    grid_location: "Col 101 / Axis A",
+    x_ratio: "45.0",
+    y_ratio: "40.0",
+  });
   return (
     <ResourceModal title="New erection step" onClose={onClose} submitting={submitting} error={error}
       onSubmit={(e) => { e.preventDefault();
@@ -72,6 +84,9 @@ function NewModal({ projectId, onClose, onSubmit, submitting, error }: {
           load_number: f.load_number || undefined,
           priority: Number(f.priority || 0),
           phase: f.phase || undefined,
+          grid_location: f.grid_location || undefined,
+          x_ratio: Number(f.x_ratio || 45),
+          y_ratio: Number(f.y_ratio || 40),
         });
       }}
     >
@@ -80,6 +95,11 @@ function NewModal({ projectId, onClose, onSubmit, submitting, error }: {
         <Field label="Phase"><input className="input" value={f.phase} onChange={(e) => setF({ ...f, phase: e.target.value })} placeholder="P1" /></Field>
       </div>
       <Field label="Description"><input className="input" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
+      <Field label="Grid Location / Column Line"><input className="input" value={f.grid_location} onChange={(e) => setF({ ...f, grid_location: e.target.value })} placeholder="Col 101 / Axis A" /></Field>
+      <div className="grid-2" style={{ gap: 12 }}>
+        <Field label="Pin X Position (%)"><input className="input" type="number" step="0.1" value={f.x_ratio} onChange={(e) => setF({ ...f, x_ratio: e.target.value })} /></Field>
+        <Field label="Pin Y Position (%)"><input className="input" type="number" step="0.1" value={f.y_ratio} onChange={(e) => setF({ ...f, y_ratio: e.target.value })} /></Field>
+      </div>
       <div className="grid-2" style={{ gap: 12 }}>
         <Field label="Load #"><input className="input" value={f.load_number} onChange={(e) => setF({ ...f, load_number: e.target.value })} /></Field>
         <Field label="Priority"><input className="input" type="number" value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })} /></Field>

@@ -17,7 +17,7 @@ interface Drawing {
 }
 interface Project { id: string; name: string; }
 
-const TYPES = ["shop", "erection", "connection"];
+const TYPES = ["shop", "erection", "erection_plan", "connection"];
 const STATUSES = ["in_progress", "submitted", "approved", "released", "superseded"];
 
 export default function DrawingsPage() {

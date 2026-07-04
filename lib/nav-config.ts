@@ -28,6 +28,7 @@ import {
   Users,
   Plug,
   Tag,
+  Compass,
 } from "lucide-react";
 
 export interface NavItem {
@@ -132,6 +133,8 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
   {
     label: "Logistics",
     items: [
+      // Ground Station: Owner Full · PM Full · Foreman Full
+      { key: "ground-station", label: "Ground Station (E-Plan)", href: "/ground-station", icon: Compass, roles: [...OWNER_PM_FOREMAN] },
       // Erection Sequence: Owner Full · PM Full · Foreman Full
       { key: "erection",    label: "Erection Sequence", href: "/dashboard/erection",   icon: ArrowUpDown, roles: [...OWNER_PM_FOREMAN] },
       // Shipping Tickets: Owner Full · PM Full · Foreman Create · Accounting View

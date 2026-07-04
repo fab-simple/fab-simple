@@ -25,6 +25,7 @@ import { acceptInvite } from "./controllers/acceptInvite.ts";
 import { search } from "./controllers/search.ts";
 import { getOrganization, updateOrganization } from "./controllers/organization.ts";
 import { getPublicPart } from "./controllers/publicPart.ts";
+import { resolveEPlanPiece, logEPlanPrint } from "./controllers/ePlan.ts";
 
 const TABLE_RE = /^\/api\/?([a-z_]+)(?:\/([0-9a-f-]{36}))?\/?$/i;
 
@@ -75,6 +76,17 @@ Deno.serve(async (req) => {
   if (url.pathname.includes("/public/parts/") && req.method === "GET") {
     const publicPartMatch = url.pathname.match(/\/public\/parts\/([0-9a-f-]{36})/i);
     if (publicPartMatch) return getPublicPart(publicPartMatch[1]);
+  }
+
+  // Public/Field: E-Plan resolution endpoint (no JWT required for QR scan at Ground Station)
+  if (url.pathname.includes("/e-plan/resolve/") && req.method === "GET") {
+    const pieceMatch = url.pathname.split("/e-plan/resolve/")[1];
+    if (pieceMatch) return resolveEPlanPiece(decodeURIComponent(pieceMatch));
+  }
+
+  // Public/Field: E-Plan print log auditor
+  if (url.pathname.endsWith("/e-plan/print-log") && req.method === "POST") {
+    return logEPlanPrint(req);
   }
 
   // Authenticate
