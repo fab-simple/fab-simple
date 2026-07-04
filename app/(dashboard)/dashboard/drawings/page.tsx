@@ -23,8 +23,8 @@ const STATUSES = ["in_progress", "submitted", "approved", "released", "supersede
 export default function DrawingsPage() {
   const { selectedProjectId } = useGlobalProject();
   const listQuery = selectedProjectId
-    ? { order_by: "drawing_number", dir: "asc", project_id: selectedProjectId }
-    : { order_by: "drawing_number", dir: "asc" };
+    ? { limit: "500", order_by: "drawing_number", dir: "asc", project_id: selectedProjectId }
+    : { limit: "500", order_by: "drawing_number", dir: "asc" };
   const list = useResourceList<Drawing>("drawings", listQuery);
   const projects = useResourceList<Project>("projects", { limit: "100" });
   const create = useCreate<Drawing>("drawings");

@@ -560,6 +560,40 @@ function PdfPackageTab({ projects, defaultProjectId }: { projects: Project[]; de
     try {
       for (const row of rows) {
         if (row.status !== "ready") continue;
+
+        // Special case: Erection Plans (GA) upload directly to Drawing Log (drawings table)
+        if (classification === "ga") {
+          setRows((prev) => prev.map((r) => (r.uid === row.uid ? { ...r, status: "uploading" } : r)));
+          try {
+            const prefix = row.filenamePrefix || row.file.name.replace(/\.[^/.]+$/, "").split("_")[0] || "E-PLAN";
+            // 1. Create drawing record in Drawing Log
+            const dwg = await FabAPI.create<{ id: string }>("drawings", {
+              drawing_number: prefix,
+              revision: "R0",
+              title: `${prefix} General Arrangement Erection Plan`,
+              type: "erection_plan",
+              status: "released",
+              current_revision: true,
+              project_id: projectId,
+            });
+            // 2. Upload file attached directly to drawing record (entity_type: "drawings")
+            await uploadFile({
+              file: row.file,
+              entity_type: "drawings",
+              entity_id: dwg.id,
+              bucket: "drawings",
+            });
+            setRows((prev) => prev.map((r) => (r.uid === row.uid ? {
+              ...r, status: "done", uploadedTo: 1,
+            } : r)));
+          } catch (e) {
+            setRows((prev) => prev.map((r) => (r.uid === row.uid ? {
+              ...r, status: "error", errorMessage: e instanceof Error ? e.message : "E-Plan upload failed",
+            } : r)));
+          }
+          continue;
+        }
+
         let targets = row.matched.filter((p) => !row.excluded.has(p.id));
         if (targets.length === 0) {
           setRows((prev) => prev.map((r) => (r.uid === row.uid ? {
@@ -606,29 +640,6 @@ function PdfPackageTab({ projects, defaultProjectId }: { projects: Project[]; de
               target_entity_ids: targets.slice(1).map((p) => p.id),
             });
             extraCount = res.created;
-          }
-
-          // 3) If classification is E-Plans (ga), auto-register in Drawing Log table
-          if (classification === "ga") {
-            const prefix = row.filenamePrefix || row.file.name.replace(/\.[^/.]+$/, "").split("_")[0];
-            try {
-              const dwg = await FabAPI.create<{ id: string }>("drawings", {
-                drawing_number: prefix || "E-PLAN",
-                revision: "R0",
-                title: `${prefix || "Erection Plan"} General Arrangement`,
-                type: "erection_plan",
-                status: "released",
-                current_revision: true,
-                project_id: projectId,
-              });
-              if (dwg?.id) {
-                await FabAPI.shareFile({
-                  source_attachment_id: attachment_id,
-                  target_entity_type: "drawings",
-                  target_entity_ids: [dwg.id],
-                });
-              }
-            } catch (_dwgErr) {}
           }
 
           const total = 1 + extraCount;
