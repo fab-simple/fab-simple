@@ -164,10 +164,10 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
   // Combine authenticated + public part details
   const apiPart: Part | null = authPart
     ? {
-        ...authPart,
-        project_name: publicData?.part.project_name ?? authPart.project_name,
-        project_number: publicData?.part.project_number ?? authPart.project_number,
-      }
+      ...authPart,
+      project_name: publicData?.part.project_name ?? authPart.project_name,
+      project_number: publicData?.part.project_number ?? authPart.project_number,
+    }
     : publicData?.part ?? null;
 
   // Sync state to optimistically updated localPart
@@ -568,13 +568,12 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
 
         {/* Sync Status Badge */}
         <div
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold font-mono transition-all ${
-            isOnline && offlineQueue.length === 0
-              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-              : offlineQueue.length > 0
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold font-mono transition-all ${isOnline && offlineQueue.length === 0
+            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+            : offlineQueue.length > 0
               ? "bg-amber-500/15 border-amber-500/30 text-amber-400 animate-pulse"
               : "bg-slate-800 border-slate-700 text-slate-400"
-          }`}
+            }`}
         >
           {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
           <span>
@@ -996,11 +995,10 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                       <button
                         key={d.id}
                         onClick={() => setActiveDrawingId(d.id)}
-                        className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer border flex-shrink-0 ${
-                          isActive
-                            ? "bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-600/10"
-                            : "bg-slate-900 border-white/5 text-slate-400 hover:text-white"
-                        }`}
+                        className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer border flex-shrink-0 ${isActive
+                          ? "bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-600/10"
+                          : "bg-slate-900 border-white/5 text-slate-400 hover:text-white"
+                          }`}
                       >
                         <span>v{drawings.length - index}</span>
                         {isLatest && <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-white/10 text-indigo-200">Latest</span>}
@@ -1123,7 +1121,7 @@ function StageCard({
   }[status];
 
   return (
-    <div className={`rounded-2xl p-5 border transition-all ${statusStyles.bg}`}>
+    <div className={`flex justify-between items-center rounded-2xl !p-5 border transition-all ${statusStyles.bg}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div className={`w-9 h-9 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 ${statusStyles.accent}`}>
@@ -1139,7 +1137,7 @@ function StageCard({
       </div>
 
       {completedAt && (
-        <div className="mt-3.5 pt-3.5 border-t border-white/5 flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <div className="flex items-center gap-1">
               <User size={13} className="text-slate-500" />
@@ -1162,7 +1160,7 @@ function StageCard({
       )}
 
       {qcAt && (
-        <div className="mt-2.5 pt-2.5 border-t border-white/5 flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <div className="flex items-center gap-1">
               <ShieldAlert size={13} className="text-indigo-400" />
