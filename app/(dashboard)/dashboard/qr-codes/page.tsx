@@ -240,7 +240,7 @@ export default function QrCodesPage() {
             ${p.assembly_mark ? `<div class="meta">Asm: ${escapeHtml(p.assembly_mark)}${p.quantity != null ? ` · Qty: ${p.quantity}` : ""}</div>` : ""}
             ${noPdf
               ? `<div class="nopdf">⚠ NO DRAWING ATTACHED</div>`
-              : count > 1 ? `<div class="rev">DRAWING REV ${count}</div>` : ""}
+              : `<div class="rev">DRAWING REV R${count - 1}</div>`}
           </div>
           `;
         }).join("")}</div>
@@ -405,30 +405,41 @@ export default function QrCodesPage() {
                         <Check size={10} strokeWidth={3} />
                       </span>
                     )}
-                    <button
-                      type="button"
-                      title={noPdf
-                        ? "Add drawing PDF"
-                        : `${count} drawing${count === 1 ? "" : "s"} attached (latest is rev ${count}) — view / manage`}
-                      onClick={(e) => { e.stopPropagation(); setAttachTarget(p); }}
-                      className="btn btn-sm"
-                      style={{
-                        padding: "2.5px 7px",
-                        height: 23,
-                        fontSize: 10,
-                        background: noPdf ? "rgba(220,38,38,0.15)" : "rgba(22,163,74,0.15)",
-                        color: noPdf ? "#ef4444" : "#22c55e",
-                        border: noPdf ? "1px solid rgba(220,38,38,0.3)" : "1px solid rgba(22,163,74,0.3)",
-                        display: "inline-flex", alignItems: "center", gap: 3,
-                      }}
-                    >
-                      <Paperclip size={10} />
-                      {noPdf ? (
-                        <span>Missing</span>
-                      ) : (
-                        <span>v{count}</span>
-                      )}
-                    </button>
+
+                    {/* Button wrapper with instant 0ms hover tooltip */}
+                    <div className="relative group/tooltip">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setAttachTarget(p); }}
+                        className="btn btn-sm"
+                        style={{
+                          padding: "2.5px 7px",
+                          height: 23,
+                          fontSize: 10,
+                          background: noPdf ? "rgba(220,38,38,0.15)" : "rgba(22,163,74,0.15)",
+                          color: noPdf ? "#ef4444" : "#22c55e",
+                          border: noPdf ? "1px solid rgba(220,38,38,0.3)" : "1px solid rgba(22,163,74,0.3)",
+                          display: "inline-flex", alignItems: "center", gap: 3,
+                        }}
+                      >
+                        <Paperclip size={10} />
+                        {noPdf ? (
+                          <span>Missing</span>
+                        ) : (
+                          <span>R{count - 1}</span>
+                        )}
+                      </button>
+
+                      {/* Instant Tooltip (0ms hover delay) */}
+                      <div className="absolute right-0 bottom-full mb-1.5 hidden group-hover/tooltip:flex flex-col items-end pointer-events-none z-50 whitespace-nowrap">
+                        <div className="px-2.5 py-1 rounded-md bg-slate-900 border border-slate-700/80 text-slate-200 text-[10.5px] font-medium shadow-xl">
+                          {noPdf
+                            ? "Add drawing PDF"
+                            : `${count} drawing${count === 1 ? "" : "s"} attached (latest is R${count - 1}) — view / manage`}
+                        </div>
+                        <div className="w-1.5 h-1.5 bg-slate-900 border-r border-b border-slate-700/80 rotate-45 mr-3 -mt-1" />
+                      </div>
+                    </div>
                   </div>
                 </div>
 

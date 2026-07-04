@@ -1000,7 +1000,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                           : "bg-slate-900 border-white/5 text-slate-400 hover:text-white"
                           }`}
                       >
-                        <span>v{drawings.length - index}</span>
+                        <span>R{drawings.length - 1 - index}</span>
                         {isLatest && <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-white/10 text-indigo-200">Latest</span>}
                       </button>
                     );
