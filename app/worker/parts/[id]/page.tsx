@@ -548,7 +548,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
   return (
     <div style={{ minHeight: "100vh", background: "#0B1120", color: "#F8FAFC", maxWidth: 760, margin: "0 auto", padding: "20px 20px 100px" }}>
       {/* Top Header Navigation */}
-      <header className="flex items-center justify-between mb-5 pb-3 border-b border-slate-800/80">
+      <header className="flex items-center justify-between mb-5 !pb-3 border-b border-slate-800/80">
         <div className="flex gap-2">
           <button
             onClick={() => router.push("/worker")}
