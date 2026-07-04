@@ -1010,7 +1010,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
             {photoErr && <div className="text-xs mt-2 text-red-400 font-medium">{photoErr}</div>}
           </div>
 
-          {/* Structural Drawing PDF Section */}
+          {/* Structural Drawing & Attachment Documents Section */}
           <div className="rounded-2xl p-6 mb-5 bg-slate-800/90 border border-slate-700/80 shadow-xl">
             <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
               <div className="flex items-center gap-2.5">
@@ -1018,30 +1018,32 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
                   <FileText size={18} />
                 </div>
                 <div>
-                  <h4 className="font-bold text-sm text-white">Structural Drawing PDF</h4>
-                  <p className="text-[11px] text-slate-400">Worker drawing & revision history</p>
+                  <h4 className="font-bold text-sm text-white">Structural Drawings &amp; Documents ({drawings.length})</h4>
+                  <p className="text-[11px] text-slate-400">Worker drawing, part sheets &amp; revision history</p>
                 </div>
               </div>
             </div>
 
             {drawings.length > 0 ? (
               <div>
-                {/* Horizontal scrollable tab buttons for revision list */}
+                {/* Horizontal scrollable tab buttons for document list */}
                 <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide border-b border-white/5 mb-4">
                   {drawings.map((d, index) => {
                     const isLatest = index === 0;
                     const isActive = d.id === activeDrawingId;
+                    const revLabel = `R${drawings.length - 1 - index}`;
                     return (
                       <button
                         key={d.id}
                         onClick={() => setActiveDrawingId(d.id)}
-                        className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer border flex-shrink-0 ${isActive
+                        className={`px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer border flex-shrink-0 ${isActive
                           ? "bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-600/10"
                           : "bg-slate-900 border-white/5 text-slate-400 hover:text-white"
                           }`}
                       >
-                        <span>R{drawings.length - 1 - index}</span>
-                        {isLatest && <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-white/10 text-indigo-200">Latest</span>}
+                        <span className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[10px]">{revLabel}</span>
+                        <span className="truncate max-w-[130px]" title={d.filename}>{d.filename}</span>
+                        {isLatest && <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Latest</span>}
                       </button>
                     );
                   })}
@@ -1049,17 +1051,40 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
 
                 {activeDrawing?.url ? (
                   <div className="flex flex-col gap-3">
-                    <div className="rounded-xl overflow-hidden border border-slate-700/60 bg-slate-900 shadow-inner relative group" style={{ height: "360px" }}>
-                      <iframe
-                        src={activeDrawing.url}
-                        className="w-full h-full border-0"
-                        title={activeDrawing.filename}
-                      />
+                    <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+                      <span className="font-mono text-slate-300 font-semibold truncate max-w-[70%]" title={activeDrawing.filename}>
+                        {activeDrawing.filename}
+                      </span>
+                      <a
+                        href={activeDrawing.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-indigo-400 hover:text-indigo-300 font-medium underline flex-shrink-0"
+                      >
+                        Open full document ↗
+                      </a>
+                    </div>
+                    <div className="rounded-xl overflow-hidden border border-slate-700/60 bg-slate-900 shadow-inner relative group" style={{ height: "420px" }}>
+                      {activeDrawing.mime_type?.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(activeDrawing.filename) ? (
+                        <div className="w-full h-full flex items-center justify-center p-2 bg-slate-950">
+                          <img
+                            src={activeDrawing.url}
+                            alt={activeDrawing.filename}
+                            className="max-w-full max-h-full object-contain rounded"
+                          />
+                        </div>
+                      ) : (
+                        <iframe
+                          src={activeDrawing.url}
+                          className="w-full h-full border-0"
+                          title={activeDrawing.filename}
+                        />
+                      )}
                     </div>
                   </div>
                 ) : (
                   <div className="text-center text-slate-400 py-8 bg-slate-900/60 rounded-xl border border-slate-800 text-xs font-medium">
-                    Could not generate view link for drawing.
+                    Could not generate view link for document.
                   </div>
                 )}
               </div>

@@ -55,13 +55,13 @@ export async function getPublicPart(partId: string): Promise<Response> {
     }
   }
 
-  // 4. Fetch file attachments for all target part IDs
+  // 4. Fetch file attachments for all target part IDs (all buckets: drawings, photos, mtrs, etc.)
   const { data: attachments } = await sbAdmin
     .from("file_attachments")
     .select("id, storage_bucket, storage_path, mime_type, size_bytes, created_at")
     .eq("entity_type", "parts")
     .in("entity_id", Array.from(targetPartIds))
-    .eq("storage_bucket", "drawings")
+    .in("storage_bucket", ["drawings", "photos", "mtrs", "billing"])
     .order("created_at", { ascending: false });
 
   // 5. Deduplicate attachments by storage_path (keep newest)
