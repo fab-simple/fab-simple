@@ -6,7 +6,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
-import { useResourceList, useCreate, useUpdate } from "@/hooks/useResource";
+import { useResourceList, useResourceListAll, useCreate, useUpdate } from "@/hooks/useResource";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { Plus, Paperclip, Archive, FileText, Compass } from "lucide-react";
 
@@ -22,10 +22,14 @@ const STATUSES = ["in_progress", "submitted", "approved", "released", "supersede
 
 export default function DrawingsPage() {
   const { selectedProjectId } = useGlobalProject();
+  // The Drawing Log renders per-type tab totals + a single unpaginated table,
+  // so it needs the COMPLETE set for the selected project — not just the first
+  // server page (capped at 200). `useResourceListAll` walks every page so the
+  // counts and rows reflect all drawings (e.g. 291 shop + 11 E-Plans = 302).
   const listQuery = selectedProjectId
-    ? { limit: "500", order_by: "drawing_number", dir: "asc", project_id: selectedProjectId }
-    : { limit: "500", order_by: "drawing_number", dir: "asc" };
-  const list = useResourceList<Drawing>("drawings", listQuery);
+    ? { order_by: "drawing_number", dir: "asc", project_id: selectedProjectId }
+    : { order_by: "drawing_number", dir: "asc" };
+  const list = useResourceListAll<Drawing>("drawings", listQuery);
   const projects = useResourceList<Project>("projects", { limit: "100" });
   const create = useCreate<Drawing>("drawings");
   const update = useUpdate<Drawing>("drawings");
