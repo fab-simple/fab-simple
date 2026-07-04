@@ -7,7 +7,7 @@ import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI } from "@/lib/api";
 import { QRCodeCanvas } from "qrcode.react";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
-import { Printer, Paperclip, AlertCircle, Loader2, Flame, Paintbrush, Check } from "lucide-react";
+import { Printer, Paperclip, AlertCircle, Loader2, Flame, Paintbrush, Check, Search, X } from "lucide-react";
 
 interface Part {
   id: string;
@@ -41,6 +41,8 @@ function escapeHtml(s: string): string {
 
 export default function QrCodesPage() {
   const { selectedProjectId } = useGlobalProject();
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
   const [missingOnly, setMissingOnly] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [attachTarget, setAttachTarget] = useState<Part | null>(null);
@@ -51,6 +53,12 @@ export default function QrCodesPage() {
 
   // Off-screen high-res canvases harvested into the print sheet.
   const printSourceRef = useRef<HTMLDivElement | null>(null);
+
+  // Debounce the search input so we don't hit the API on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   // QR payload must be a real https URL so a phone camera opens it directly.
   // The worker scan page also accepts this `/worker/parts/<id>` form (and
@@ -66,8 +74,9 @@ export default function QrCodesPage() {
   const filters = useMemo(() => {
     const f: Record<string, string | undefined> = {};
     if (selectedProjectId) f.project_id = selectedProjectId;
+    if (search) f.part_mark__ilike = search;
     return f;
-  }, [selectedProjectId]);
+  }, [selectedProjectId, search]);
 
   const list = useResourcePaged<Part>("parts", {
     initialPerPage: 100,
@@ -75,6 +84,14 @@ export default function QrCodesPage() {
     initialDir: "asc",
     filters,
   });
+
+  // Reset page to 1 when search or project selection changes
+  useEffect(() => {
+    list.setPage(1);
+    setSelected(new Set());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, selectedProjectId]);
+
   const projects = useResourceList<Project>("projects", { per_page: 100 });
   const rows = list.data?.rows ?? [];
 
@@ -88,14 +105,6 @@ export default function QrCodesPage() {
   // For the parts currently on screen, fetch all file_attachments in ONE
   // request and build a set of part IDs that have at least one upload.
   // Anything not in the set gets the red "missing PDF" marker.
-  //
-  // We key the effect on the JOINED id string (a primitive) rather than the
-  // `rows` array so it doesn't re-run on every render — `list.data?.rows ?? []`
-  // produces a new array reference when data is undefined, which would
-  // otherwise cause a render → setState → render loop.
-  // Map of part id → number of drawing PDFs attached. The count doubles as a
-  // revision number on the card: uploading a second PDF to the same QR shows
-  // "v2", a third shows "v3", etc. (each upload is a new attachment row).
   const [pdfCount, setPdfCount] = useState<Map<string, number>>(new Map());
   const [attLoading, setAttLoading] = useState(false);
   const idsKey = rows.map((r) => r.id).join(",");
@@ -107,9 +116,6 @@ export default function QrCodesPage() {
     let cancelled = false;
     setAttLoading(true);
     (async () => {
-      // Page through every attachment for the on-screen parts so revision
-      // counts stay accurate even when parts have several PDFs (the server
-      // caps each page at 200 rows).
       const counts = new Map<string, number>();
       let page = 1;
       for (;;) {
@@ -126,18 +132,30 @@ export default function QrCodesPage() {
       return counts;
     })()
       .then((counts) => { if (!cancelled) setPdfCount(counts); })
-      .catch(() => { if (!cancelled) setPdfCount(new Map()); }) // fail open — show everything as missing rather than wrong
+      .catch(() => { if (!cancelled) setPdfCount(new Map()); })
       .finally(() => { if (!cancelled) setAttLoading(false); });
     return () => { cancelled = true; };
   }, [idsKey, attachmentsRev]);
 
-  // Apply the "missing PDF only" toggle as a client-side filter on whatever
-  // parts are currently loaded. The button label shows the live count so
-  // shop foremen can see at a glance how many parts still need scanned drawings.
+  // Apply search & missing PDF filters
   const visible = useMemo(() => {
-    if (!missingOnly) return rows;
-    return rows.filter((p) => !pdfCount.has(p.id));
-  }, [rows, missingOnly, pdfCount]);
+    let result = rows;
+    if (missingOnly) {
+      result = result.filter((p) => !pdfCount.has(p.id));
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter((p) =>
+        (p.part_mark && p.part_mark.toLowerCase().includes(q)) ||
+        (p.profile && p.profile.toLowerCase().includes(q)) ||
+        (p.assembly_mark && p.assembly_mark.toLowerCase().includes(q)) ||
+        (p.heat_number && p.heat_number.toLowerCase().includes(q)) ||
+        (p.finish && p.finish.toLowerCase().includes(q)) ||
+        (p.name && p.name.toLowerCase().includes(q))
+      );
+    }
+    return result;
+  }, [rows, missingOnly, pdfCount, search]);
   const missingCount = rows.reduce((n, p) => n + (pdfCount.has(p.id) ? 0 : 1), 0);
 
   const toggle = (id: string) => setSelected((s) => {
@@ -246,6 +264,28 @@ export default function QrCodesPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Search Field */}
+          <div className="relative flex items-center">
+            <Search size={13} className="absolute left-2.5 pointer-events-none" style={{ color: "var(--muted)" }} />
+            <input
+              type="text"
+              className="input text-xs"
+              placeholder="Search QR codes / part mark..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              style={{ paddingLeft: 28, paddingRight: searchInput ? 26 : 10, width: 220, height: 32 }}
+            />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => setSearchInput("")}
+                className="absolute right-2 p-0.5 text-slate-400 hover:text-white"
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
 
           <button
             className="btn"
@@ -298,7 +338,9 @@ export default function QrCodesPage() {
         </div>
       ) : visible.length === 0 ? (
         <div className="card" style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
-          {missingOnly
+          {search
+            ? `No QR codes found matching "${search}".`
+            : missingOnly
             ? "All visible parts already have a drawing PDF attached. Clear the filter to see everything."
             : "No parts found for the selected filter."}
         </div>
