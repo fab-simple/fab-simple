@@ -61,9 +61,19 @@ multiple round-trips, no atomicity, and re-introduces the Edge Function
 resource-limit (HTTP 546) risk seen with large CSV imports. Instead, add one
 server endpoint that does the whole operation in a single, bounded pass.
 
-**`POST /purchase-orders/from-parts`** — new controller
-`supabase/functions/api/controllers/purchaseOrder.ts`, routed in
-`supabase/functions/api/index.ts` **before** the generic `/{table}/{id}` route.
+Two routes in a new controller
+`supabase/functions/api/controllers/purchaseOrder.ts`, both registered in
+`supabase/functions/api/index.ts` **before** the generic `/{table}/{id}` route:
+
+- **`GET /purchase-orders/preview-from-parts?project_id=`** — read-only. Runs
+  steps 1–6 below and returns `{ line_items, parts_count, total_weight_lb,
+  total_pieces }` for the modal preview. Keeps the browser from downloading
+  every part row just to render a summary, and reuses the exact server-side
+  aggregation the create path uses (single source of truth, no client/server
+  drift).
+- **`POST /purchase-orders/from-parts`** — the authoritative create.
+
+Create-path body:
 
 Request body:
 
@@ -106,12 +116,14 @@ filter. Documented, not guarded.
 - `lib/api.ts`: `FabAPI.createPoFromParts(body): Promise<CreatePoFromPartsResult>`.
 - `hooks/useResource.ts` (or a small dedicated hook): `useCreatePoFromParts()`
   mutation that invalidates the `parts` and `purchase_orders` query keys on success.
+- `lib/api.ts`: `FabAPI.previewPoFromParts(project_id)` for the modal preview.
+- `hooks/useResource.ts`: `usePoFromPartsPreview(project_id)` query (enabled only
+  when the modal is open and a project is selected).
 - Parts page (`app/(dashboard)/dashboard/parts/page.tsx`):
   - "Create PO" button (role- and project-guarded).
-  - `CreatePoModal` component. Preview aggregation is computed **client-side**
-    for display by fetching `not_started` parts via the existing `listAll` helper
-    (`FabAPI.listAll("parts", { status: "not_started", project_id })`); the server
-    remains the source of truth for the actual PO contents.
+  - `CreatePoModal` component. The preview table is populated from the
+    `preview-from-parts` endpoint; the browser never downloads raw part rows.
+    The server is the single source of truth for both preview and creation.
 
 ### Data shapes
 
