@@ -139,7 +139,7 @@ export default function WorkerPartPage({ params }: { params: Promise<{ id: strin
       }
     };
 
-    fetch(url, { headers: { apikey: anonKey } })
+    fetch(url, { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } })
       .then((res) => res.json())
       .then((res) => {
         if (cancelled) return;
