@@ -568,21 +568,16 @@ function PdfPackageTab({ projects, defaultProjectId }: { projects: Project[]; de
           continue;
         }
 
-        // When uploading Part Sheets, resolve targets to parent Assembly / Shop Drawing parts
-        // so the Part Sheet PDF is attached/linked to the Assembly QR Codes.
+        // When uploading Part Sheets, attach PDF to all matched shop drawing piece marks (e.g. 2043B1, 2044B1, 2206B2)
         if (classification === "part_sheets") {
           const assemblyTargetsMap = new Map<string, PartLite>();
           for (const target of targets) {
-            if (!target.assembly_mark || target.assembly_mark === target.part_mark) {
-              assemblyTargetsMap.set(target.id, target);
-            } else {
-              const parentAssembly = parts.find(
-                (p) => p.part_mark === target.assembly_mark || (!p.assembly_mark && p.part_mark === target.assembly_mark)
-              );
-              if (parentAssembly) {
-                assemblyTargetsMap.set(parentAssembly.id, parentAssembly);
-              } else {
-                assemblyTargetsMap.set(target.id, target);
+            assemblyTargetsMap.set(target.id, target);
+            // Also link any sibling parts sharing the same assembly_mark
+            if (target.assembly_mark) {
+              const siblings = parts.filter((p) => p.assembly_mark === target.assembly_mark || p.part_mark === target.assembly_mark);
+              for (const sib of siblings) {
+                assemblyTargetsMap.set(sib.id, sib);
               }
             }
           }
