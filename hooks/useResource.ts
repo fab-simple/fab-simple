@@ -3,7 +3,14 @@
 
 import { useCallback, useState } from "react";
 import { keepPreviousData, useQuery, useMutation, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
-import { FabAPI, FabApiError, type PagedResult } from "@/lib/api";
+import {
+  FabAPI,
+  FabApiError,
+  type PagedResult,
+  type PoFromPartsPreview,
+  type CreatePoFromPartsBody,
+  type CreatePoFromPartsResult,
+} from "@/lib/api";
 
 export const FAB_MODE = process.env.NEXT_PUBLIC_FAB_MODE ?? "demo";
 
@@ -172,6 +179,34 @@ export function useUpdate<T = unknown>(table: string) {
     mutationFn: ({ id, body }) => FabAPI.update<T>(table, id, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [table] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+/**
+ * Read-only preview of the PO that would be created from a project's not_started
+ * parts. Fetches only when the modal is open (`enabled`) and a project is chosen.
+ */
+export function usePoFromPartsPreview(projectId: string | null, enabled: boolean) {
+  return useQuery<PoFromPartsPreview, FabApiError>({
+    queryKey: ["purchase_orders", "po-from-parts-preview", projectId],
+    queryFn: () => FabAPI.previewPoFromParts(projectId!),
+    enabled: FAB_MODE === "live" && enabled && !!projectId,
+  });
+}
+
+/**
+ * Create a draft PO from a project's not_started parts. Invalidates parts (their
+ * status flips to `ordered`), purchase_orders, and the dashboard on success.
+ */
+export function useCreatePoFromParts() {
+  const qc = useQueryClient();
+  return useMutation<CreatePoFromPartsResult, FabApiError, CreatePoFromPartsBody>({
+    mutationFn: (body) => FabAPI.createPoFromParts(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["parts"] });
+      qc.invalidateQueries({ queryKey: ["purchase_orders"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });

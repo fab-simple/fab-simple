@@ -64,6 +64,7 @@ interface AuditEntry {
 
 const DOT_COLORS: Record<string, string> = {
   not_started: "#94A3B8",
+  ordered: "#3B82F6",
   in_progress: "#2563EB",
   complete: "#16A34A",
   shipped: "#0D9488",
@@ -72,13 +73,14 @@ const DOT_COLORS: Record<string, string> = {
 
 const STATUS_LABEL: Record<string, string> = {
   not_started: "Not Started",
+  ordered: "Ordered",
   in_progress: "In Progress",
   complete: "Completed",
   shipped: "Shipped",
   on_hold: "On Hold",
 };
 
-const STATUS_OPTIONS = ["not_started", "in_progress", "complete", "shipped", "on_hold"];
+const STATUS_OPTIONS = ["not_started", "ordered", "in_progress", "complete", "shipped", "on_hold"];
 
 export default function PartDetailPage() {
   const params = useParams();

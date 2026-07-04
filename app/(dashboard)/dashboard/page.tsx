@@ -12,6 +12,7 @@ import { Loader2, AlertCircle } from "lucide-react";
 
 const STATUS_COLORS: Record<string, { name: string; color: string }> = {
   not_started: { name: "Not Started", color: "#94A3B8" },
+  ordered:     { name: "Ordered",     color: "#3B82F6" },
   in_progress: { name: "In Progress", color: "#2563EB" },
   complete:    { name: "Completed",   color: "#16A34A" },
   shipped:     { name: "Shipped",     color: "#0D9488" },

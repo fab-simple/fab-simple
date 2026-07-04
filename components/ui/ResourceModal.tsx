@@ -5,7 +5,7 @@ import { Loader2, X } from "lucide-react";
 
 export function ResourceModal({
   title, onClose, onSubmit, submitting, error, children, submitLabel = "Save",
-  width = 480,
+  submitDisabled = false, width = 480,
 }: {
   title: string;
   onClose: () => void;
@@ -14,6 +14,8 @@ export function ResourceModal({
   error?: string | null;
   children: ReactNode;
   submitLabel?: string;
+  /** Disable the submit button even when not submitting (e.g. nothing to submit). */
+  submitDisabled?: boolean;
   width?: number;
 }) {
   return (
@@ -30,7 +32,7 @@ export function ResourceModal({
           {error && <div className="pill pill-red" style={{ padding: "8px 12px", fontSize: 12 }}>{error}</div>}
           <div className="flex justify-end gap-2 mt-2">
             <button type="button" onClick={onClose} className="btn">Cancel</button>
-            <button type="submit" disabled={submitting} className="btn btn-primary">
+            <button type="submit" disabled={submitting || submitDisabled} className="btn btn-primary">
               {submitting ? <Loader2 size={14} className="animate-spin" /> : null}
               {submitting ? "Saving…" : submitLabel}
             </button>

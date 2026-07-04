@@ -64,7 +64,7 @@ export async function dashboard(ctx: Ctx): Promise<Response> {
   const parts = partsRes.data ?? [];
   const projectsRaw = projectsRes.data ?? [];
   const partsByStatus: Record<string, number> = {
-    not_started: 0, in_progress: 0, complete: 0, shipped: 0, on_hold: 0,
+    not_started: 0, ordered: 0, in_progress: 0, complete: 0, shipped: 0, on_hold: 0,
   };
   let totalWeight = 0;
   // Bucket parts by project for project-level progress in one pass

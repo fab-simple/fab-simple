@@ -238,6 +238,43 @@ export interface BulkUpdateResult {
   patch_applied: Record<string, unknown>;
 }
 
+/** One aggregated material line on a PO built from parts (profile + grade). */
+export interface PoLineItem {
+  profile: string;
+  grade: string | null;
+  qty: number;
+  piece_count: number;
+  total_weight_lb: number;
+}
+
+/** Read-only preview of the PO that would be created from a project's not_started parts. */
+export interface PoFromPartsPreview {
+  project_id: string;
+  project_name: string;
+  parts_count: number;
+  line_items: PoLineItem[];
+  total_pieces: number;
+  total_weight_lb: number;
+}
+
+export interface CreatePoFromPartsBody {
+  project_id: string;
+  vendor: string;
+  expected_date?: string;
+  total_amount?: number;
+  notes?: string;
+}
+
+export interface CreatePoFromPartsResult {
+  purchase_order: Record<string, unknown> & { id: string; po_number: string };
+  summary: {
+    parts_ordered: number;
+    line_items: number;
+    total_pieces: number;
+    total_weight_lb: number;
+  };
+}
+
 export const FabAPI = {
   // Generic CRUD
   list<T = unknown>(table: string, query?: Record<string, string | number | boolean | undefined>) {
@@ -311,6 +348,22 @@ export const FabAPI = {
   },
   remove(table: string, id: string) {
     return call<{ deleted: boolean; id: string }>(`/${table}/${id}`, "DELETE");
+  },
+
+  /**
+   * Preview the purchase order that would be built from a project's not_started
+   * parts (aggregated by profile + grade). Read-only; safe to call as the modal
+   * opens. Same aggregation the create path uses, so preview == result.
+   */
+  previewPoFromParts(project_id: string) {
+    return call<PoFromPartsPreview>("/purchase-orders/preview-from-parts", "GET", { query: { project_id } });
+  },
+  /**
+   * Create a draft PO from a project's not_started parts and flip those parts to
+   * `ordered`. Atomic server-side pass — no per-row round-trips.
+   */
+  createPoFromParts(body: CreatePoFromPartsBody) {
+    return call<CreatePoFromPartsResult>("/purchase-orders/from-parts", "POST", { body });
   },
 
   // Specials
