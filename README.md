@@ -1,6 +1,6 @@
 # FabSimple
 
-> End-to-end management for structural steel fabricators — estimating, production tracking, AISC 303 QC, paint inspection, billing, and shop-floor workflows
+> End-to-end management for structural steel fabricators — estimating, production tracking, AISC 303 QC, paint inspection, billing, and shop-floor workflows.
 
 [![CI](https://github.com/your-org/fab-simple/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/fab-simple/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
