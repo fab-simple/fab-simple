@@ -25,7 +25,7 @@ interface Part {
   name: string | null;          // Tekla "Name" column — member type/label (e.g. W-BEAM, COLUMN)
   profile: string;
   grade: string | null;
-  length: number | null;
+  length: string | null;
   weight: number | null;
   quantity: number;
   status: string;
@@ -42,19 +42,6 @@ const STATUS_OPTIONS = ["not_started", "ordered", "in_progress", "complete", "sh
 
 // Roles allowed to create purchase orders (mirrors purchase_orders.insertable).
 const PO_ROLES = ["owner", "pm", "accounting"];
-
-// Display length stored as decimal inches in feet-inches notation (17'-9")
-// so it matches what the user sees in their Tekla/SDS2 sheet.
-function formatLength(inches: number | null): string {
-  if (inches == null) return "—";
-  const totalIn = Number(inches);
-  if (!isFinite(totalIn) || totalIn <= 0) return "—";
-  if (totalIn < 12) return `${totalIn.toFixed(3).replace(/\.?0+$/, "")}\u2033`; // pure inches if tiny
-  const ft = Math.floor(totalIn / 12);
-  const inPart = totalIn - ft * 12;
-  const inStr = inPart < 0.001 ? "0" : inPart.toFixed(3).replace(/\.?0+$/, "");
-  return `${ft}\u2032-${inStr}\u2033`; // e.g.  17′-9″
-}
 
 export default function PartsPage() {
   const { selectedProjectId } = useGlobalProject();
@@ -146,7 +133,7 @@ export default function PartsPage() {
       mark:        p.part_mark,
       profile:     p.profile,
       name:        p.name,
-      length_in:   p.length,
+      length:      p.length,
       grade:       p.grade,
       part_weight_lb: p.weight,
       heat_number: p.heat_number,
@@ -161,7 +148,7 @@ export default function PartsPage() {
     { key: "mark",   label: "Mark",         mono: true,                  sortField: "part_mark",   sortAccessor: (r) => r.part_mark,     render: (r) => <strong style={{ fontWeight: 600 }}>{r.part_mark}</strong> },
     { key: "profile",label: "Profile",      mono: true,                  sortField: "profile",     sortAccessor: (r) => r.profile,       render: (r) => r.profile },
     { key: "name",   label: "Name",                                      sortField: "name",        sortAccessor: (r) => r.name,          render: (r) => r.name ? <span style={{ color: "var(--muted)" }}>{r.name}</span> : "—" },
-    { key: "length", label: "Length",       align: "right", mono: true,  sortField: "length",      sortAccessor: (r) => r.length ?? 0,   render: (r) => formatLength(r.length) },
+    { key: "length", label: "Length",       align: "right", mono: true,  sortField: "length",      sortAccessor: (r) => r.length ?? "",  render: (r) => r.length || "—" },
     { key: "grade",  label: "Grade",                                     sortField: "grade",       sortAccessor: (r) => r.grade,         render: (r) => r.grade ?? "—" },
     { key: "weight", label: "Part Weight",  align: "right", mono: true,  sortField: "weight",      sortAccessor: (r) => r.weight ?? 0,   render: (r) => r.weight != null ? Number(r.weight).toFixed(1) + " lb" : "—" },
     { key: "heat",   label: "Heat #",       mono: true,                  sortField: "heat_number", sortAccessor: (r) => r.heat_number,   render: (r) => r.heat_number ?? "—" },
@@ -423,7 +410,7 @@ function PartModal({
     name:          initial?.name          ?? "",
     profile:       initial?.profile       ?? "",
     grade:         initial?.grade         ?? "A992",
-    length:        initial?.length?.toString()  ?? "",
+    length:        initial?.length         ?? "",
     weight:        initial?.weight?.toString()  ?? "",
     quantity:      initial?.quantity?.toString() ?? "1",
     heat_number:   initial?.heat_number   ?? "",
@@ -444,7 +431,7 @@ function PartModal({
           name:          form.name || undefined,
           profile:       form.profile,
           grade:         form.grade || undefined,
-          length:        form.length  ? Number(form.length)  : undefined,
+          length:        form.length || undefined,
           weight:        form.weight  ? Number(form.weight)  : undefined,
           quantity:      Number(form.quantity || 1),
           heat_number:   form.heat_number || undefined,
@@ -486,8 +473,8 @@ function PartModal({
         </Field>
       </div>
       <div className="grid-3" style={{ gap: 12 }}>
-        <Field label="Length (decimal in.)">
-          <input className="input" type="number" step="0.001" value={form.length} onChange={(e) => setForm({ ...form, length: e.target.value })} />
+        <Field label="Length">
+          <input className="input" type="text" placeholder={"17'-9\" or 5400mm"} value={form.length} onChange={(e) => setForm({ ...form, length: e.target.value })} />
         </Field>
         <Field label="Part Weight (lb)">
           <input className="input" type="number" step="0.01" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} />

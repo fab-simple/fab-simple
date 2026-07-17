@@ -17,7 +17,7 @@ interface Part {
   assembly_mark: string | null;
   profile: string;
   grade: string | null;
-  length: number | null;
+  length: string | null;
   weight: number | null;
   quantity: number;
   status: string;
@@ -203,7 +203,7 @@ export default function PartDetailPage() {
                   { label: "Phase",         value: part.phase ?? "—" },
                   { label: "Profile",       value: part.profile, mono: true },
                   { label: "Grade",         value: part.grade ?? "—" },
-                  { label: "Length",        value: part.length != null ? `${part.length} ft` : "—", mono: true },
+                  { label: "Length",        value: part.length || "—", mono: true },
                   { label: "Weight",        value: part.weight != null ? `${Number(part.weight).toLocaleString()} lbs` : "—", mono: true },
                   { label: "Heat Number",   value: part.heat_number ?? "—", mono: true },
                   { label: "Project",       value: projectQ.data?.name ?? "Loading…" },

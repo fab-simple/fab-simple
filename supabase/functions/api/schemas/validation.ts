@@ -32,7 +32,7 @@ export const Schemas = {
     assembly_mark: z.string().max(80).optional(),
     profile: z.string().min(1).max(80),
     grade: z.string().max(40).optional(),
-    length: numeric.optional(),
+    length: z.string().max(40).optional(),
     weight: numeric.optional(),
     quantity: intish.positive().default(1),
     status: z.enum(["not_started", "ordered", "in_progress", "complete", "shipped", "on_hold"]).optional(),

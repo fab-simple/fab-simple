@@ -127,6 +127,56 @@ async function parseCsvRows(file: File): Promise<Record<string, string>[]> {
 }
 
 // ===========================================================================
+// Column mapping — mirrors the backend's COL_ALIASES priority list
+// (supabase/functions/api/controllers/import.ts) so the auto-detected default
+// shown here matches what the server would have picked on its own. The user
+// can then override any field before the rows are ever sent for import.
+// ===========================================================================
+
+interface PartField { key: string; label: string; required?: boolean; aliases: string[] }
+
+const PART_FIELDS: PartField[] = [
+  { key: "part_mark",     label: "Part Mark",         required: true,
+    aliases: ["mark", "part mark", "part_mark", "partmark", "piecemark", "piece mark", "part id", "partid", "part_pos", "member_mark", "member mark"] },
+  { key: "quantity",      label: "Quantity",
+    aliases: ["qty", "quantity", "count", "pcs", "pieces", "no_of_pieces", "no of pieces"] },
+  { key: "profile",       label: "Profile / Section",
+    aliases: ["profile", "section", "shape", "size", "profile_name", "section_size", "profilename"] },
+  { key: "name",          label: "Name / Description",
+    aliases: ["name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"] },
+  { key: "length",        label: "Length",
+    aliases: ["length", "len", "length_mm", "length_in", "length_ft", "cut_length", "cut length"] },
+  { key: "grade",         label: "Grade / Material",
+    aliases: ["grade", "material", "material grade", "material_grade", "spec", "matl"] },
+  { key: "weight",        label: "Part Weight",
+    aliases: ["part weight", "part_weight", "partweight", "weight", "wt", "weight_lbs", "weight_lb", "weight_kg", "weight_ea", "unit_weight", "unit weight", "unitweight", "ext_weight", "ext weight", "extended_weight", "extended weight", "total_weight"] },
+  { key: "heat_number",   label: "Heat Number",
+    aliases: ["heat number", "heat_number", "heat no", "heat_no", "heat", "heatno", "heat#"] },
+  { key: "assembly_mark", label: "Assembly Mark",
+    aliases: ["assembly_mark", "assemblymark", "assembly mark", "assembly", "asm", "assembly_pos", "main_part", "main part"] },
+  { key: "phase",         label: "Phase / Lot",
+    aliases: ["phase", "lot", "sequence", "seq", "lot_number", "lotnumber"] },
+];
+
+// Default mapping — first header (in sheet order) whose normalised name
+// matches a field's alias list wins, same priority order the server uses.
+function autoDetectMapping(headers: string[]): Record<string, string> {
+  const byNorm = new Map<string, string>();
+  for (const h of headers) {
+    const n = normHeader(h);
+    if (!byNorm.has(n)) byNorm.set(n, h);
+  }
+  const mapping: Record<string, string> = {};
+  for (const field of PART_FIELDS) {
+    for (const alias of field.aliases) {
+      const hit = byNorm.get(normHeader(alias));
+      if (hit) { mapping[field.key] = hit; break; }
+    }
+  }
+  return mapping;
+}
+
+// ===========================================================================
 // Page shell + tab switcher
 // ===========================================================================
 
@@ -234,19 +284,60 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Parsed sheet + column mapping — populated as soon as a file is chosen so
+  // the user can review/override the system-detected mapping before any
+  // import happens.
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [parsedRows, setParsedRows] = useState<Record<string, string>[]>([]);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
+
+  async function handleFileChange(f: File | null) {
+    setFile(f);
+    setResult(null);
+    setError(null);
+    setParseError(null);
+    setHeaders([]);
+    setParsedRows([]);
+    setMapping({});
+    if (!f) return;
+
+    setParsing(true);
+    try {
+      const rows = isExcelFile(f) ? await parseExcelRows(f) : await parseCsvRows(f);
+      if (rows.length === 0) {
+        throw new Error("No rows found in file. Check that the first row contains column headers.");
+      }
+      const hdrs = Object.keys(rows[0]);
+      setParsedRows(rows);
+      setHeaders(hdrs);
+      setMapping(autoDetectMapping(hdrs));
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : "Failed to read file");
+    } finally {
+      setParsing(false);
+    }
+  }
+
   async function handleImport() {
-    if (!file || !projectId) return;
+    if (!file || !projectId || parsedRows.length === 0 || !mapping.part_mark) return;
     setImporting(true);
     setError(null);
     setResult(null);
     try {
-      const rows = isExcelFile(file)
-        ? await parseExcelRows(file)
-        : await parseCsvRows(file);
-      if (rows.length === 0) {
-        throw new Error("No rows found in file. Check that the first row contains column headers.");
-      }
-      const res = await FabAPI.importCsv({ project_id: projectId, rows, units });
+      // Re-key every row from raw sheet headers to canonical field names
+      // using the (possibly user-edited) mapping, so the backend receives
+      // exactly the columns the user chose — nothing more, nothing less.
+      const mappedRows = parsedRows.map((row) => {
+        const out: Record<string, string> = {};
+        for (const field of PART_FIELDS) {
+          const header = mapping[field.key];
+          if (header && row[header] !== undefined) out[field.key] = row[header];
+        }
+        return out;
+      });
+      const res = await FabAPI.importCsv({ project_id: projectId, rows: mappedRows, units });
       setResult(res as ImportResult);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
@@ -254,6 +345,8 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
       setImporting(false);
     }
   }
+
+  const unmappedHeaders = headers.filter((h) => !Object.values(mapping).includes(h));
 
   return (
     <>
@@ -300,7 +393,7 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
                 id="bom-input"
                 type="file"
                 accept={`${ACCEPT_EXT},${ACCEPT_MIME}`}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
                 style={{ display: "none" }}
               />
               <label htmlFor="bom-input" className="btn btn-primary" style={{ cursor: "pointer" }}>
@@ -317,12 +410,93 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
                   </span>
                 </div>
               )}
+              {parsing && (
+                <div className="text-[11px] mt-2" style={{ color: "var(--muted)" }}>
+                  <Loader2 size={11} className="animate-spin inline" /> Reading columns…
+                </div>
+              )}
+              {parseError && (
+                <div className="text-[11px] mt-2" style={{ color: "#DC2626" }}>{parseError}</div>
+              )}
             </div>
           </div>
 
+          {headers.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[11px] uppercase font-semibold tracking-wider" style={{ color: "var(--muted)" }}>
+                  Column Mapping — {parsedRows.length} row{parsedRows.length === 1 ? "" : "s"} detected
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setMapping(autoDetectMapping(headers))}
+                >
+                  Reset to auto-detected
+                </button>
+              </div>
+              <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+                {PART_FIELDS.map((field, idx) => {
+                  const chosen = mapping[field.key] ?? "";
+                  const sample = chosen ? parsedRows[0]?.[chosen] : "";
+                  return (
+                    <div
+                      key={field.key}
+                      className="flex items-center gap-3"
+                      style={{
+                        padding: "8px 12px",
+                        borderTop: idx === 0 ? "none" : "1px solid var(--border)",
+                        background: idx % 2 ? "var(--bg-muted)" : "transparent",
+                      }}
+                    >
+                      <div style={{ width: 160, flexShrink: 0, fontSize: 12, fontWeight: 500, color: "var(--text)" }}>
+                        {field.label}
+                        {field.required && <span style={{ color: "#DC2626" }}> *</span>}
+                      </div>
+                      <select
+                        className="input"
+                        style={{ flex: 1 }}
+                        value={chosen}
+                        onChange={(e) => setMapping((m) => ({ ...m, [field.key]: e.target.value }))}
+                      >
+                        <option value="">— not mapped —</option>
+                        {headers.map((h) => (
+                          <option key={h} value={h}>{h}</option>
+                        ))}
+                      </select>
+                      {sample && (
+                        <div
+                          className="text-[11px]"
+                          style={{ width: 140, flexShrink: 0, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                          title={sample}
+                        >
+                          e.g. &quot;{sample}&quot;
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {!mapping.part_mark && (
+                <div className="text-[11px] mt-1.5" style={{ color: "#DC2626" }}>
+                  Map a column to Part Mark before importing.
+                </div>
+              )}
+              {unmappedHeaders.length > 0 && (
+                <div className="text-[11px] mt-1.5" style={{ color: "var(--muted)" }}>
+                  Not mapped (ignored on import): {unmappedHeaders.join(", ")}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center justify-end gap-2">
             {error && <span className="pill pill-red" style={{ padding: "6px 10px", fontSize: 12 }}>{error}</span>}
-            <button className="btn btn-primary" disabled={!file || !projectId || importing} onClick={handleImport}>
+            <button
+              className="btn btn-primary"
+              disabled={!file || !projectId || importing || parsing || headers.length === 0 || !mapping.part_mark}
+              onClick={handleImport}
+            >
               {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
               {importing ? "Importing…" : "Import parts"}
             </button>

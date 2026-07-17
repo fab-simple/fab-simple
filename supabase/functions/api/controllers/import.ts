@@ -6,7 +6,7 @@
 //   Mark / Part Mark → part_mark
 //   Profile / Section → profile
 //   Name            → name  (structural member label, e.g. "W-BEAM", "COLUMN")
-//   Length          → length (stored in inches internally)
+//   Length          → length (stored verbatim as text — no unit parsing/conversion)
 //   Grade / Material → grade
 //   Part Weight / Weight → weight (per-piece weight, stored in lb)
 //   Heat Number / Heat No → heat_number
@@ -86,6 +86,11 @@ function pickFrom(lookup: Record<string, string>, key: string): string | undefin
 // ---------------------------------------------------------------------------
 // Length parser
 // ---------------------------------------------------------------------------
+// `parts.length` is stored verbatim as text — this parser is NOT used to
+// convert/store the length value itself. It only samples the raw length
+// column to heuristically guess imperial vs metric for `units: "auto"`,
+// which still drives the *weight* conversion (kg → lb) below.
+//
 // Tekla exports length in several formats depending on the project template:
 //   • Feet-inches:  17'-9"  |  17'9"  |  17' 9"  |  17'-9  |  17'  |  9"
 //   • Decimal inches (imperial): 213.00
@@ -187,7 +192,6 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
       units = "imperial";
     }
   }
-  const mmToIn = (v: number) => v / 25.4;
   const kgToLb = (v: number) => v * 2.20462;
 
   const inserted: Record<string, unknown>[] = [];
@@ -200,15 +204,9 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
     const part_mark = pickFrom(lookup, "part_mark");
     if (!part_mark) { errors.push({ row: i, reason: "missing part mark (Mark / Part Mark column not found or empty)" }); continue; }
 
-    // Parse length — handles decimal inches, metric mm, and feet-inches (17'-9").
-    const rawLenStr = pickFrom(lookup, "length");
-    const lenParsed = rawLenStr ? parseLengthRaw(rawLenStr) : null;
-    let length: number | null = null;
-    if (lenParsed && lenParsed.inches > 0) {
-      // Feet-inches strings are already in inches; plain numbers need unit conversion.
-      length = lenParsed.wasFeetInches ? lenParsed.inches
-             : (units === "metric" ? mmToIn(lenParsed.inches) : lenParsed.inches);
-    }
+    // Stored verbatim as text — no unit parsing/conversion, matches whatever
+    // the sheet (or the user's column mapping) provided.
+    const length = pickFrom(lookup, "length") ?? null;
 
     const weightRaw = Number(pickFrom(lookup, "weight"));
     const weight = isFinite(weightRaw) && weightRaw > 0 ? (units === "metric" ? kgToLb(weightRaw) : weightRaw) : null;
