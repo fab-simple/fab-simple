@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { CopilotPanel, CopilotLauncher } from "@/components/CopilotPanel";
 import { CommandPalette } from "@/components/CommandPalette";
+import { ProjectGate } from "@/components/layout/ProjectGate";
 
 export default function DashboardLayout({
   children,
@@ -26,7 +27,9 @@ export default function DashboardLayout({
               padding: "32px 40px",
             }}
           >
-            {children}
+            <ProjectGate>
+              {children}
+            </ProjectGate>
           </div>
         </main>
       </div>

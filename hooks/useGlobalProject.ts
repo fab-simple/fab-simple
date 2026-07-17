@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppSelector, useAppDispatch } from "@/hooks/useAppRedux";
-import { setGlobalProject, clearGlobalProject } from "@/store/projectSlice";
+import { setGlobalProject } from "@/store/projectSlice";
 
 /**
  * Returns the globally-selected project ID (or null = "All Projects").
@@ -20,9 +20,5 @@ export function useGlobalProject() {
     dispatch(setGlobalProject({ id, name, number }));
   }
 
-  function clearProject() {
-    dispatch(clearGlobalProject());
-  }
-
-  return { selectedProjectId, selectedProjectName, selectedProjectNumber, selectProject, clearProject };
+  return { selectedProjectId, selectedProjectName, selectedProjectNumber, selectProject };
 }

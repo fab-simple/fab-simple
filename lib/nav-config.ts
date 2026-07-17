@@ -44,6 +44,9 @@ export interface NavItem {
    * non-worker roles. (Workers are routed exclusively to /worker — they get
    * an empty sidebar by design.) */
   roles?: string[];
+  /** When true, this page requires a project to be selected. The sidebar will
+   * dim/lock the item and the ProjectGate will overlay the page content. */
+  projectScoped?: boolean;
 }
 
 // --- Convenience role groups (lifted directly from the v5 spec matrix) -------
@@ -78,21 +81,21 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       // Projects: Owner Full · Estimator View · PM Full · Foreman View · QC View · Accounting View
       { key: "projects",      label: "Projects",      href: "/dashboard/projects",        icon: FolderKanban, roles: [...ALL_NON_WORKER] },
       // Change Orders: Owner Full · PM Full · Accounting View
-      { key: "change-orders", label: "Change Orders", href: "/dashboard/change-orders",   icon: FileDiff,     roles: [...OWNER_PM_ACCT] },
+      { key: "change-orders", label: "Change Orders", href: "/dashboard/change-orders",   icon: FileDiff,     roles: [...OWNER_PM_ACCT], projectScoped: true },
       // RFIs: Owner Full · PM Full · Foreman View · QC View
-      { key: "rfis",          label: "RFI Log",       href: "/dashboard/rfis",            icon: FileText,     roles: [...OWNER_PM_FOREMAN_QC] },
+      { key: "rfis",          label: "RFI Log",       href: "/dashboard/rfis",            icon: FileText,     roles: [...OWNER_PM_FOREMAN_QC], projectScoped: true },
       // Drawing Log: Owner Full · PM Full · Foreman View · QC View · Worker View
       // (Worker accesses drawings inside the mobile worker view, not the sidebar.)
-      { key: "drawings",      label: "Drawing Log",   href: "/dashboard/drawings",        icon: FileText,     roles: [...OWNER_PM_FOREMAN_QC] },
+      { key: "drawings",      label: "Drawing Log",   href: "/dashboard/drawings",        icon: FileText,     roles: [...OWNER_PM_FOREMAN_QC], projectScoped: true },
     ],
   },
   {
     label: "Procurement",
     items: [
       // Purchase Orders: Owner Full · PM Full · Foreman View · Accounting Full
-      { key: "purchase-orders", label: "Purchase Orders",    href: "/dashboard/purchase-orders", icon: ShoppingCart,    roles: [...OWNER_PM_FOREMAN_ACCT] },
+      { key: "purchase-orders", label: "Purchase Orders",    href: "/dashboard/purchase-orders", icon: ShoppingCart,    roles: [...OWNER_PM_FOREMAN_ACCT], projectScoped: true },
       // Material Receiving: Owner Full · PM Full · Foreman Full · Accounting View
-      { key: "receiving",       label: "Material Receiving", href: "/dashboard/receiving",       icon: PackageCheck,    roles: [...OWNER_PM_FOREMAN_ACCT] },
+      { key: "receiving",       label: "Material Receiving", href: "/dashboard/receiving",       icon: PackageCheck,    roles: [...OWNER_PM_FOREMAN_ACCT], projectScoped: true },
       // Inventory: Owner Full · Estimator View · PM Full · Foreman View · Accounting View
       { key: "inventory",       label: "Inventory",          href: "/dashboard/inventory",       icon: Warehouse,       roles: [...OWNER_ESTIMATOR_PM_FOREMAN_ACCT] },
       // Heat Numbers: Owner Full · PM View · QC Full
@@ -103,47 +106,47 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
     label: "Production",
     items: [
       // Parts List: Owner Full · PM Full · Foreman Full · QC View · Worker View
-      { key: "parts",         label: "Parts List",            href: "/dashboard/parts",      icon: ListChecks,    roles: [...OWNER_PM_FOREMAN_QC] },
+      { key: "parts",         label: "Parts List",            href: "/dashboard/parts",      icon: ListChecks,    roles: [...OWNER_PM_FOREMAN_QC], projectScoped: true },
       // Assemblies: Owner Full · PM Full · Foreman Full · QC View
-      { key: "assemblies",    label: "Assemblies",            href: "/dashboard/assemblies", icon: Layers,        roles: [...OWNER_PM_FOREMAN_QC] },
+      { key: "assemblies",    label: "Assemblies",            href: "/dashboard/assemblies", icon: Layers,        roles: [...OWNER_PM_FOREMAN_QC], projectScoped: true },
       // Cut List Optimizer: Owner Full · PM Full · Foreman Full
-      { key: "cut-list",      label: "Cut List Optimizer",    href: "/dashboard/cut-list",   icon: Hammer,        roles: [...OWNER_PM_FOREMAN] },
+      { key: "cut-list",      label: "Cut List Optimizer",    href: "/dashboard/cut-list",   icon: Hammer,        roles: [...OWNER_PM_FOREMAN], projectScoped: true },
       // Tekla / SDS2 BOM import (CSV + XLSX): Owner + PM (treat as Parts-write).
-      { key: "import",        label: "Import / Tekla BOM",    href: "/dashboard/import",     icon: Upload,        roles: [...OWNER_PM] },
+      { key: "import",        label: "Import / Tekla BOM",    href: "/dashboard/import",     icon: Upload,        roles: [...OWNER_PM], projectScoped: true },
       // Daily Log: Owner Full · PM Full · Foreman Full
-      { key: "daily-log",     label: "Daily Production Log",  href: "/dashboard/daily-log",  icon: ClipboardList, roles: [...OWNER_PM_FOREMAN] },
+      { key: "daily-log",     label: "Daily Production Log",  href: "/dashboard/daily-log",  icon: ClipboardList, roles: [...OWNER_PM_FOREMAN], projectScoped: true },
     ],
   },
   {
     label: "Quality & Compliance",
     items: [
       // Paint Inspection: Owner Full · PM View · QC Full
-      { key: "paint-inspection", label: "Paint Inspection", href: "/dashboard/paint-inspection", icon: PaintBucket,  roles: [...OWNER_PM_QC] },
+      { key: "paint-inspection", label: "Paint Inspection", href: "/dashboard/paint-inspection", icon: PaintBucket,  roles: [...OWNER_PM_QC], projectScoped: true },
       // AWS Weld Log: Owner Full · PM View · QC Full
-      { key: "weld-log",         label: "AWS Weld Log",     href: "/dashboard/weld-log",         icon: Hammer,       roles: [...OWNER_PM_QC] },
+      { key: "weld-log",         label: "AWS Weld Log",     href: "/dashboard/weld-log",         icon: Hammer,       roles: [...OWNER_PM_QC], projectScoped: true },
       // AISC 303 Checklist: Owner Full · PM Full · Foreman View · QC Full
-      { key: "aisc",             label: "AISC 303 QC",      href: "/dashboard/aisc",             icon: ShieldCheck,  roles: [...OWNER_PM_FOREMAN_QC] },
+      { key: "aisc",             label: "AISC 303 QC",      href: "/dashboard/aisc",             icon: ShieldCheck,  roles: [...OWNER_PM_FOREMAN_QC], projectScoped: true },
       // OSHA Checklist: Owner Full · PM Full · Foreman Full · QC View
       { key: "osha",             label: "OSHA Checklist",   href: "/dashboard/osha",             icon: AlertTriangle, roles: [...OWNER_PM_FOREMAN_QC] },
       // Cert Tracker: Owner Full · PM View · QC Full
       { key: "certifications",   label: "Certifications",   href: "/dashboard/certifications",   icon: Award,        roles: [...OWNER_PM_QC] },
       // NCR Reports: Owner Full · PM View · Foreman View · QC Full
-      { key: "ncr",              label: "NCR Reports",      href: "/dashboard/ncr",              icon: AlertTriangle, roles: [...OWNER_PM_FOREMAN_QC] },
+      { key: "ncr",              label: "NCR Reports",      href: "/dashboard/ncr",              icon: AlertTriangle, roles: [...OWNER_PM_FOREMAN_QC], projectScoped: true },
     ],
   },
   {
     label: "Logistics",
     items: [
       // Ground Station: Owner Full · PM Full · Foreman Full · Erection Subcontractor
-      { key: "ground-station", label: "Ground Station (E-Plan)", href: "/ground-station", icon: Compass, roles: [...OWNER_PM_FOREMAN, "erection_subcontractor"] },
+      { key: "ground-station", label: "Ground Station (E-Plan)", href: "/ground-station", icon: Compass, roles: [...OWNER_PM_FOREMAN, "erection_subcontractor"], projectScoped: true },
       // Erection Operations: Owner Full · PM Full · Foreman Full · Erection Subcontractor
-      { key: "erection-ops",   label: "Erection Operations", href: "/dashboard/erection-ops", icon: HardHat, roles: [...OWNER_PM_FOREMAN, "erection_subcontractor"] },
+      { key: "erection-ops",   label: "Erection Operations", href: "/dashboard/erection-ops", icon: HardHat, roles: [...OWNER_PM_FOREMAN, "erection_subcontractor"], projectScoped: true },
       // Erection Sequence: Owner Full · PM Full · Foreman Full · Erection Subcontractor
-      { key: "erection",       label: "Erection Sequence", href: "/dashboard/erection",   icon: ArrowUpDown, roles: [...OWNER_PM_FOREMAN, "erection_subcontractor"] },
+      { key: "erection",       label: "Erection Sequence", href: "/dashboard/erection",   icon: ArrowUpDown, roles: [...OWNER_PM_FOREMAN, "erection_subcontractor"], projectScoped: true },
       // Shipping Tickets: Owner Full · PM Full · Foreman Create · Accounting View
-      { key: "shipping",       label: "Shipping Tickets",  href: "/dashboard/shipping",   icon: Truck,       roles: [...OWNER_PM_FOREMAN_ACCT] },
+      { key: "shipping",       label: "Shipping Tickets",  href: "/dashboard/shipping",   icon: Truck,       roles: [...OWNER_PM_FOREMAN_ACCT], projectScoped: true },
       // QR Codes: production tooling — Owner / PM / Foreman.
-      { key: "qr-codes",       label: "QR Codes",          href: "/dashboard/qr-codes",   icon: QrCode,      roles: [...OWNER_PM_FOREMAN] },
+      { key: "qr-codes",       label: "QR Codes",          href: "/dashboard/qr-codes",   icon: QrCode,      roles: [...OWNER_PM_FOREMAN], projectScoped: true },
       // GC Contacts: Owner Full · Estimator Full · PM Full
       { key: "gc-contacts",    label: "GC Contacts",       href: "/dashboard/gc-contacts", icon: Phone,      roles: [...OWNER_ESTIMATOR_PM] },
     ],
@@ -152,9 +155,9 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
     label: "Finance",
     items: [
       // Job Cost: Owner Full · Estimator View · PM Full · Accounting Full
-      { key: "job-cost", label: "Job Cost Tracker", href: "/dashboard/job-cost", icon: DollarSign,  roles: [...OWNER_ESTIMATOR_PM_ACCT] },
+      { key: "job-cost", label: "Job Cost Tracker", href: "/dashboard/job-cost", icon: DollarSign,  roles: [...OWNER_ESTIMATOR_PM_ACCT], projectScoped: true },
       // AIA G702 Billing: Owner Approve · PM View · Accounting Full
-      { key: "billing",  label: "AIA G702 Billing", href: "/dashboard/billing",  icon: CreditCard,  roles: [...OWNER_PM_ACCT] },
+      { key: "billing",  label: "AIA G702 Billing", href: "/dashboard/billing",  icon: CreditCard,  roles: [...OWNER_PM_ACCT], projectScoped: true },
     ],
   },
   {

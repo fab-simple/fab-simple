@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, FolderOpen, X, Search, Check } from "lucide-react";
+import { ChevronDown, FolderOpen, Search, Check } from "lucide-react";
 import { useResourceList } from "@/hooks/useResource";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { rehydrateProject, readProjectFromStorage } from "@/store/projectSlice";
@@ -14,9 +14,17 @@ interface Project {
   status: string;
 }
 
-export function ProjectPicker() {
+/**
+ * Sidebar-integrated project picker. Full-width, dark theme.
+ * When no project is selected, shows a pulsing CTA.
+ * Supports `forceOpen` prop so external components (e.g. locked nav items) can trigger it.
+ */
+export function ProjectPicker({ forceOpen, onForceOpenHandled }: {
+  forceOpen?: boolean;
+  onForceOpenHandled?: () => void;
+}) {
   const dispatch = useAppDispatch();
-  const { selectedProjectId, selectedProjectName, selectedProjectNumber, selectProject, clearProject } =
+  const { selectedProjectId, selectedProjectName, selectedProjectNumber, selectProject } =
     useGlobalProject();
 
   const [open, setOpen] = useState(false);
@@ -36,6 +44,15 @@ export function ProjectPicker() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects.data]);
+
+  // Handle forceOpen from parent (e.g. clicking a locked nav item).
+  useEffect(() => {
+    if (forceOpen && !open) {
+      setOpen(true);
+      setSearch("");
+      onForceOpenHandled?.();
+    }
+  }, [forceOpen, open, onForceOpenHandled]);
 
   // Close on outside click.
   useEffect(() => {
@@ -57,146 +74,65 @@ export function ProjectPicker() {
       (p.number ?? "").toLowerCase().includes(search.toLowerCase())
     );
 
-  const activeLabel = selectedProjectId
-    ? `${selectedProjectNumber ? `${selectedProjectNumber} · ` : ""}${selectedProjectName}`
-    : "All Projects";
+  const hasProject = !!selectedProjectId;
 
   return (
-    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
+    <div ref={ref} className="sidebar-project-picker">
       {/* Trigger button */}
       <button
         id="global-project-picker"
         onClick={() => { setOpen((v) => !v); setSearch(""); }}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "5px 10px",
-          borderRadius: 8,
-          border: selectedProjectId
-            ? "1px solid var(--primary-bd)"
-            : "1px solid var(--border)",
-          background: selectedProjectId ? "var(--primary-bg)" : "var(--bg-muted)",
-          color: selectedProjectId ? "var(--primary)" : "var(--muted)",
-          fontSize: 12,
-          fontWeight: 500,
-          cursor: "pointer",
-          maxWidth: 220,
-          transition: "all 0.15s ease",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-        }}
-        title={activeLabel}
+        className={`sidebar-picker-btn ${hasProject ? "has-project" : "no-project"}`}
       >
-        <FolderOpen size={13} style={{ flexShrink: 0 }} />
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 160 }}>
-          {activeLabel}
-        </span>
-        {selectedProjectId ? (
-          <span
-            role="button"
-            onClick={(e) => { e.stopPropagation(); clearProject(); }}
-            style={{
-              marginLeft: 2,
-              display: "flex",
-              alignItems: "center",
-              color: "var(--primary)",
-              flexShrink: 0,
-              opacity: 0.7,
-            }}
-            title="Clear project filter"
-          >
-            <X size={11} />
-          </span>
-        ) : (
-          <ChevronDown size={11} style={{ flexShrink: 0, opacity: 0.6 }} />
-        )}
+        <div className="sidebar-picker-icon">
+          <FolderOpen size={14} />
+        </div>
+        <div className="sidebar-picker-content">
+          {hasProject ? (
+            <>
+              <span className="sidebar-picker-name">{selectedProjectName}</span>
+              {selectedProjectNumber && (
+                <span className="sidebar-picker-number">#{selectedProjectNumber}</span>
+              )}
+            </>
+          ) : (
+            <span className="sidebar-picker-cta">Select a Project</span>
+          )}
+        </div>
+        <ChevronDown
+          size={12}
+          className="sidebar-picker-chevron"
+          style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
+        />
       </button>
 
       {/* Dropdown */}
       {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            left: 0,
-            zIndex: 200,
-            background: "var(--bg-card)",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            boxShadow: "var(--shadow-lg)",
-            minWidth: 280,
-            maxWidth: 340,
-            overflow: "hidden",
-            animation: "fadeInDown 0.12s ease",
-          }}
-        >
+        <div className="sidebar-picker-dropdown">
           {/* Search */}
-          <div style={{ padding: "10px 10px 6px", borderBottom: "1px solid var(--border)" }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "5px 8px",
-                background: "var(--bg)",
-                borderRadius: 6,
-                border: "1px solid var(--border)",
-              }}
-            >
-              <Search size={11} style={{ color: "var(--muted)", flexShrink: 0 }} />
+          <div className="sidebar-picker-search-wrap">
+            <div className="sidebar-picker-search">
+              <Search size={11} style={{ color: "rgba(255,255,255,0.4)", flexShrink: 0 }} />
               <input
                 autoFocus
                 placeholder="Search projects…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                style={{
-                  border: "none",
-                  outline: "none",
-                  background: "transparent",
-                  fontSize: 12,
-                  color: "var(--text)",
-                  flex: 1,
-                  minWidth: 0,
-                }}
+                className="sidebar-picker-search-input"
               />
             </div>
           </div>
 
-          {/* "All Projects" option */}
-          <div style={{ maxHeight: 260, overflowY: "auto" }}>
-            <button
-              onClick={() => { clearProject(); setOpen(false); setSearch(""); }}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "9px 12px",
-                background: !selectedProjectId ? "var(--primary-bg)" : "transparent",
-                border: "none",
-                cursor: "pointer",
-                fontSize: 12,
-                color: !selectedProjectId ? "var(--primary)" : "var(--text-2)",
-                textAlign: "left",
-                borderBottom: "1px solid var(--border)",
-                fontWeight: !selectedProjectId ? 600 : 400,
-              }}
-            >
-              <FolderOpen size={13} style={{ flexShrink: 0, opacity: 0.5 }} />
-              <span style={{ flex: 1 }}>All Projects</span>
-              {!selectedProjectId && <Check size={12} style={{ color: "var(--primary)" }} />}
-            </button>
-
-            {/* Project list */}
+          {/* Project list */}
+          <div className="sidebar-picker-list">
             {projects.isLoading && (
-              <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--muted)", textAlign: "center" }}>
-                Loading…
-              </div>
+              <div className="sidebar-picker-empty">Loading…</div>
             )}
             {filtered.length === 0 && !projects.isLoading && (
-              <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--muted)", textAlign: "center" }}>
-                No projects found
+              <div className="sidebar-picker-empty">
+                {(projects.data ?? []).length === 0
+                  ? "No projects yet — create one from the Projects page"
+                  : "No matching projects"}
               </div>
             )}
             {filtered.map((p) => {
@@ -209,37 +145,15 @@ export function ProjectPicker() {
                     setOpen(false);
                     setSearch("");
                   }}
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "8px 12px",
-                    background: isSelected ? "var(--primary-bg)" : "transparent",
-                    border: "none",
-                    borderBottom: "1px solid var(--border)",
-                    cursor: "pointer",
-                    fontSize: 12,
-                    color: isSelected ? "var(--primary)" : "var(--text)",
-                    textAlign: "left",
-                    transition: "background 0.1s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isSelected) (e.currentTarget as HTMLButtonElement).style.background = "var(--bg)";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSelected) (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-                  }}
+                  className={`sidebar-picker-item ${isSelected ? "active" : ""}`}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: isSelected ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {p.name}
-                    </div>
+                  <div className="sidebar-picker-item-info">
+                    <div className="sidebar-picker-item-name">{p.name}</div>
                     {p.number && (
-                      <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 1 }}>
+                      <div className="sidebar-picker-item-num">
                         #{p.number}
                         {p.status && p.status !== "active" && (
-                          <span style={{ marginLeft: 6, textTransform: "capitalize", opacity: 0.8 }}>
+                          <span style={{ marginLeft: 6, textTransform: "capitalize", opacity: 0.7 }}>
                             · {p.status}
                           </span>
                         )}

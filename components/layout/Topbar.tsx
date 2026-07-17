@@ -4,10 +4,10 @@ import { Bell, Menu, Download, Search } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/hooks/useAppRedux";
 import { toggleSidebar, toggleNotifPanel, closeNotifPanel } from "@/store/uiSlice";
 import { NotifPanel } from "./NotifPanel";
-import { ProjectPicker } from "./ProjectPicker";
 import { useNotifications } from "@/hooks/useNotifications";
 import { downloadCurrentCsv } from "@/lib/csv-export";
 import { useEffect, useRef } from "react";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
 
 export function Topbar() {
   const dispatch = useAppDispatch();
@@ -15,6 +15,7 @@ export function Topbar() {
   const notifOpen = useAppSelector((s) => s.ui.notifPanelOpen);
   const panelRef = useRef<HTMLDivElement>(null);
   const { unread } = useNotifications();
+  const { selectedProjectName, selectedProjectNumber } = useGlobalProject();
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -48,9 +49,24 @@ export function Topbar() {
         {pageTitle}
       </h1>
 
-      {/* Global project picker — fills remaining space on the left side */}
+      {/* Project context breadcrumb — subtle indicator */}
       <div className="flex-1 flex items-center min-w-0">
-        <ProjectPicker />
+        {selectedProjectName && (
+          <span
+            style={{
+              fontSize: 12,
+              color: "var(--muted)",
+              fontWeight: 500,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              maxWidth: 240,
+            }}
+          >
+            {selectedProjectNumber ? `${selectedProjectNumber} · ` : ""}
+            {selectedProjectName}
+          </span>
+        )}
       </div>
 
       <button

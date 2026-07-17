@@ -5,14 +5,21 @@ import { usePathname } from "next/navigation";
 import { NAV_SECTIONS } from "@/lib/nav-config";
 import { useAppSelector, useAppDispatch } from "@/hooks/useAppRedux";
 import { setSidebarOpen } from "@/store/uiSlice";
-import { LogOut, X } from "lucide-react";
+import { LogOut, X, Lock } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { ProjectPicker } from "./ProjectPicker";
+import { useGlobalProject } from "@/hooks/useGlobalProject";
+import { useState, useCallback } from "react";
 
 export function Sidebar() {
   const pathname = usePathname();
   const dispatch = useAppDispatch();
   const sidebarOpen = useAppSelector((s) => s.ui.sidebarOpen);
   const { name, role, initials, avatarColor, loaded } = useAppSelector((s) => s.auth);
+  const { selectedProjectId } = useGlobalProject();
+
+  const [forcePickerOpen, setForcePickerOpen] = useState(false);
+  const handleForceOpenHandled = useCallback(() => setForcePickerOpen(false), []);
 
   const close = () => dispatch(setSidebarOpen(false));
 
@@ -77,6 +84,11 @@ export function Sidebar() {
           </button>
         </div>
 
+        {/* Project Picker — prominent, below logo */}
+        <div style={{ padding: "0 12px 8px" }}>
+          <ProjectPicker forceOpen={forcePickerOpen} onForceOpenHandled={handleForceOpenHandled} />
+        </div>
+
         {/* Scrollable Nav — render a lightweight skeleton while AuthSync is
             still resolving the role, so we never momentarily show nav items
             from a stale/default role. */}
@@ -115,6 +127,30 @@ export function Sidebar() {
                     item.href === "/dashboard"
                       ? pathname === "/dashboard"
                       : pathname.startsWith(item.href);
+
+                  // Is this item locked (project-scoped but no project selected)?
+                  const isLocked = !!item.projectScoped && !selectedProjectId;
+
+                  if (isLocked) {
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => setForcePickerOpen(true)}
+                        className="sidebar-nav-locked flex items-center gap-3 px-3 py-2 rounded-md transition-colors group relative"
+                        title="Select a project first"
+                      >
+                        <Icon
+                          size={16}
+                          strokeWidth={2}
+                          color="currentColor"
+                        />
+                        <span className="flex-1 text-[13px] font-medium leading-none">
+                          {item.label}
+                        </span>
+                        <Lock size={10} className="sidebar-lock-icon" />
+                      </button>
+                    );
+                  }
 
                   return (
                     <Link
