@@ -1,14 +1,14 @@
 // Browser-side PDF text extraction + part-mark matching.
 //
 // Used by the detailing PDF importer to figure out which parts of a project
-// a given drawing PDF should be linked to. We try two heuristics and union
-// the results:
+// a given drawing PDF should be linked to. We use EXACT matching only:
 //
 //   1. Text scan — read every page's text content via pdfjs-dist and look
-//      for known part_marks (case-insensitive, whole-word).
-//   2. Filename prefix — pull the leading assembly number out of the file
-//      name (e.g. "1001 - Rev 0.pdf" → "1001") and match parts whose
-//      part_mark starts with that prefix (e.g. "1001AB1", "1001AB2").
+//      for known part_marks as exact standalone tokens (case-insensitive,
+//      bounded by non-alphanumeric chars). No prefix/substring matching.
+//   2. Filename match — extract the leading assembly/part number from the
+//      file name (e.g. "1001AB1 - Rev 0.pdf" → "1001AB1") and match parts
+//      whose part_mark or assembly_mark exactly equals that token.
 //
 // The lib is only imported when the user opens the PDF tab so the BOM tab
 // doesn't pay the ~500 KB pdf.js worker cost on first paint.
@@ -97,14 +97,18 @@ export function matchPartsAgainstPdf(text: string, file: File, parts: PartLite[]
     let hitText = false;
     let hitFile = false;
 
-    // Whole-word match on the lower-cased text — `\b` doesn't play well with
-    // alnum-only marks like "1001AB1" because there are no word breaks
-    // between digits and letters, so we use a custom "not adjacent to an
-    // alphanumeric" check.
+    // EXACT match only — the part_mark must appear as a standalone token in
+    // the extracted PDF text, bounded by non-alphanumeric characters (or
+    // start/end of string). This prevents partial/prefix matches like
+    // "1001" matching inside "10012B1".
     const re = new RegExp(`(^|[^A-Za-z0-9])${escapeRegExp(lcMark)}(?=[^A-Za-z0-9]|$)`);
     if (re.test(lcText)) hitText = true;
 
-    if (lcPrefix && lcMark.startsWith(lcPrefix)) hitFile = true;
+    // EXACT filename match — the extracted prefix must exactly equal the
+    // part_mark or assembly_mark. No more startsWith() prefix matching
+    // that would link one PDF to many unrelated parts.
+    if (lcPrefix && lcMark === lcPrefix) hitFile = true;
+    if (lcPrefix && p.assembly_mark && p.assembly_mark.toLowerCase() === lcPrefix) hitFile = true;
 
     if (hitText || hitFile) {
       matched.set(p.id, p);
