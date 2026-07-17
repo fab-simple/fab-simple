@@ -8,7 +8,7 @@ import { useResource, useResourceList, useUpdate } from "@/hooks/useResource";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI } from "@/lib/api";
 import { useState } from "react";
-import { Loader2, AlertCircle, Archive, ArrowLeft, Wand2 } from "lucide-react";
+import { Loader2, AlertCircle, Archive, ArrowLeft, Wand2, Pencil } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
 interface Project {
@@ -47,6 +47,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const { selectProject, selectedProjectId } = useGlobalProject();
   const [archiving, setArchiving] = useState(false);
   const [seedingAisc, setSeedingAisc] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
 
   const [jobNumberInput, setJobNumberInput] = useState("");
   const [isActivating, setIsActivating] = useState(false);
@@ -151,6 +152,9 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </div>
           <div className="flex flex-col gap-2 items-end">
             <StatusPill status={p.status} />
+            <button className="btn btn-sm" onClick={() => setShowEdit(true)}>
+              <Pencil size={12} /> Edit project
+            </button>
             <button className="btn btn-sm" onClick={seedAisc} disabled={seedingAisc || p.status === "awarded_setup"}>
               {seedingAisc ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
               Seed AISC checklist
@@ -276,6 +280,24 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
       )}
+
+      {showEdit && (
+        <EditProjectModal
+          project={p}
+          onClose={() => setShowEdit(false)}
+          onSubmit={async (payload) => {
+            await update.mutateAsync({ id: p.id, body: payload });
+            project.refetch();
+            // Update sidebar picker name if changed
+            if (payload.name || payload.number !== undefined) {
+              selectProject(p.id, (payload.name as string) ?? p.name, (payload.number as string | null) ?? p.number);
+            }
+            setShowEdit(false);
+          }}
+          submitting={update.isPending}
+          error={update.error?.message ?? null}
+        />
+      )}
     </PageWrapper>
   );
 }
@@ -286,5 +308,125 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] uppercase font-semibold tracking-wider" style={{ color: "var(--muted)" }}>{label}</div>
       <div className="text-[14px] font-semibold mt-1" style={{ color: "var(--text)" }}>{value}</div>
     </div>
+  );
+}
+
+function EditProjectModal({
+  project, onClose, onSubmit, submitting, error,
+}: {
+  project: Project;
+  onClose: () => void;
+  onSubmit: (payload: Record<string, unknown>) => void;
+  submitting: boolean;
+  error: string | null;
+}) {
+  const [form, setForm] = useState({
+    name: project.name,
+    number: project.number ?? "",
+    gc_name: project.gc_name ?? "",
+    contract_value: project.contract_value != null ? String(project.contract_value) : "",
+    contract_type: project.architect_eor ?? "",
+    est_tonnage: project.est_tonnage != null ? String(project.est_tonnage) : "",
+    status: project.status,
+    start_date: project.start_date ?? "",
+    deadline: project.deadline ?? "",
+    description: project.description ?? "",
+    color: project.color ?? "#4F46E5",
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.5)" }} onClick={onClose}>
+      <div className="card" style={{ width: 540, maxHeight: "85vh", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div className="card-header">
+          <div className="card-title">Edit project</div>
+        </div>
+        <form
+          className="card-body"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const payload: Record<string, unknown> = {
+              name: form.name,
+              number: form.number || undefined,
+              gc_name: form.gc_name || undefined,
+              contract_value: form.contract_value ? Number(form.contract_value) : undefined,
+              est_tonnage: form.est_tonnage ? Number(form.est_tonnage) : undefined,
+              status: form.status,
+              start_date: form.start_date || undefined,
+              deadline: form.deadline || undefined,
+              description: form.description || undefined,
+              color: form.color || undefined,
+            };
+            onSubmit(payload);
+          }}
+          style={{ display: "flex", flexDirection: "column", gap: 12 }}
+        >
+          <EditField label="Project name" required>
+            <input className="input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </EditField>
+          <div className="grid-2" style={{ gap: 12 }}>
+            <EditField label="Project number">
+              <input className="input" value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} placeholder="PRJ-2026-NNNN" />
+            </EditField>
+            <EditField label="Status">
+              <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                <option value="active">Active</option>
+                <option value="on_hold">On Hold</option>
+                <option value="completed">Completed</option>
+                <option value="archived">Archived</option>
+              </select>
+            </EditField>
+          </div>
+          <EditField label="General contractor">
+            <input className="input" value={form.gc_name} onChange={(e) => setForm({ ...form, gc_name: e.target.value })} />
+          </EditField>
+          <div className="grid-2" style={{ gap: 12 }}>
+            <EditField label="Contract value ($)">
+              <input className="input" type="number" min="0" step="0.01" value={form.contract_value} onChange={(e) => setForm({ ...form, contract_value: e.target.value })} />
+            </EditField>
+            <EditField label="Est. tonnage">
+              <input className="input" type="number" min="0" step="0.01" value={form.est_tonnage} onChange={(e) => setForm({ ...form, est_tonnage: e.target.value })} />
+            </EditField>
+          </div>
+          <div className="grid-2" style={{ gap: 12 }}>
+            <EditField label="Start date">
+              <input className="input" type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+            </EditField>
+            <EditField label="Deadline">
+              <input className="input" type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })} />
+            </EditField>
+          </div>
+          <EditField label="Description">
+            <textarea className="input" rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ height: "auto", padding: "8px 12px", resize: "vertical" }} />
+          </EditField>
+          <EditField label="Color tag">
+            <div className="flex items-center gap-3">
+              <input type="color" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} style={{ width: 36, height: 28, border: "1px solid var(--border)", borderRadius: 6, cursor: "pointer", padding: 0 }} />
+              <span className="text-[11px] font-mono" style={{ color: "var(--muted)" }}>{form.color}</span>
+            </div>
+          </EditField>
+
+          {error && <div className="pill pill-red" style={{ padding: "8px 12px", fontSize: 12 }}>{error}</div>}
+
+          <div className="flex justify-end gap-2 mt-2">
+            <button type="button" onClick={onClose} className="btn">Cancel</button>
+            <button type="submit" disabled={submitting || !form.name.trim()} className="btn btn-primary">
+              {submitting ? <Loader2 size={14} className="animate-spin" /> : null}
+              {submitting ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function EditField({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] uppercase font-semibold tracking-wider" style={{ color: "var(--muted)" }}>
+        {label}{required && <span style={{ color: "#DC2626" }}> *</span>}
+      </span>
+      {children}
+    </label>
   );
 }
