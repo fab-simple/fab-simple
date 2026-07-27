@@ -125,13 +125,16 @@ export const TABLES: Record<string, TableConfig> = {
     sequence: { prefix: "NCR", field: "ncr_number" },
     activity: { entity_type: "ncr_reports", label_field: "ncr_number" },
   },
-  // Heat Numbers: Owner Full · PM View · QC Full
+  // Heat Numbers: Owner Full · PM View · QC Full · Foreman Full (widened per
+  // procurement-traceability spec §13 D6 — receiving clerks assign heats to
+  // bundles on the shop floor without routing through QC. RLS already
+  // permitted foreman here; this brings the API pre-flight check in line).
   heat_numbers: {
     table: "heat_numbers",
-    insertable: ["owner", "qc"],
-    updatable: ["owner", "qc"],
+    insertable: ["owner", "qc", "foreman"],
+    updatable: ["owner", "qc", "foreman"],
     deletable: ["owner"],
-    readable: ["owner", "pm", "qc"],
+    readable: ["owner", "pm", "qc", "foreman"],
     hasCompanyId: true,
     activity: { entity_type: "heat_numbers", label_field: "heat_number" },
   },
@@ -354,6 +357,78 @@ export const TABLES: Record<string, TableConfig> = {
     deletable: ALL_READ,
     readable: ALL_READ,
     hasCompanyId: true,
+  },
+
+  // ---------------------------------------------------------------------
+  // Procurement & Material Traceability — Phase 1
+  // Source: docs/procurement-material-traceability-spec.md §7.1
+  // ---------------------------------------------------------------------
+
+  // Vendors: Owner Full · PM Full · Accounting Full (company-wide master data)
+  vendors: {
+    table: "vendors",
+    insertable: ["owner", "pm", "accounting"],
+    updatable: ["owner", "pm", "accounting"],
+    deletable: ["owner"],
+    readable: [...ALL_NON_WORKER],
+    hasCompanyId: true,
+    activity: { entity_type: "vendors", label_field: "name" },
+  },
+  // Inbound Shipments (vendor -> shop): Owner Full · PM Full · Foreman Full · Accounting Full
+  inbound_shipments: {
+    table: "inbound_shipments",
+    insertable: ["owner", "pm", "foreman", "accounting"],
+    updatable: ["owner", "pm", "foreman", "accounting"],
+    deletable: ["owner"],
+    readable: ["owner", "pm", "foreman", "accounting"],
+    hasCompanyId: true,
+    sequence: { prefix: "SHP", field: "shipment_number" },
+    activity: { entity_type: "inbound_shipments", label_field: "shipment_number" },
+  },
+  // Receivings: append-only in spirit — Foreman can create, only Owner/PM
+  // correct history (§13 D9). RLS enforces the same split at the DB layer.
+  receivings: {
+    table: "receivings",
+    insertable: ["owner", "pm", "foreman"],
+    updatable: ["owner", "pm"],
+    deletable: ["owner"],
+    readable: ["owner", "pm", "foreman", "accounting"],
+    hasCompanyId: true,
+    sequence: { prefix: "REC", field: "receiving_number" },
+    activity: { entity_type: "receivings", label_field: "receiving_number" },
+  },
+  // Bundles: Owner Full · PM Full · Foreman Full
+  bundles: {
+    table: "bundles",
+    insertable: ["owner", "pm", "foreman"],
+    updatable: ["owner", "pm", "foreman"],
+    deletable: ["owner"],
+    readable: ["owner", "pm", "foreman", "qc"],
+    hasCompanyId: true,
+    sequence: { prefix: "BND", field: "bundle_number" },
+    activity: { entity_type: "bundles", label_field: "bundle_number" },
+  },
+  // Material Lots: Owner Full · PM Full · Foreman Full · QC Full · Estimator View
+  material_lots: {
+    table: "material_lots",
+    insertable: ["owner", "pm", "foreman", "qc"],
+    updatable: ["owner", "pm", "foreman", "qc"],
+    deletable: ["owner"],
+    readable: ["owner", "estimator", "pm", "foreman", "qc"],
+    hasCompanyId: true,
+    sequence: { prefix: "LOT", field: "lot_number" },
+    activity: { entity_type: "material_lots", label_field: "lot_number" },
+  },
+  // MTR Documents: Foreman can attach + trigger OCR; only QC/Owner verify
+  // (§13 D5 — verification is what lifts heat quarantine).
+  mtr_documents: {
+    table: "mtr_documents",
+    insertable: ["owner", "qc", "foreman"],
+    updatable: ["owner", "qc"],
+    deletable: ["owner"],
+    readable: ["owner", "pm", "qc", "foreman"],
+    hasCompanyId: true,
+    activity: { entity_type: "mtr_documents", label_field: "mill_name" },
   },
 };
 

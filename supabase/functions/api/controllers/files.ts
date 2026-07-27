@@ -25,6 +25,10 @@ const UPLOAD_RBAC: Record<string, string[]> = {
   billing_applications:["owner", "pm", "accounting"],
   daily_production_log:["owner", "pm", "foreman", "worker"],
   parts:              ["owner", "pm", "foreman", "worker"],
+  // Procurement & Material Traceability — Phase 1 (mirrors permissions.ts)
+  inbound_shipments: ["owner", "pm", "foreman", "accounting"],
+  receivings:        ["owner", "pm", "foreman"],
+  mtr_documents:     ["owner", "qc", "foreman"],
 };
 
 // Map entity → required role(s) to READ attachments on it. Mirrors the
@@ -40,6 +44,10 @@ const READ_RBAC: Record<string, string[]> = {
   billing_applications: ["owner", "pm", "accounting"],
   daily_production_log: ["owner", "pm", "foreman"],
   parts:                ["owner", "pm", "estimator", "foreman", "qc", "accounting", "worker"],
+  // Procurement & Material Traceability — Phase 1 (mirrors permissions.ts)
+  inbound_shipments: ["owner", "pm", "foreman", "accounting"],
+  receivings:        ["owner", "pm", "foreman", "accounting"],
+  mtr_documents:     ["owner", "pm", "qc", "foreman"],
 };
 
 function allowedReadRoles(entityType: string): string[] {

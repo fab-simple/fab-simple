@@ -28,6 +28,8 @@ import { getPublicPart } from "./controllers/publicPart.ts";
 import { resolveEPlanPiece, logEPlanPrint } from "./controllers/ePlan.ts";
 import { overrideSafetyGate, recordFieldBoltInspection, logErectionDelay } from "./controllers/erectionOps.ts";
 import { previewPoFromParts, createPoFromParts } from "./controllers/purchaseOrder.ts";
+import { assignHeatToBundle, recommendLots } from "./controllers/heatAssignment.ts";
+import { extractMtrDocument } from "./controllers/mtrExtraction.ts";
 
 const TABLE_RE = /^\/api\/?([a-z_]+)(?:\/([0-9a-f-]{36}))?\/?$/i;
 
@@ -132,6 +134,14 @@ Deno.serve(async (req) => {
     if (path === "/purchase-orders/from-parts" && method === "POST") return createPoFromParts(ctx);
     const archMatch = path.match(/^\/archive-project\/([0-9a-f-]{36})$/i);
     if (archMatch && method === "POST") return archiveProject(ctx, archMatch[1]);
+
+    // Procurement & Material Traceability (declared before generic CRUD so
+    // these hyphenated sub-paths aren't misread as a table/id).
+    if (path === "/material-lots/recommend" && method === "GET") return recommendLots(ctx);
+    const assignHeatMatch = path.match(/^\/bundles\/([0-9a-f-]{36})\/assign-heat$/i);
+    if (assignHeatMatch && method === "POST") return assignHeatToBundle(ctx, assignHeatMatch[1]);
+    const extractMtrMatch = path.match(/^\/mtr-documents\/([0-9a-f-]{36})\/extract$/i);
+    if (extractMtrMatch && method === "POST") return extractMtrDocument(ctx, extractMtrMatch[1]);
 
     // Files
     if (path === "/files/sign-upload" && method === "POST") return signUpload(ctx);

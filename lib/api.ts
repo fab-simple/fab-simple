@@ -275,6 +275,54 @@ export interface CreatePoFromPartsResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Procurement & Material Traceability — Phase 1
+// ---------------------------------------------------------------------------
+
+export interface MaterialLot {
+  id: string;
+  company_id: string;
+  project_id: string | null;
+  bundle_id: string | null;
+  heat_number_id: string;
+  lot_number: string;
+  profile: string;
+  grade: string;
+  quantity: number;
+  original_quantity: number;
+  length: number | null;
+  location: string | null;
+  status: "available" | "reserved" | "released" | "consumed" | "scrapped";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssignHeatBody {
+  heat_number_id: string;
+  project_id: string;
+  profile: string;
+  grade: string;
+  length?: number;
+  location?: string;
+}
+
+export interface AssignHeatResult {
+  material_lot: MaterialLot;
+}
+
+export interface ExtractedMtrFields {
+  heat_number: string | null;
+  yield_strength: number | null;
+  tensile_strength: number | null;
+  chemistry: Record<string, number> | null;
+  mill_name: string | null;
+}
+
+export interface ExtractMtrResult {
+  mtr_document: Record<string, unknown> & { id: string; ocr_status: string };
+  extracted: ExtractedMtrFields;
+}
+
 export const FabAPI = {
   // Generic CRUD
   list<T = unknown>(table: string, query?: Record<string, string | number | boolean | undefined>) {
@@ -364,6 +412,29 @@ export const FabAPI = {
    */
   createPoFromParts(body: CreatePoFromPartsBody) {
     return call<CreatePoFromPartsResult>("/purchase-orders/from-parts", "POST", { body });
+  },
+
+  /**
+   * Assign a heat number to a bundle. Creates the material_lot server-side
+   * (bundle -> heat -> lot, one atomic RPC) and returns it.
+   */
+  assignHeatToBundle(bundleId: string, body: AssignHeatBody) {
+    return call<AssignHeatResult>(`/bundles/${bundleId}/assign-heat`, "POST", { body });
+  },
+  /**
+   * Best available lots for a profile/grade, closest-length-first then
+   * oldest. Read-only — safe to call as a picker opens.
+   */
+  recommendLots(query: { profile: string; grade: string; min_length?: number; project_id?: string }) {
+    return call<MaterialLot[]>("/material-lots/recommend", "GET", { query });
+  },
+  /**
+   * Trigger OCR extraction on an MTR document that already has a file
+   * attached. Advisory only — never sets ocr_status to 'verified'; a QC
+   * user must review and verify separately.
+   */
+  extractMtrDocument(id: string) {
+    return call<ExtractMtrResult>(`/mtr-documents/${id}/extract`, "POST");
   },
 
   // Specials

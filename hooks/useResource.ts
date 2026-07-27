@@ -10,6 +10,10 @@ import {
   type PoFromPartsPreview,
   type CreatePoFromPartsBody,
   type CreatePoFromPartsResult,
+  type MaterialLot,
+  type AssignHeatBody,
+  type AssignHeatResult,
+  type ExtractMtrResult,
 } from "@/lib/api";
 
 export const FAB_MODE = process.env.NEXT_PUBLIC_FAB_MODE ?? "demo";
@@ -208,6 +212,53 @@ export function useCreatePoFromParts() {
       qc.invalidateQueries({ queryKey: ["parts"] });
       qc.invalidateQueries({ queryKey: ["purchase_orders"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+/**
+ * Assign a heat to a bundle, creating the material_lot server-side.
+ * Invalidates bundles, heat_numbers, and material_lots on success.
+ */
+export function useAssignHeatToBundle() {
+  const qc = useQueryClient();
+  return useMutation<AssignHeatResult, FabApiError, { bundleId: string; body: AssignHeatBody }>({
+    mutationFn: ({ bundleId, body }) => FabAPI.assignHeatToBundle(bundleId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bundles"] });
+      qc.invalidateQueries({ queryKey: ["heat_numbers"] });
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+    },
+  });
+}
+
+/**
+ * Best-available-lot lookup for production allocation. Only fires when
+ * `enabled` and both `profile`/`grade` are present (e.g. a cut-list picker
+ * open for a specific line item).
+ */
+export function useRecommendLots(
+  query: { profile: string; grade: string; min_length?: number; project_id?: string } | null,
+  enabled: boolean,
+) {
+  return useQuery<MaterialLot[], FabApiError>({
+    queryKey: ["material_lots", "recommend", query],
+    queryFn: () => FabAPI.recommendLots(query!),
+    enabled: FAB_MODE === "live" && enabled && !!query?.profile && !!query?.grade,
+  });
+}
+
+/**
+ * Trigger OCR extraction on an MTR document. Invalidates mtr_documents and
+ * heat_numbers (quarantine status may follow once a human verifies).
+ */
+export function useExtractMtrDocument() {
+  const qc = useQueryClient();
+  return useMutation<ExtractMtrResult, FabApiError, string>({
+    mutationFn: (id) => FabAPI.extractMtrDocument(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mtr_documents"] });
+      qc.invalidateQueries({ queryKey: ["heat_numbers"] });
     },
   });
 }

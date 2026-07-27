@@ -30,6 +30,8 @@ import {
   Tag,
   Compass,
   HardHat,
+  Building2,
+  Package,
 } from "lucide-react";
 
 export interface NavItem {
@@ -92,14 +94,23 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
   {
     label: "Procurement",
     items: [
+      // Vendors: company-wide master data, like GC Contacts. Readable by
+      // everyone who touches procurement (matches permissions.ts vendors.readable).
+      { key: "vendors",         label: "Vendors",            href: "/dashboard/vendors",         icon: Building2,       roles: [...ALL_NON_WORKER] },
       // Purchase Orders: Owner Full · PM Full · Foreman View · Accounting Full
       { key: "purchase-orders", label: "Purchase Orders",    href: "/dashboard/purchase-orders", icon: ShoppingCart,    roles: [...OWNER_PM_FOREMAN_ACCT], projectScoped: true },
+      // Inbound Shipments (vendor -> shop): Owner Full · PM Full · Foreman Full · Accounting Full
+      { key: "inbound-shipments", label: "Inbound Shipments", href: "/dashboard/inbound-shipments", icon: Truck,       roles: [...OWNER_PM_FOREMAN_ACCT], projectScoped: true },
       // Material Receiving: Owner Full · PM Full · Foreman Full · Accounting View
       { key: "receiving",       label: "Material Receiving", href: "/dashboard/receiving",       icon: PackageCheck,    roles: [...OWNER_PM_FOREMAN_ACCT], projectScoped: true },
+      // Bundles: Owner Full · PM Full · Foreman Full · QC View — bundle registration + heat assignment
+      { key: "bundles",         label: "Bundles",            href: "/dashboard/bundles",         icon: Package,         roles: [...OWNER_PM_FOREMAN_QC], projectScoped: true },
       // Inventory: Owner Full · Estimator View · PM Full · Foreman View · Accounting View
+      // (Bulk Stock tab is company-wide; the Traceable Lots tab filters by
+      // the Global Project Context internally — see spec §5/§13 D2.)
       { key: "inventory",       label: "Inventory",          href: "/dashboard/inventory",       icon: Warehouse,       roles: [...OWNER_ESTIMATOR_PM_FOREMAN_ACCT] },
-      // Heat Numbers: Owner Full · PM View · QC Full
-      { key: "heat-numbers",    label: "Heat Numbers",       href: "/dashboard/heat-numbers",    icon: FlameKindling,   roles: [...OWNER_PM_QC] },
+      // Heat Numbers: Owner Full · PM View · QC Full · Foreman Full (widened, §13 D6)
+      { key: "heat-numbers",    label: "Heat Numbers",       href: "/dashboard/heat-numbers",    icon: FlameKindling,   roles: [...OWNER_PM_FOREMAN_QC] },
     ],
   },
   {
@@ -210,10 +221,13 @@ export const ROUTE_ACCESS: Array<{ prefix: string; roles: Role[] }> = [
   { prefix: "/dashboard/cut-list",           roles: ["owner", "pm", "foreman"] },
 
   // Procurement.
+  { prefix: "/dashboard/vendors",            roles: ["owner", "estimator", "pm", "foreman", "qc", "accounting"] },
   { prefix: "/dashboard/purchase-orders",    roles: ["owner", "pm", "foreman", "accounting"] },
+  { prefix: "/dashboard/inbound-shipments",  roles: ["owner", "pm", "foreman", "accounting"] },
   { prefix: "/dashboard/receiving",          roles: ["owner", "pm", "foreman", "accounting"] },
+  { prefix: "/dashboard/bundles",            roles: ["owner", "pm", "foreman", "qc"] },
   { prefix: "/dashboard/inventory",          roles: ["owner", "estimator", "pm", "foreman", "accounting"] },
-  { prefix: "/dashboard/heat-numbers",       roles: ["owner", "pm", "qc"] },
+  { prefix: "/dashboard/heat-numbers",       roles: ["owner", "pm", "foreman", "qc"] },
 
   // Quality & Compliance.
   { prefix: "/dashboard/paint-inspection",   roles: ["owner", "pm", "qc"] },
