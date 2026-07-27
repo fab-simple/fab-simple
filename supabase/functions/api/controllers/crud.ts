@@ -45,12 +45,12 @@ export async function listOrGet(ctx: Ctx, table: string, id?: string): Promise<R
   // Pagination — supports BOTH legacy (?limit=&offset=) and the new
   // (?page=&per_page=) style. The legacy form is kept so existing pages and
   // hooks don't break the moment this ships.
-  let perPage: number;
+
   let offset: number;
   let page: number;
 
   const perPageRaw = params.get("per_page") ?? params.get("limit");
-  perPage = Math.min(
+  const perPage = Math.min(
     Math.max(parseInteger(perPageRaw, DEFAULT_PER_PAGE), 1),
     MAX_PER_PAGE,
   );
@@ -109,18 +109,18 @@ export async function listOrGet(ctx: Ctx, table: string, id?: string): Promise<R
     if (!FIELD_RE.test(column)) continue; // ignore garbage param names
 
     switch (op) {
-      case "__in":      q = q.in(column, v.split(",").map((s) => s.trim()).filter(Boolean)); break;
-      case "__neq":     q = q.neq(column, v); break;
-      case "__gt":      q = q.gt(column, v); break;
-      case "__gte":     q = q.gte(column, v); break;
-      case "__lt":      q = q.lt(column, v); break;
-      case "__lte":     q = q.lte(column, v); break;
-      case "__ilike":   q = q.ilike(column, v.includes("%") ? v : `%${v}%`); break;
-      case "__like":    q = q.like(column, v.includes("%") ? v : `%${v}%`); break;
+      case "__in": q = q.in(column, v.split(",").map((s) => s.trim()).filter(Boolean)); break;
+      case "__neq": q = q.neq(column, v); break;
+      case "__gt": q = q.gt(column, v); break;
+      case "__gte": q = q.gte(column, v); break;
+      case "__lt": q = q.lt(column, v); break;
+      case "__lte": q = q.lte(column, v); break;
+      case "__ilike": q = q.ilike(column, v.includes("%") ? v : `%${v}%`); break;
+      case "__like": q = q.like(column, v.includes("%") ? v : `%${v}%`); break;
       case "__is_null": q = q.is(column, null); break;
       case "__not_null": q = q.not(column, "is", null); break;
       case "__eq":
-      default:          q = q.eq(column, v); break;
+      default: q = q.eq(column, v); break;
     }
   }
 

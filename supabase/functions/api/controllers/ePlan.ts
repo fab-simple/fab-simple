@@ -44,7 +44,7 @@ export async function resolveEPlanPiece(pieceMarkOrId: string): Promise<Response
     .eq("project_id", part.project_id)
     .order("sequence_number", { ascending: true });
 
-  let matchedStep = (seqSteps || []).find((s: Record<string, unknown>) => {
+  const matchedStep = (seqSteps || []).find((s: Record<string, unknown>) => {
     const desc = String(s.description || "").toUpperCase();
     const phase = String(s.phase || "").toUpperCase();
     return desc.includes(part.part_mark.toUpperCase()) ||
@@ -178,7 +178,7 @@ export async function logEPlanPrint(req: Request): Promise<Response> {
   let body: Record<string, unknown> = {};
   try {
     body = await req.json();
-  } catch (_e) {
+  } catch {
     return err("Invalid JSON body", 400);
   }
 
