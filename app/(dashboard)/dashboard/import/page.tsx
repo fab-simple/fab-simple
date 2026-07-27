@@ -348,6 +348,24 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
 
   const unmappedHeaders = headers.filter((h) => !Object.values(mapping).includes(h));
 
+  // Duplicate Part Mark detection — mirrors the backend's dedup key
+  // (project_id, part_mark): rows sharing the same trimmed Mark value
+  // collapse into a single part record (2nd+ occurrence updates the 1st
+  // instead of inserting), so the sheet's row count and the resulting part
+  // count in the system can differ. Surface that gap before import runs.
+  const partMarkStats = useMemo(() => {
+    const header = mapping.part_mark;
+    if (!header) return null;
+    const counts = new Map<string, number>();
+    for (const row of parsedRows) {
+      const v = (row[header] ?? "").trim();
+      if (!v) continue;
+      counts.set(v, (counts.get(v) ?? 0) + 1);
+    }
+    const duplicates = Array.from(counts.entries()).filter(([, n]) => n > 1);
+    return { duplicates, uniqueCount: counts.size, totalRows: parsedRows.length };
+  }, [parsedRows, mapping.part_mark]);
+
   return (
     <>
       <div className="card">
@@ -485,6 +503,28 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
               {unmappedHeaders.length > 0 && (
                 <div className="text-[11px] mt-1.5" style={{ color: "var(--muted)" }}>
                   Not mapped (ignored on import): {unmappedHeaders.join(", ")}
+                </div>
+              )}
+              {partMarkStats && partMarkStats.duplicates.length > 0 && (
+                <div style={{
+                  marginTop: 8, background: "#FEF3C7", border: "1px solid #FDE68A",
+                  borderRadius: 6, padding: "8px 10px",
+                }}>
+                  <div className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: "#92400E" }}>
+                    <AlertCircle size={12} />
+                    {partMarkStats.duplicates.length} duplicate Part Mark{partMarkStats.duplicates.length === 1 ? "" : "s"} found in the sheet
+                  </div>
+                  <div className="text-[11px] mt-1" style={{ color: "#92400E" }}>
+                    {partMarkStats.duplicates.slice(0, 10).map(([mark, n]) => `${mark} (×${n})`).join(", ")}
+                    {partMarkStats.duplicates.length > 10 ? `, +${partMarkStats.duplicates.length - 10} more` : ""}
+                    {" "}— rows sharing the same Part Mark are not imported as separate parts; each later duplicate updates the same record instead of creating a new one.
+                  </div>
+                </div>
+              )}
+              {partMarkStats && (
+                <div className="text-[11px] mt-1.5" style={{ color: "var(--muted)" }}>
+                  {partMarkStats.totalRows} row{partMarkStats.totalRows === 1 ? "" : "s"} in sheet → this import will result in{" "}
+                  <strong>{partMarkStats.uniqueCount}</strong> part{partMarkStats.uniqueCount === 1 ? "" : "s"} in the system.
                 </div>
               )}
             </div>

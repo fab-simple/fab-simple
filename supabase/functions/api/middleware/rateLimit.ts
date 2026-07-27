@@ -9,7 +9,7 @@
 //
 // Default policy: 120 requests / 60s per client key (IP).
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const LIMIT = Number(Deno.env.get("RATE_LIMIT") ?? "120");
 const WINDOW_S = Number(Deno.env.get("RATE_WINDOW_SECONDS") ?? "60");
@@ -23,7 +23,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const RL_BACKEND = (Deno.env.get("RATE_LIMIT_BACKEND") ?? "auto").toLowerCase();
 
-let _admin: ReturnType<typeof createClient> | null = null;
+// deno-lint-ignore no-explicit-any
+let _admin: SupabaseClient<any, any, any> | null = null;
 function adminClient() {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return null;
   _admin ??= createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });

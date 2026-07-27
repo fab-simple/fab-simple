@@ -1,7 +1,7 @@
 // Zod schemas per table for INSERT/UPDATE payloads.
 // Update schemas are .partial() of insert (all fields optional).
 
-import { z } from "https://esm.sh/zod@3.23.8";
+import { z } from "zod";
 
 const uuid = z.string().uuid();
 const numeric = z.coerce.number();

@@ -31,8 +31,8 @@ describe("FileUploader", () => {
   });
 
   it("renders existing files when listFiles returns them", async () => {
-    (FabAPI.listFiles as any).mockResolvedValueOnce([
-      { id: "1", storage_path: "drawings/abc/test.pdf", size_bytes: 2048, content_type: "application/pdf" },
+    vi.mocked(FabAPI.listFiles).mockResolvedValueOnce([
+      { id: "1", storage_bucket: "drawings", storage_path: "drawings/abc/test.pdf", mime_type: "application/pdf", size_bytes: 2048, created_at: "2026-01-01T00:00:00Z", uploaded_by: null },
     ]);
     render(<FileUploader entityType="drawings" entityId="abc" bucket="drawings" />);
     await waitFor(() => expect(screen.getByText("test.pdf")).toBeInTheDocument());
