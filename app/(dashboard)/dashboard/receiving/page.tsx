@@ -1,19 +1,22 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
-import { useResourceList, useUpdate } from "@/hooks/useResource";
+import { useResourceList, useCreate } from "@/hooks/useResource";
 import { useCsvExport } from "@/hooks/useCsvExport";
 import { formatCurrency } from "@/lib/utils";
-import { PackageCheck, Loader2, Paperclip, X } from "lucide-react";
+import { PackageCheck, Loader2, Paperclip, X, ArrowRight } from "lucide-react";
 
 interface PO {
   id: string;
   po_number: string;
   vendor: string;
+  vendor_id: string | null;
   status: string;
   qty_ordered: number | null;
   qty_received: number;
@@ -23,16 +26,33 @@ interface PO {
   received_date: string | null;
 }
 
+interface Receiving {
+  id: string;
+  receiving_number: string;
+  po_id: string;
+  qty_received: number;
+}
+
 export default function ReceivingPage() {
+  // Company-wide queue — not filtered by the Global Project Context (§16).
+  // A PO's own project_id, when set, stays purely informational for
+  // job-costing; it never restricts which POs show up here.
   const list = useResourceList<PO>("purchase_orders", {
     status__in: "issued,partial",
     order_by: "expected_date",
     dir: "asc",
     limit: "100",
   });
-  const update = useUpdate<PO>("purchase_orders");
+  // Receivings are the append-history record — the create-mutation triggers a
+  // server-side rollup (fn_recompute_po_receiving) that updates the PO's own
+  // qty_received/status. This replaces the old flow of PATCHing
+  // purchase_orders directly, so every delivery leaves an auditable row.
+  const create = useCreate<Receiving>("receivings");
+  const qc = useQueryClient();
+  const router = useRouter();
   const [attachTarget, setAttachTarget] = useState<PO | null>(null);
   const [receiveTarget, setReceiveTarget] = useState<PO | null>(null);
+  const [justCreated, setJustCreated] = useState<Receiving | null>(null);
 
   useCsvExport({
     filename: "open-purchase-orders",
@@ -127,10 +147,10 @@ export default function ReceivingPage() {
         <div className="flex items-center gap-1">
           <button
             className="btn btn-sm btn-primary"
-            disabled={update.isPending}
+            disabled={create.isPending}
             onClick={() => setReceiveTarget(r)}
           >
-            {update.isPending && update.variables?.id === r.id ? <Loader2 size={12} className="animate-spin" /> : <PackageCheck size={12} />}
+            {create.isPending && receiveTarget?.id === r.id ? <Loader2 size={12} className="animate-spin" /> : <PackageCheck size={12} />}
             Receive
           </button>
           <button className="btn btn-sm" title="Attach BOL / MTR" onClick={() => setAttachTarget(r)}>
@@ -159,6 +179,22 @@ export default function ReceivingPage() {
         </div>
       </div>
 
+      {justCreated && (
+        <div className="mb-4 p-3 rounded-lg border flex items-center justify-between"
+          style={{ background: "rgba(34,197,94,0.08)", borderColor: "rgba(34,197,94,0.3)" }}>
+          <span className="text-[12px]" style={{ color: "var(--text)" }}>
+            <strong className="font-mono">{justCreated.receiving_number}</strong> recorded — {justCreated.qty_received} pcs received.
+            Register the bundles it arrived in to assign heat numbers.
+          </span>
+          <div className="flex items-center gap-2">
+            <button className="btn btn-sm btn-primary" onClick={() => router.push(`/dashboard/bundles?receiving=${justCreated.id}`)}>
+              Register bundles <ArrowRight size={12} />
+            </button>
+            <button className="btn btn-sm btn-ghost" onClick={() => setJustCreated(null)}><X size={12} /></button>
+          </div>
+        </div>
+      )}
+
       <DataTable
         data={list.data}
         columns={cols}
@@ -172,23 +208,26 @@ export default function ReceivingPage() {
         <ReceiveModal
           po={receiveTarget}
           onClose={() => setReceiveTarget(null)}
-          submitting={update.isPending}
-          error={update.error?.message ?? null}
-          onSubmit={(qtyThisDelivery) => {
-            const ord = Number(receiveTarget.qty_ordered ?? 0);
-            const prev = Number(receiveTarget.qty_received ?? 0);
-            const next = Math.min(prev + qtyThisDelivery, ord || prev + qtyThisDelivery);
-            const isComplete = ord > 0 && next >= ord;
-            update.mutate(
+          submitting={create.isPending}
+          error={create.error?.message ?? null}
+          onSubmit={(qtyThisDelivery, exceptions) => {
+            create.mutate(
               {
-                id: receiveTarget.id,
-                body: {
-                  qty_received: next,
-                  status: isComplete ? "received" : "partial",
-                  received_date: isComplete ? new Date().toISOString().slice(0, 10) : undefined,
+                po_id: receiveTarget.id,
+                vendor_id: receiveTarget.vendor_id ?? undefined,
+                qty_received: qtyThisDelivery,
+                exceptions: exceptions || undefined,
+              },
+              {
+                onSuccess: (receiving) => {
+                  // The PO's own qty_received/status is recomputed server-side
+                  // by fn_recompute_po_receiving — refetch it here since that
+                  // change didn't come through this page's own mutation.
+                  qc.invalidateQueries({ queryKey: ["purchase_orders"] });
+                  setReceiveTarget(null);
+                  setJustCreated(receiving);
                 },
               },
-              { onSuccess: () => setReceiveTarget(null) },
             );
           }}
         />
@@ -213,7 +252,7 @@ function ReceiveModal({
 }: {
   po: PO;
   onClose: () => void;
-  onSubmit: (qtyThisDelivery: number) => void;
+  onSubmit: (qtyThisDelivery: number, exceptions: string) => void;
   submitting: boolean;
   error: string | null;
 }) {
@@ -221,8 +260,12 @@ function ReceiveModal({
   const prev = Number(po.qty_received ?? 0);
   const remaining = Math.max(0, ord - prev);
   const [qty, setQty] = useState<string>(String(remaining || ord || 1));
+  const [exceptions, setExceptions] = useState("");
   const qtyNum = Number(qty);
-  const invalid = !Number.isFinite(qtyNum) || qtyNum <= 0 || (ord > 0 && prev + qtyNum > ord);
+  // No hard cap on over-delivery — receivings.qty_over_delivered exists
+  // precisely to record it rather than silently reject a real, larger
+  // delivery than what the PO called for.
+  const invalid = !Number.isFinite(qtyNum) || qtyNum <= 0;
 
   return (
     <div
@@ -243,7 +286,7 @@ function ReceiveModal({
           onSubmit={(e) => {
             e.preventDefault();
             if (invalid) return;
-            onSubmit(qtyNum);
+            onSubmit(qtyNum, exceptions);
           }}
           style={{ display: "flex", flexDirection: "column", gap: 14 }}
         >
@@ -267,10 +310,27 @@ function ReceiveModal({
               autoFocus
             />
             {ord > 0 && (
-              <span className="text-[11px]" style={{ color: invalid && qtyNum > 0 ? "#DC2626" : "var(--muted)" }}>
-                Max {remaining || ord} pcs · clicking Save will mark the PO {prev + qtyNum >= ord ? "fully received" : "partial"}.
+              <span className="text-[11px]" style={{ color: "var(--muted)" }}>
+                {remaining > 0 ? `${remaining} pcs remaining on the PO. ` : ""}
+                {prev + qtyNum > ord
+                  ? `This delivery over-delivers by ${prev + qtyNum - ord} pcs — recorded, not blocked.`
+                  : `Saving will mark the PO ${prev + qtyNum >= ord ? "fully received" : "partial"}.`}
               </span>
             )}
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] uppercase font-semibold tracking-wider" style={{ color: "var(--muted)" }}>
+              Exceptions / damage notes
+            </span>
+            <textarea
+              className="input"
+              rows={2}
+              value={exceptions}
+              onChange={(e) => setExceptions(e.target.value)}
+              style={{ height: "auto", padding: "8px 12px", resize: "vertical" }}
+              placeholder="Optional — e.g. 2 bundles damaged in transit"
+            />
           </label>
 
           {error && (

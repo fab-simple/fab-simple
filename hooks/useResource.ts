@@ -10,6 +10,20 @@ import {
   type PoFromPartsPreview,
   type CreatePoFromPartsBody,
   type CreatePoFromPartsResult,
+  type MaterialLot,
+  type AssignHeatBody,
+  type AssignHeatResult,
+  type ExtractMtrResult,
+  type ReserveLotBody,
+  type ReserveLotResult,
+  type ReleaseReservationResult,
+  type CreateRfqBody,
+  type CreateRfqResult,
+  type CreateVendorQuoteBody,
+  type CreateVendorQuoteResult,
+  type AwardVendorQuoteResult,
+  type ImportMaterialRequirementsBody,
+  type ImportMaterialRequirementsResult,
 } from "@/lib/api";
 
 export const FAB_MODE = process.env.NEXT_PUBLIC_FAB_MODE ?? "demo";
@@ -208,6 +222,144 @@ export function useCreatePoFromParts() {
       qc.invalidateQueries({ queryKey: ["parts"] });
       qc.invalidateQueries({ queryKey: ["purchase_orders"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+/**
+ * Assign a heat to a bundle, creating the material_lot server-side.
+ * Invalidates bundles, heat_numbers, and material_lots on success.
+ */
+export function useAssignHeatToBundle() {
+  const qc = useQueryClient();
+  return useMutation<AssignHeatResult, FabApiError, { bundleId: string; body: AssignHeatBody }>({
+    mutationFn: ({ bundleId, body }) => FabAPI.assignHeatToBundle(bundleId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bundles"] });
+      qc.invalidateQueries({ queryKey: ["heat_numbers"] });
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+    },
+  });
+}
+
+/**
+ * Best-available-lot lookup for production allocation. Only fires when
+ * `enabled` and both `profile`/`grade` are present (e.g. a cut-list picker
+ * open for a specific line item). Company-wide — material lots have no
+ * project of their own (§16).
+ */
+export function useRecommendLots(
+  query: { profile: string; grade: string; min_length?: number } | null,
+  enabled: boolean,
+) {
+  return useQuery<MaterialLot[], FabApiError>({
+    queryKey: ["material_lots", "recommend", query],
+    queryFn: () => FabAPI.recommendLots(query!),
+    enabled: FAB_MODE === "live" && enabled && !!query?.profile && !!query?.grade,
+  });
+}
+
+/**
+ * Claim a quantity of a lot for a project (partial, releasable — never
+ * exclusive ownership). Invalidates lot_reservations and material_lots
+ * (the Inventory page's "available to reserve" figure depends on both).
+ */
+export function useReserveLot() {
+  const qc = useQueryClient();
+  return useMutation<ReserveLotResult, FabApiError, { lotId: string; body: ReserveLotBody }>({
+    mutationFn: ({ lotId, body }) => FabAPI.reserveLot(lotId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lot_reservations"] });
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+    },
+  });
+}
+
+/** Release a reservation, returning its quantity to the shared pool. */
+export function useReleaseLotReservation() {
+  const qc = useQueryClient();
+  return useMutation<ReleaseReservationResult, FabApiError, string>({
+    mutationFn: (reservationId) => FabAPI.releaseLotReservation(reservationId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lot_reservations"] });
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+    },
+  });
+}
+
+/**
+ * Trigger OCR extraction on an MTR document. Invalidates mtr_documents and
+ * heat_numbers (quarantine status may follow once a human verifies).
+ */
+export function useExtractMtrDocument() {
+  const qc = useQueryClient();
+  return useMutation<ExtractMtrResult, FabApiError, string>({
+    mutationFn: (id) => FabAPI.extractMtrDocument(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mtr_documents"] });
+      qc.invalidateQueries({ queryKey: ["heat_numbers"] });
+    },
+  });
+}
+
+/**
+ * Compound-create an RFQ (header + lines + vendors) in one atomic call.
+ * Invalidates rfqs and material_requirements (their status flips to
+ * 'rfq_created' server-side once the first line lands).
+ */
+export function useCreateRfq() {
+  const qc = useQueryClient();
+  return useMutation<CreateRfqResult, FabApiError, CreateRfqBody>({
+    mutationFn: (body) => FabAPI.createRfq(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rfqs"] });
+      qc.invalidateQueries({ queryKey: ["material_requirements"] });
+    },
+  });
+}
+
+/** Compound-create a vendor quote (header + priced lines). Invalidates vendor_quotes and rfqs (status may flip to 'quotes_received'). */
+export function useCreateVendorQuote() {
+  const qc = useQueryClient();
+  return useMutation<CreateVendorQuoteResult, FabApiError, CreateVendorQuoteBody>({
+    mutationFn: (body) => FabAPI.createVendorQuote(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendor_quotes"] });
+      qc.invalidateQueries({ queryKey: ["rfqs"] });
+    },
+  });
+}
+
+/**
+ * Award a vendor quote, auto-creating a draft PO. Invalidates vendor_quotes,
+ * rfqs, material_requirements, and purchase_orders — all four change
+ * server-side in fn_award_vendor_quote's single transaction.
+ */
+export function useAwardVendorQuote() {
+  const qc = useQueryClient();
+  return useMutation<AwardVendorQuoteResult, FabApiError, string>({
+    mutationFn: (id) => FabAPI.awardVendorQuote(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendor_quotes"] });
+      qc.invalidateQueries({ queryKey: ["rfqs"] });
+      qc.invalidateQueries({ queryKey: ["material_requirements"] });
+      qc.invalidateQueries({ queryKey: ["purchase_orders"] });
+    },
+  });
+}
+
+/**
+ * Bulk-import Material Requirements from a KISS/EJE/Tekla/SDS2-style sheet.
+ * Rows are already parsed, mapped, and aggregated client-side (see
+ * app/(dashboard)/dashboard/material-requirements/page.tsx). Invalidates
+ * material_requirements so the list reflects the new rows immediately.
+ */
+export function useImportMaterialRequirements() {
+  const qc = useQueryClient();
+  return useMutation<ImportMaterialRequirementsResult, FabApiError, ImportMaterialRequirementsBody>({
+    mutationFn: (body) => FabAPI.importMaterialRequirements(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["material_requirements"] });
     },
   });
 }
