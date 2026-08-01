@@ -1,9 +1,10 @@
 // Client-side PDF generators (jsPDF + autoTable).
-// Two reports:
+// Three reports:
 //   1. AIA G702/G703 Application for Payment
 //   2. QC Report (welds + paint + AISC + NCRs)
+//   3. RFQ (Request for Quote) — Sourcing Workflow, spec §15.1 D11
 //
-// Both are generated from data the API returns; no server-side rendering needed.
+// All are generated from data the API returns; no server-side rendering needed.
 
 import jsPDF from "jspdf";
 import autoTable, { type RowInput } from "jspdf-autotable";
@@ -220,6 +221,70 @@ export function generateQcReport(data: QcReportData): jsPDF {
       theme: "striped", headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontSize: 9 }, bodyStyles: { fontSize: 8 },
       columnStyles: { 2: { cellWidth: 290 } },
     });
+  }
+
+  return doc;
+}
+
+// ---------------------------------------------------------------------------
+// RFQ (Request for Quote) — Sourcing Workflow
+// ---------------------------------------------------------------------------
+export interface RfqPdfLine {
+  profile: string;
+  grade: string | null;
+  quantity: number;
+  length: string | null;
+}
+
+export interface RfqPdfData {
+  rfq_number: string;
+  delivery_requirement: string | null;
+  notes: string | null;
+  created_at: string;
+  contractor_name: string;
+  lines: RfqPdfLine[];
+}
+
+// One shared document per RFQ — not personalized per vendor (§15.1 D11: no
+// auto-email/response-tracking automation, the PM downloads this once and
+// sends it to every invited vendor however they already do).
+export function generateRfqPdf(data: RfqPdfData): jsPDF {
+  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+  const W = doc.internal.pageSize.getWidth();
+
+  doc.setFontSize(16).setFont("helvetica", "bold")
+     .text("REQUEST FOR QUOTE", W / 2, 50, { align: "center" });
+  doc.setFontSize(9).setFont("helvetica", "normal")
+     .text(data.contractor_name, W / 2, 64, { align: "center" });
+
+  let y = 96;
+  const labelCol = 50, valCol = 200;
+  const printRow = (label: string, val: string) => {
+    doc.setFont("helvetica", "bold").text(label, labelCol, y);
+    doc.setFont("helvetica", "normal").text(val, valCol, y);
+    y += 14;
+  };
+  printRow("RFQ NUMBER:", data.rfq_number);
+  printRow("DATE:", new Date(data.created_at).toLocaleDateString());
+  printRow("DELIVERY REQUIREMENT:", data.delivery_requirement ?? "See notes / to be coordinated");
+
+  y += 12;
+  autoTable(doc, {
+    startY: y,
+    margin: { left: 50, right: 50 },
+    head: [["Profile", "Grade", "Quantity", "Length"]],
+    body: data.lines.map((l) => [
+      l.profile, l.grade ?? "—", String(l.quantity), l.length != null ? String(l.length) : "—",
+    ]),
+    theme: "grid",
+    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontSize: 9 },
+    bodyStyles: { fontSize: 9 },
+  });
+
+  if (data.notes) {
+    doc.addPage();
+    doc.setFontSize(13).setFont("helvetica", "bold").text("Notes", 50, 50);
+    doc.setFontSize(9).setFont("helvetica", "normal").text(data.notes, 50, 70, { maxWidth: W - 100 });
   }
 
   return doc;

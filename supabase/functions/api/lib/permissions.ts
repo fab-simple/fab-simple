@@ -430,6 +430,91 @@ export const TABLES: Record<string, TableConfig> = {
     hasCompanyId: true,
     activity: { entity_type: "mtr_documents", label_field: "mill_name" },
   },
+  // Lot Reservations (§16) — the only place a project ever touches material.
+  // Writes are deliberately blocked here: creating/releasing a reservation
+  // requires an availability check the generic CRUD handler can't do, so
+  // both go through dedicated endpoints (POST /material-lots/:id/reserve,
+  // POST /lot-reservations/:id/release in controllers/lotReservation.ts).
+  // This entry exists so GET list/get (for the Inventory page) works.
+  lot_reservations: {
+    table: "lot_reservations",
+    insertable: [],
+    updatable: [],
+    deletable: [],
+    readable: ["owner", "estimator", "pm", "foreman", "qc"],
+    hasCompanyId: true,
+  },
+
+  // Phase 2 — Sourcing Workflow (§15). Material Requirements is a plain
+  // single-table record (estimator raises requirements during takeoff), so
+  // it stays fully generic-CRUD.
+  material_requirements: {
+    table: "material_requirements",
+    insertable: ["owner", "pm", "estimator"],
+    updatable: ["owner", "pm", "estimator"],
+    deletable: ["owner", "pm"],
+    readable: ["owner", "pm", "estimator", "foreman", "accounting"],
+    hasCompanyId: true,
+    sequence: { prefix: "MR", field: "mr_number" },
+    activity: { entity_type: "material_requirements", label_field: "mr_number" },
+  },
+  // rfqs/vendor_quotes: insertable is deliberately empty — a compound create
+  // (header + lines + vendors, or header + priced lines) can only produce a
+  // valid row via the RPC-backed endpoints in controllers/rfq.ts. A bare
+  // generic insert would create a useless orphaned header with no lines.
+  // updatable stays open for simple corrections (e.g. "mark as sent").
+  rfqs: {
+    table: "rfqs",
+    insertable: [],
+    updatable: ["owner", "pm", "accounting"],
+    deletable: ["owner"],
+    readable: ["owner", "pm", "accounting", "estimator"],
+    hasCompanyId: true,
+    activity: { entity_type: "rfqs", label_field: "rfq_number" },
+  },
+  rfq_lines: {
+    table: "rfq_lines",
+    insertable: [],
+    updatable: [],
+    deletable: [],
+    readable: ["owner", "pm", "accounting", "estimator"],
+    hasCompanyId: true,
+  },
+  rfq_vendors: {
+    table: "rfq_vendors",
+    insertable: [],
+    updatable: [],
+    deletable: [],
+    readable: ["owner", "pm", "accounting", "estimator"],
+    hasCompanyId: true,
+  },
+  vendor_quotes: {
+    table: "vendor_quotes",
+    insertable: [],
+    updatable: ["owner", "pm", "accounting"],
+    deletable: [],
+    readable: ["owner", "pm", "accounting", "estimator"],
+    hasCompanyId: true,
+  },
+  vendor_quote_lines: {
+    table: "vendor_quote_lines",
+    insertable: [],
+    updatable: [],
+    deletable: [],
+    readable: ["owner", "pm", "accounting", "estimator"],
+    hasCompanyId: true,
+  },
+  // Read-only view (Phase 1, §11) — never registered generically until now.
+  // The RFQ comparison table surfaces on_time_pct/exception_count per vendor
+  // read-only, reusing this view as-is rather than inventing a new score.
+  vendor_performance: {
+    table: "vendor_performance",
+    insertable: [],
+    updatable: [],
+    deletable: [],
+    readable: ["owner", "pm", "accounting", "estimator"],
+    hasCompanyId: true,
+  },
 };
 
 export function tableConfig(table: string): TableConfig | undefined {

@@ -7,7 +7,6 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { useResourceList, useCreate, useAssignHeatToBundle } from "@/hooks/useResource";
-import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { Plus, FlameKindling, Loader2, X } from "lucide-react";
 
 interface Bundle {
@@ -30,16 +29,14 @@ export default function BundlesPage() {
 }
 
 function BundlesPageInner() {
-  const { selectedProjectId } = useGlobalProject();
   const searchParams = useSearchParams();
   const preselectedReceiving = searchParams.get("receiving");
 
-  const list = useResourceList<Bundle>("bundles", selectedProjectId
-    ? { project_id: selectedProjectId, order_by: "created_at", dir: "desc" }
-    : { order_by: "created_at", dir: "desc" });
-  const receivings = useResourceList<Receiving>("receivings", selectedProjectId
-    ? { project_id: selectedProjectId, order_by: "created_at", dir: "desc", limit: "100" }
-    : { order_by: "created_at", dir: "desc", limit: "100" });
+  // Bundles are company-wide — not filtered by the Global Project Context
+  // (§16: procurement is decoupled from projects; a project only ever holds
+  // a reservation against the material lots that come out of a bundle).
+  const list = useResourceList<Bundle>("bundles", { order_by: "created_at", dir: "desc" });
+  const receivings = useResourceList<Receiving>("receivings", { order_by: "created_at", dir: "desc", limit: "100" });
   const pos = useResourceList<PO>("purchase_orders", { limit: "200" });
   const create = useCreate<Bundle>("bundles");
 
@@ -118,7 +115,6 @@ function BundlesPageInner() {
       {heatTarget && (
         <AssignHeatModal
           bundle={heatTarget}
-          projectId={selectedProjectId}
           onClose={() => setHeatTarget(null)}
         />
       )}
@@ -169,8 +165,8 @@ function NewBundleModal({
   );
 }
 
-function AssignHeatModal({ bundle, projectId, onClose }: {
-  bundle: Bundle; projectId: string | null; onClose: () => void;
+function AssignHeatModal({ bundle, onClose }: {
+  bundle: Bundle; onClose: () => void;
 }) {
   const heats = useResourceList<Heat>("heat_numbers", { order_by: "heat_number", dir: "desc", limit: "200" });
   const createHeat = useCreate<Heat>("heat_numbers");
@@ -188,7 +184,6 @@ function AssignHeatModal({ bundle, projectId, onClose }: {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!projectId) { setError("Select a project first."); return; }
     if (!f.heat_number.trim() || !f.profile.trim() || !f.grade.trim()) return;
 
     setSubmitting(true);
@@ -207,7 +202,6 @@ function AssignHeatModal({ bundle, projectId, onClose }: {
         bundleId: bundle.id,
         body: {
           heat_number_id: heatNumberId,
-          project_id: projectId,
           profile: f.profile.trim(),
           grade: f.grade.trim(),
           length: f.length ? Number(f.length) : undefined,

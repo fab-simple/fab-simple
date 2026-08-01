@@ -18,7 +18,6 @@ const ALLOWED_ROLES = ["owner", "pm", "foreman", "qc"];
 
 const AssignHeatSchema = z.object({
   heat_number_id: z.string().uuid(),
-  project_id: z.string().uuid(),
   profile: z.string().min(1).max(80),
   grade: z.string().min(1).max(40),
   length: z.coerce.number().positive().optional(),
@@ -47,17 +46,14 @@ export async function assignHeatToBundle(ctx: Ctx, bundleId: string): Promise<Re
   if (hErr) return err(hErr.message, 400, "db_error");
   if (!heat) return err("Heat number not found", 404, "not_found");
 
-  const { data: project, error: pErr } = await ctx.sb
-    .from("projects").select("id").eq("id", body.project_id).maybeSingle();
-  if (pErr) return err(pErr.message, 400, "db_error");
-  if (!project) return err("Project not found", 404, "not_found");
-
   // The RPC touches bundles + material_lots + heat_numbers in one pass; it's
-  // security definer (like next_sequence_number) so it runs via sbAdmin.
+  // security definer (like next_sequence_number) so it runs via sbAdmin. No
+  // project is involved anywhere here — material lots are company-wide
+  // inventory; a project only ever holds a reservation against one (see
+  // lotReservation.ts), never ownership.
   const { data: lotId, error: rpcErr } = await ctx.sbAdmin.rpc("fn_assign_heat_to_bundle", {
     p_bundle_id: bundleId,
     p_heat_number_id: body.heat_number_id,
-    p_project_id: body.project_id,
     p_profile: body.profile,
     p_grade: body.grade,
     p_length: body.length ?? null,
@@ -84,11 +80,12 @@ export async function assignHeatToBundle(ctx: Ctx, bundleId: string): Promise<Re
 }
 
 /**
- * GET /material-lots/recommend?profile=&grade=&min_length=&project_id=
+ * GET /material-lots/recommend?profile=&grade=&min_length=
  * Best available lot first: closest length over the requirement, then
  * oldest inventory — matches the PDF's "Closest length, Lowest waste,
  * Oldest inventory first." Read-only; not a generic-CRUD shape (custom
  * ordering/filtering), so it's a bespoke endpoint rather than a table route.
+ * Company-wide — material lots have no project of their own (see §16).
  */
 export async function recommendLots(ctx: Ctx): Promise<Response> {
   if (!canRead(ctx.user.role, "material_lots")) return err("Forbidden", 403, "forbidden");
@@ -115,9 +112,6 @@ export async function recommendLots(ctx: Ctx): Promise<Response> {
     .order("created_at", { ascending: true })
     .limit(25);
   if (minLength != null) q = q.gte("length", minLength);
-
-  const projectId = ctx.url.searchParams.get("project_id");
-  if (projectId) q = q.eq("project_id", projectId);
 
   const { data, error } = await q;
   if (error) return err(error.message, 400, "db_error");

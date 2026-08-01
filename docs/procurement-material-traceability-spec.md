@@ -692,3 +692,414 @@ All decisions below were reviewed and confirmed directly with the owner before i
 - **1 RPC:** `fn_assign_heat_to_bundle`
 - **2 new Edge Function controllers:** `heatAssignment.ts` (bundle→heat assignment), `mtrExtraction.ts` (OCR extraction via the existing OpenAI-backed model) — plus 6 generic CRUD table registrations needing no bespoke controller code
 - **5 new/changed frontend pages**, 1 new reusable component (`ObjectDetailPanel`, Phase 4)
+
+---
+
+## 15. Phase 2 — Sourcing Workflow (full design)
+
+**Status:** ✅ Deployed to production (2026-08-02). Schema, RLS, Edge Function, and frontend all live and verified. Two corrections were made during implementation planning, not reflected in the DDL below as originally drafted — see §15.18.
+
+Phase 1 covers everything *after* a PO exists. Phase 2 covers everything *before* one does: raising a Material Requirement, shopping it to multiple vendors via RFQ, comparing quotes, and awarding — which auto-creates the PO that Phase 1's chain (Shipment → Receiving → Bundle → Heat → Lot) already knows how to consume.
+
+### 15.1 Decisions this section encodes
+
+| # | Decision | Resolution |
+|---|---|---|
+| D10 | Material Requirement ↔ Parts linkage | **No linkage.** MR is a standalone quantity/grade/profile record (matches the PDF's flat MR fields exactly). Awarding a PO from an MR does **not** flip any `parts.status` — that stays specific to the existing not-started-parts flow. |
+| D11 | RFQ vendor outreach | **Downloadable PDF only.** No auto-email, no response-tracking automation (that's Phase 5). PM downloads the RFQ PDF and sends it however they already do; quotes are then manually keyed in when vendors respond. |
+| D12 | Award behavior | **Auto-create PO draft immediately.** Awarding a quote runs an atomic RPC (`fn_award_vendor_quote`, mirrors `fn_assign_heat_to_bundle`'s pattern) that creates a `purchase_orders` row in `draft` status, fully pre-filled — zero re-entry. Owner/PM still reviews and issues it from the PO page like any other draft. |
+| D13 | Multi-project POs | **Per-line-item project tagging.** A single PO's `items` array can contain lines for different projects (`{ profile, grade, qty, unit_price, project_id, material_requirement_id }` per line). One vendor order can cover two jobs at once. |
+| D14 | RFQ/MR project scope | **RFQ can bundle Material Requirements from multiple projects upfront.** This is the one deliberate exception to the Global Project Context principle — building an RFQ is an explicit cross-project action, not an inherited-context page. `rfqs` itself carries no `project_id` column; project attribution lives on each `rfq_line` via its source MR. |
+| D15 | Existing "Create PO from not-started parts" flow | **Open — owner to decide separately (see §15.12).** Everything else in this section ships regardless of this call; it only affects whether that one existing endpoint is touched. |
+
+### 15.2 New enums
+
+```sql
+create type material_requirement_status as enum ('open', 'rfq_created', 'awarded', 'fulfilled', 'cancelled');
+create type rfq_status                  as enum ('draft', 'sent', 'quotes_received', 'awarded', 'cancelled');
+create type quote_status                as enum ('pending', 'submitted', 'awarded', 'rejected', 'expired');
+```
+
+### 15.3 `material_requirements` (Module 1)
+
+```sql
+create table material_requirements (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references companies(id) on delete cascade,
+  project_id      uuid not null references projects(id) on delete cascade,
+  mr_number       text not null,
+  profile         text not null,
+  grade           text,
+  quantity        numeric(10,2) not null,
+  length          numeric(10,3),
+  weight          numeric(10,2),
+  required_date   date,
+  status          material_requirement_status not null default 'open',
+  notes           text,
+  created_by      uuid references users(id) on delete set null,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+create unique index mr_company_num_idx on material_requirements(company_id, mr_number);
+create index mr_project_idx on material_requirements(project_id);
+create index mr_status_idx on material_requirements(company_id, status);
+
+create trigger set_updated_at before update on material_requirements
+  for each row execute function fn_set_updated_at();
+```
+
+Project-scoped (`projectScoped: true` in nav config, like `purchase_orders`/`receiving`) — always created inside the active Global Project Context. Input is **manual entry only** in Phase 2; CSV import (the PDF's Module 1 also lists Tekla/SDS2/ERP import) is explicitly out of scope here — it's Phase 5 per the existing non-goals list, and even CSV-only would just reuse the app's existing generic importer as a fast-follow, not core Phase 2 work.
+
+`status` transitions: `open` → `rfq_created` (once any `rfq_line` references it) → `awarded` (once its RFQ is awarded) → `fulfilled` (manual, once the resulting PO is fully received — no automatic trigger for this in Phase 2, since a PO can span requirements from other projects too; owner/PM marks it manually) or `cancelled` at any point before `awarded`.
+
+### 15.4 `rfqs` (Module 2)
+
+```sql
+create table rfqs (
+  id                    uuid primary key default gen_random_uuid(),
+  company_id            uuid not null references companies(id) on delete cascade,
+  rfq_number            text not null,
+  status                rfq_status not null default 'draft',
+  delivery_requirement  text,
+  notes                 text,
+  created_by            uuid references users(id) on delete set null,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now()
+);
+create unique index rfq_company_num_idx on rfqs(company_id, rfq_number);
+
+create trigger set_updated_at before update on rfqs
+  for each row execute function fn_set_updated_at();
+```
+
+**Deliberately no `project_id` column** (§15.1 D14) — this is the one table in the whole module that doesn't inherit the Global Project Context, because its entire purpose is to let a PM shop requirements from several projects to the same vendor in one ask. The RFQ list page is therefore **not** gated by `ProjectGate` (unlike every other Phase 1/2 page) — it shows all RFQs company-wide regardless of the currently-selected project.
+
+### 15.5 `rfq_lines` (RFQ ↔ Material Requirement, many-to-many with a quantity snapshot)
+
+```sql
+create table rfq_lines (
+  id                        uuid primary key default gen_random_uuid(),
+  rfq_id                    uuid not null references rfqs(id) on delete cascade,
+  material_requirement_id   uuid not null references material_requirements(id) on delete restrict,
+  quantity                  numeric(10,2) not null,
+  created_at                timestamptz not null default now()
+);
+create unique index rfq_lines_unique_idx on rfq_lines(rfq_id, material_requirement_id);
+create index rfq_lines_mr_idx on rfq_lines(material_requirement_id);
+```
+
+`quantity` is a snapshot, not always equal to the MR's full quantity — an MR can in principle be split across two RFQs (e.g., half sourced from an incumbent vendor directly, half shopped competitively). `on delete restrict` on `material_requirement_id`: you can't delete an MR that's already on an RFQ; cancel it instead.
+
+A trigger (`fn_rfq_lines_after_insert`) flips the referenced `material_requirements.status` to `'rfq_created'` when the first line referencing it is inserted — mirrors Phase 1's rollup-trigger philosophy rather than requiring the client to update MR status itself.
+
+### 15.6 `rfq_vendors` (which vendors this RFQ was sent to)
+
+```sql
+create table rfq_vendors (
+  id          uuid primary key default gen_random_uuid(),
+  rfq_id      uuid not null references rfqs(id) on delete cascade,
+  vendor_id   uuid not null references vendors(id) on delete cascade,
+  created_at  timestamptz not null default now()
+);
+create unique index rfq_vendors_unique_idx on rfq_vendors(rfq_id, vendor_id);
+```
+
+Needed even without email automation (§15.1 D11) — this is what "Track Vendor Responses" (PDF Module 2) means in Phase 2: the RFQ detail page shows which vendors were asked and which have (and haven't) submitted a quote yet.
+
+### 15.7 `vendor_quotes` (Module 3 — one per vendor per RFQ)
+
+```sql
+create table vendor_quotes (
+  id               uuid primary key default gen_random_uuid(),
+  company_id       uuid not null references companies(id) on delete cascade,
+  rfq_id           uuid not null references rfqs(id) on delete cascade,
+  vendor_id        uuid not null references vendors(id) on delete restrict,
+  status           quote_status not null default 'pending',
+  lead_time_days   integer,
+  freight_cost     numeric(10,2),
+  validity_date    date,
+  notes            text,
+  created_by       uuid references users(id) on delete set null,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+create unique index vendor_quotes_unique_idx on vendor_quotes(rfq_id, vendor_id);
+
+create trigger set_updated_at before update on vendor_quotes
+  for each row execute function fn_set_updated_at();
+```
+
+### 15.8 `vendor_quote_lines` (per-material-line pricing)
+
+```sql
+create table vendor_quote_lines (
+  id                 uuid primary key default gen_random_uuid(),
+  vendor_quote_id    uuid not null references vendor_quotes(id) on delete cascade,
+  rfq_line_id        uuid not null references rfq_lines(id) on delete cascade,
+  unit_price         numeric(10,2) not null,
+  mill_name          text,
+  rolling_schedule   text,
+  created_at         timestamptz not null default now()
+);
+create unique index vendor_quote_lines_unique_idx on vendor_quote_lines(vendor_quote_id, rfq_line_id);
+```
+
+A vendor prices each material line separately (a mill quotes W14x82 and W24x68 at different $/lb) — this is why quotes need a header + lines shape rather than a single flat price, unlike Phase 1's simpler objects.
+
+### 15.9 `purchase_orders` — further alterations
+
+```sql
+alter table purchase_orders
+  add column rfq_id uuid references rfqs(id) on delete set null;
+
+create index po_rfq_idx on purchase_orders(rfq_id);
+```
+
+(This is exactly the FK §6.3 flagged as "added in Phase 2 alongside the tables they reference.")
+
+**`items` JSONB shape gains two optional fields per line** — additive, backward-compatible with every existing PO (manual entry, CSV import, and the from-parts flow all keep working untouched, since they simply never populate these two fields):
+
+```ts
+interface LineItem {
+  profile: string;
+  grade: string | null;
+  qty: number;
+  piece_count: number;
+  total_weight_lb: number;
+  unit_price?: number;                    // new — from the awarded quote line
+  project_id?: string | null;             // new — per-line project attribution (§15.1 D13)
+  material_requirement_id?: string | null; // new — traceability back to the MR that drove this line
+}
+```
+
+### 15.10 `fn_award_vendor_quote` RPC (Module 3's "Award Vendor" action)
+
+Atomic, mirrors `fn_assign_heat_to_bundle`'s security-definer RPC pattern:
+
+```sql
+create or replace function fn_award_vendor_quote(p_vendor_quote_id uuid)
+returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  v_quote vendor_quotes%rowtype;
+  v_company_id uuid;
+  v_po_number text;
+  v_items jsonb;
+  v_total_qty numeric;
+  v_po_id uuid;
+begin
+  select * into v_quote from vendor_quotes where id = p_vendor_quote_id;
+  if v_quote.status not in ('pending', 'submitted') then
+    raise exception 'quote % is not awardable (status=%)', p_vendor_quote_id, v_quote.status;
+  end if;
+  v_company_id := v_quote.company_id;
+
+  select
+    jsonb_agg(jsonb_build_object(
+      'profile', mr.profile, 'grade', mr.grade, 'qty', rl.quantity,
+      'piece_count', rl.quantity, 'total_weight_lb', 0,
+      'unit_price', vql.unit_price,
+      'project_id', mr.project_id,
+      'material_requirement_id', mr.id
+    )),
+    sum(rl.quantity)
+  into v_items, v_total_qty
+  from vendor_quote_lines vql
+  join rfq_lines rl on rl.id = vql.rfq_line_id
+  join material_requirements mr on mr.id = rl.material_requirement_id
+  where vql.vendor_quote_id = p_vendor_quote_id;
+
+  v_po_number := next_sequence_number(v_company_id, 'purchase_orders', 'PO', 4);
+
+  insert into purchase_orders (
+    company_id, po_number, vendor, vendor_id, rfq_id, items,
+    qty_ordered, status, expected_date
+  ) values (
+    v_company_id, v_po_number,
+    (select name from vendors where id = v_quote.vendor_id), v_quote.vendor_id,
+    v_quote.rfq_id, v_items, v_total_qty, 'draft',
+    current_date + coalesce(v_quote.lead_time_days, 0)
+  ) returning id into v_po_id;
+
+  update vendor_quotes set status = 'awarded' where id = p_vendor_quote_id;
+  update vendor_quotes set status = 'rejected'
+    where rfq_id = v_quote.rfq_id and id <> p_vendor_quote_id and status in ('pending', 'submitted');
+  update rfqs set status = 'awarded' where id = v_quote.rfq_id;
+  update material_requirements set status = 'awarded'
+    where id in (
+      select rl.material_requirement_id from rfq_lines rl
+      join vendor_quote_lines vql on vql.rfq_line_id = rl.id
+      where vql.vendor_quote_id = p_vendor_quote_id
+    );
+
+  return v_po_id;
+end;
+$$;
+```
+
+Note this is a **read-then-write across many tables in one transaction**, same shape as Phase 1's RPCs — no client-side multi-step orchestration, no partial-award race condition.
+
+### 15.11 Receiving rework for multi-project POs
+
+Phase 1's `fn_receivings_before_insert` (§6.5) silently copies `receivings.project_id` from `purchase_orders.project_id`. With D13, a PO's line items can now span projects, so that single-field copy is no longer always correct.
+
+**Scope decision for Phase 2** (recommended, not yet asked as a separate question — flagging here for your review): rather than building full per-line-item receiving allocation (splitting one delivery's quantity across multiple projects' lines, which would require reworking `qty_remaining_on_po`/`qty_backordered` math to be per-line instead of per-PO), keep receivings as **one project per receiving event**:
+
+- If every item on the PO shares the same `project_id` (or none do — the common case, including every Phase-1-era PO), `project_id` keeps auto-deriving exactly as today. **Zero behavior change for existing/single-project POs.**
+- If the PO's items span more than one distinct `project_id`, the trigger now requires the client to pass `project_id` explicitly (raises an error otherwise) — the receiving clerk picks which project this particular delivery is for.
+- A truck that genuinely carries a mixed load for two projects is logged as **two receiving records** against the same PO (one per project), reusing the append-only, multiple-receivings-per-PO model Phase 1 already built — not a new capability, just applying the existing pattern.
+
+This keeps the rework contained to `fn_receivings_before_insert`'s validation branch and the Receiving page's "New receiving" modal (add a project picker, only shown/required when the selected PO is multi-project). `fn_bundles_set_project_id` needs no change — it already derives from the receiving's `project_id`, which is now guaranteed correct either way.
+
+### 15.12 Open item: existing "Create PO from not-started parts" flow
+
+Per §15.1 D15, this is still your call. Recap of the two options (unchanged from the earlier discussion):
+
+- **Option A (recommended):** leave `purchaseOrder.ts`'s `previewPoFromParts`/`createPoFromParts` completely untouched. The fast lane and the new MR→RFQ→Quote→Award lane run side by side, with no shared code. Zero risk to shipped functionality; the tradeoff is that a "Material Requirements" list will never show parts-driven POs.
+- **Option B:** the existing endpoint first creates a `material_requirements` row (auto-populated from the aggregated parts, immediately marked `awarded` — no RFQ step) before creating the PO, so every PO has a traceable MR origin. More architecturally complete, but changes a working, shipped code path.
+
+Nothing else in this section depends on this decision — it can be made and implemented independently, at any point, without blocking §15.2–§15.11.
+
+### 15.13 API surface
+
+**Generic CRUD registrations** (`permissions.ts`):
+
+```ts
+material_requirements: {
+  table: "material_requirements",
+  insertable: ["owner", "pm", "estimator"],
+  updatable: ["owner", "pm", "estimator"],
+  deletable: ["owner", "pm"],
+  readable: ["owner", "pm", "estimator", "foreman", "accounting"],
+  hasCompanyId: true,
+  sequence: { prefix: "MR", field: "mr_number" },
+  activity: { entity_type: "material_requirements", label_field: "mr_number" },
+},
+rfqs: {
+  table: "rfqs",
+  insertable: ["owner", "pm", "accounting"],
+  updatable: ["owner", "pm", "accounting"],
+  deletable: ["owner"],
+  readable: ["owner", "pm", "accounting", "estimator"],
+  hasCompanyId: true,
+  sequence: { prefix: "RFQ", field: "rfq_number" },
+  activity: { entity_type: "rfqs", label_field: "rfq_number" },
+},
+vendor_quotes: {
+  table: "vendor_quotes",
+  insertable: ["owner", "pm", "accounting"],
+  updatable: ["owner", "pm", "accounting"],
+  deletable: ["owner"],
+  readable: ["owner", "pm", "accounting", "estimator"],
+  hasCompanyId: true,
+},
+```
+
+`rfq_lines`, `rfq_vendors`, `vendor_quote_lines` are child rows managed through their parent's dedicated controller (below), not exposed as standalone generic-CRUD tables — same reasoning as Phase 1 keeping `rfq_lines`-style join rows out of the generic registry.
+
+**Dedicated controllers** (`supabase/functions/api/controllers/rfq.ts`):
+
+- `POST /rfqs` — compound create: RFQ header + `rfq_lines` (from selected MRs, possibly cross-project) + `rfq_vendors` (selected vendors) in one atomic call, mirroring how `heatAssignment.ts` wraps multi-table writes.
+- `GET /rfqs/:id/pdf` — generates the downloadable RFQ PDF (§15.1 D11): project(s), material lines, required date, delivery requirement. Reuses whichever PDF-generation approach `billing_applications` already uses in this codebase, rather than introducing a new library.
+- `POST /vendor-quotes` — compound create: quote header + `vendor_quote_lines` (one per `rfq_line`) in one call.
+- `POST /vendor-quotes/:id/award` — thin wrapper around `fn_award_vendor_quote`, same shape as `heatAssignment.ts`'s `assignHeatToBundle`: role check (`owner|pm|accounting`) → RPC call → `writeAudit` + `writeActivity` → return `{ purchase_order }`.
+
+### 15.14 RBAC mapping
+
+| Role | Material Requirements | RFQ / Quotes | Award |
+|---|---|---|---|
+| owner | Full | Full | ✅ |
+| pm | Full | Full | ✅ |
+| estimator | Create/Read (raises requirements during takeoff) | Read only | ❌ |
+| accounting | Read | Full (Purchasing Manager persona = pm+accounting, per §9.1) | ✅ |
+| foreman | Read | ❌ | ❌ |
+| qc, worker | ❌ | ❌ | ❌ |
+
+### 15.15 Frontend pages
+
+- **Material Requirements** (`app/(dashboard)/dashboard/material-requirements/page.tsx`) — project-scoped list + create modal, same shape as Phase 1's `vendors`/`inbound-shipments` pages.
+- **RFQ** (`app/(dashboard)/dashboard/rfqs/page.tsx`) — **not** project-scoped (§15.4). List view + a "New RFQ" flow: multi-select Material Requirements across any project, multi-select vendors, delivery requirement text, "Download PDF" once created.
+- **RFQ detail** — shows vendors invited vs. responded, an "Enter Quote" action per vendor (opens a modal to key in price-per-line/lead-time/freight/validity), and once ≥1 quote exists, a **comparison table**: vendors as columns, RFQ lines as rows, unit prices, computed total, lead time, freight, and the existing `vendor_performance` view's `on_time_pct`/`exception_count` surfaced read-only (§15.1 — no new scoring formula invented; Phase 1's view is reused as-is per your earlier "keep it simple" pattern). "Award" button per vendor column.
+- **Purchase Orders page** — small addition: if `po.rfq_id` is set, show an "via RFQ-0001" badge/link; the items table renders the (now-optional) per-line project name when present.
+
+### 15.16 Testing plan
+
+Mirrors §11's structure:
+
+- **Trigger tests:** `fn_award_vendor_quote` — awarding rejects all sibling quotes on the same RFQ; awarding an already-awarded/rejected quote raises; the resulting PO's `items` correctly carries `project_id` per line for a 2-project RFQ.
+- **Integration test:** `POST /vendor-quotes/:id/award` — 403 for `foreman`/`qc`/`worker`; happy path returns a `draft` PO with correct `qty_ordered` sum.
+- **Multi-project E2E:** create MR in Project A, MR in Project B → one RFQ bundling both → 2 vendor quotes → award the cheaper → verify PO items carry correct `project_id` per line → receive against Project A only (single receiving) → verify a same-PO receiving attempt without `project_id` is rejected → receive again with `project_id` for Project B → verify each resulting bundle/lot lands in the correct project's Traceable Lots tab.
+- **RLS:** `estimator` can create `material_requirements` and read `rfqs`/`vendor_quotes` but cannot insert either; `foreman` can't read any Phase 2 table.
+
+### 15.17 Rollout plan
+
+Note: §16 below consumed the `20260802000001`/`20260802000002` migration slots for the project-decoupling fix before Phase 2 implementation started. Use the next free timestamps when this phase actually ships.
+
+1. `20260802000003_phase2_sourcing.sql` — enums, `material_requirements`, `rfqs`, `rfq_lines`, `rfq_vendors`, `vendor_quotes`, `vendor_quote_lines`, `purchase_orders.rfq_id`, `fn_award_vendor_quote`. (§15.11's receiving rework is superseded — receivings no longer carry `project_id` at all per §16, so there's nothing left to rework there.)
+2. `20260802000004_phase2_rls.sql` — standard two-policy RLS on all 6 new tables.
+3. No backfill needed — every new table starts empty; `purchase_orders.rfq_id` defaults to `null` for all existing rows.
+4. Deploy order matches §10.4: DB migration → Edge Function deploy (`rfq.ts` + `permissions.ts` additions) → frontend deploy.
+5. No feature flag needed — purely additive, same reasoning as Phase 1 (§10.5).
+
+### 15.18 Corrections made during implementation (2026-08-02)
+
+Two things changed from the draft above during the implementation planning pass, both discovered by checking actual codebase state rather than assuming:
+
+1. **No `GET /rfqs/:id/pdf` backend endpoint.** §15.13 assumed server-side PDF generation "reusing whichever approach billing_applications uses." That approach turned out to be 100% client-side (`lib/pdf.ts`, jsPDF + jspdf-autotable — see `generateAiaG702`/`generateQcReport`). RFQ PDF generation follows the same pattern: `generateRfqPdf()` in `lib/pdf.ts`, called from the RFQ detail page with data it already has loaded, `.save()`d directly in the browser. No backend route exists or is needed for this.
+2. **`rfq_lines`, `rfq_vendors`, `vendor_quote_lines` carry their own `company_id`.** The original draft (§15.5/§15.6/§15.8) left these child tables without `company_id`, which would have required EXISTS-subquery RLS policies against the parent table — a pattern not used anywhere else in this schema. Every other table, including Phase 1's own join-like tables, carries `company_id` directly. Adding it to these three keeps every RLS policy in this module the same simple `company_id = get_user_company_id()` shape.
+
+**D15 resolution:** Option A — `purchaseOrder.ts`'s `previewPoFromParts`/`createPoFromParts` flow was left completely untouched. It runs alongside the new MR→RFQ→Quote→Award lane with zero shared code, as originally recommended.
+
+**Also completed as part of this pass, not previously spec'd:**
+- `fn_vendor_quotes_after_insert` trigger — flips `rfqs.status` to `'quotes_received'` on the first quote insert (only advancing `draft`/`sent`, never overwriting a terminal status). §15.4's status lifecycle didn't previously specify how this transition happens; "sent" itself remains a manual PATCH from the RFQ detail page's "Mark as sent" button.
+- `fn_create_rfq` / `fn_create_vendor_quote` RPCs — the spec's "compound create" language for `POST /rfqs`/`POST /vendor-quotes` implied atomicity but hadn't spec'd the actual security-definer function; both now exist, mirroring `fn_assign_heat_to_bundle`'s pattern.
+- `vendor_performance` (the read-only view from Phase 1, §11) was never actually registered in `permissions.ts` — the RFQ comparison table is the first thing to read it, so it's now registered read-only for `owner`/`pm`/`accounting`/`estimator`.
+- A stale `project_id: uuid.optional()` field was found in `material_lots`'s Zod validation schema, left over from §16 dropping that column — removed as a drive-by fix (it was dead/unreachable in practice, but would have produced a confusing Postgres error if a client ever sent it).
+
+### 15.19 Material Requirements bulk sheet import (2026-08-02)
+
+**Status:** ✅ Deployed to production.
+
+**Trigger:** shops raise Material Requirements from existing KISS/EJE/Tekla/SDS2-style material-list spreadsheets, not from scratch — manual one-row-at-a-time entry (the only path Phase 2 originally shipped with) doesn't match that workflow. Validated end-to-end against a real shop sample file (`CSF New Shop part list.xlsx`, 77 piece-level rows).
+
+**Key design point — Material Requirements are a per-(profile, name, grade, length) *aggregate*, not a per-piece record.** Unlike the existing Tekla/SDS2 `parts` importer (`controllers/import.ts`, one row in → one part row out), a material-list sheet's piece-level rows (one per Part Mark) are folded together client-side before the API ever sees them: rows sharing the same profile + name + grade + length collapse into one requirement with quantity summed across them. This is a deliberate difference from Phase 1's parts import, not an oversight.
+
+**Schema:**
+- `material_requirements.length` changed from `numeric(10,3)` to `text` (migration `20260802000005`) — exact same reasoning as `20260717000001_parts_length_text`: these sheets export length as mixed feet-inches-fraction strings (e.g. `26'-9 9/16"`), stored verbatim rather than parsed.
+- **New `material_requirements.name` column** — the structural member descriptor (e.g. "COLUMN", "CRANE_BEAM"), same role as `parts.name`. Promoted to its own first-class, required-for-import field rather than folded into `notes` — confirmed with the owner that this is important classification data, not incidental metadata, after an initial draft under-weighted it.
+
+**Column mapping** (`app/(dashboard)/dashboard/material-requirements/page.tsx`, `MR_FIELDS`), disambiguating two commonly-confused sheet columns:
+- "Profile Size" → `profile` (the actual section)
+- "Profile Name" → `name` (required; the category label)
+- "Part Mark" → `notes` — a piece-level identifier with no purchasing-level meaning on an aggregate requirement, but preserved as a comma-joined list of the marks that rolled into each group, purely for traceability back to the source sheet.
+- "QTY" → `quantity` (summed per group), "Grade" → `grade`, "Cut Length" → `length`.
+
+On the sample file, this maps all 6 sheet columns with zero left unaccounted for.
+
+**Shared infrastructure:** the CSV/XLSX parsing, header-row auto-detection, and alias-based column-mapping logic were extracted from the Tekla/SDS2 importer into `lib/sheet-import.ts` so both importers share identical behavior rather than drifting apart (DRY) — `import/page.tsx` was refactored to use the shared module with no behavior change.
+
+**API:** `POST /material-requirements/import` (`controllers/materialRequirementImport.ts`) — client sends already-mapped, already-aggregated rows; server validates project ownership and bulk-inserts, auto-generating an `mr_number` per row via the same `next_sequence_number` RPC every other path uses. No upsert logic needed (every row is a fresh requirement, unlike parts' upsert-by-mark).
+
+**Verification:** the full parse → map → aggregate pipeline was simulated in Node against the actual sample file before deploy — 77 rows → 27 aggregated requirements, 0 rows skipped, quantity-conservation checked (600 units in, 600 out), confirmed after the Name/Notes redesign that every one of the file's 6 columns maps to a destination.
+
+---
+
+## 16. Decoupling procurement from projects (2026-08-02)
+
+**Status:** ✅ Deployed to production. Schema verified live, Edge Function deployed, frontend pages live and decoupled from Global Project Context gating.
+
+**Trigger:** a post-launch audit of Phase 1 found that `receivings` and `bundles` had `project_id NOT NULL`, which made the entire Receive → Bundle → Heat → Lot chain impossible to use without an active Global Project Context — directly contradicting the owner's intent that procured material should be a shared company-wide pool, not something that gets locked to whichever project happened to be active when it was received.
+
+**Resolution — material lots are never owned by a project; a project only ever holds a partial, releasable *reservation* against one:**
+
+- `receivings.project_id`, `bundles.project_id`, `material_lots.project_id` — **dropped entirely** (not just made nullable). None of the three ever needs a project again. `purchase_orders.project_id` is untouched — it stays optional and purely informational for job-costing, and never restricted material availability in the first place.
+- **New `lot_reservations` table** — `material_lot_id`, `project_id`, `quantity`, `status` (`active`/`released`/`consumed`). A single lot can carry active reservations for several projects simultaneously; "available to reserve" = `material_lots.quantity − sum(active reservations)`. Enforced at the DB layer too (`fn_lot_reservations_before_insert` raises rather than allowing over-reservation), not just in the API.
+- `fn_assign_heat_to_bundle` RPC — dropped the `p_project_id` parameter. Heat assignment (and therefore lot creation) never touches a project.
+- **Dedicated endpoints** (`supabase/functions/api/controllers/lotReservation.ts`): `POST /material-lots/:id/reserve`, `POST /lot-reservations/:id/release`. Both are blocked in the generic CRUD registry (`insertable: []`) since reserving requires an availability check the generic handler can't express.
+- **Inventory → Traceable Lots tab**: no longer filtered by the Global Project Context. "Reserve" opens a modal (project + quantity, capped at what's available). Each lot shows its active reservations as removable chips; releasing one hands the quantity back to the shared pool.
+- **Nav gating removed**: `purchase-orders`, `inbound-shipments`, `receiving`, `bundles` are no longer `projectScoped: true` — none of them have anything left to gate on. `vendors`, `inventory`, `heat-numbers` were already company-wide.
+- **List queries decoupled**: Receiving's open-PO queue, Inbound Shipments' PO picker, and the Bundles list no longer filter by `selectedProjectId` — a company-wide (or any-project) PO is always visible regardless of which project happens to be selected in the sidebar.
+
+**Migrations:** `20260802000001_procurement_decouple_projects.sql` (schema + trigger/RPC rewrites + `lot_reservations`), `20260802000002_procurement_decouple_rls.sql` (RLS on the new table). Safe to apply directly — no data existed yet in `receivings`, `bundles`, or `material_lots` at the time of this change (confirmed with the owner before writing the migration), so there was nothing to backfill into `lot_reservations`.
+
+**Interaction with Phase 2 (§15):** §15.9's per-line-item `project_id` tagging on `purchase_orders.items` is unaffected — that's about PO cost attribution across projects, a different concern from lot ownership. §15.11 (the multi-project receiving rework) is superseded and no longer needed, since receivings carry no project at all now.

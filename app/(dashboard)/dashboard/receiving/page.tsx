@@ -8,7 +8,6 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
 import { useResourceList, useCreate } from "@/hooks/useResource";
-import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { useCsvExport } from "@/hooks/useCsvExport";
 import { formatCurrency } from "@/lib/utils";
 import { PackageCheck, Loader2, Paperclip, X, ArrowRight } from "lucide-react";
@@ -35,13 +34,14 @@ interface Receiving {
 }
 
 export default function ReceivingPage() {
-  const { selectedProjectId } = useGlobalProject();
+  // Company-wide queue — not filtered by the Global Project Context (§16).
+  // A PO's own project_id, when set, stays purely informational for
+  // job-costing; it never restricts which POs show up here.
   const list = useResourceList<PO>("purchase_orders", {
     status__in: "issued,partial",
     order_by: "expected_date",
     dir: "asc",
     limit: "100",
-    ...(selectedProjectId ? { project_id: selectedProjectId } : {}),
   });
   // Receivings are the append-history record — the create-mutation triggers a
   // server-side rollup (fn_recompute_po_receiving) that updates the PO's own

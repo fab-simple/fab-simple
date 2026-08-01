@@ -7,7 +7,6 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { AttachmentsDrawer } from "@/components/ui/AttachmentsDrawer";
 import { useResourceList, useCreate } from "@/hooks/useResource";
-import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { Plus, Paperclip } from "lucide-react";
 
 interface InboundShipment {
@@ -20,12 +19,11 @@ interface PO { id: string; po_number: string; vendor: string; status: string; }
 const STATUSES = ["scheduled", "shipped", "in_transit", "arrived", "received"];
 
 export default function InboundShipmentsPage() {
-  const { selectedProjectId } = useGlobalProject();
   const list = useResourceList<InboundShipment>("inbound_shipments", { order_by: "created_at", dir: "desc" });
-  // Open POs for the active project — a shipment always belongs to one PO.
-  const openPos = useResourceList<PO>("purchase_orders", selectedProjectId
-    ? { project_id: selectedProjectId, status__in: "issued,partial", limit: "100" }
-    : { status__in: "issued,partial", limit: "100" });
+  // Company-wide — not filtered by the Global Project Context (§16). A
+  // shipment always belongs to one PO, but that PO's project (if any) is
+  // purely informational and never restricts which POs show up here.
+  const openPos = useResourceList<PO>("purchase_orders", { status__in: "issued,partial", limit: "100" });
   const create = useCreate<InboundShipment>("inbound_shipments");
   const [showNew, setShowNew] = useState(false);
   const [attachTarget, setAttachTarget] = useState<InboundShipment | null>(null);

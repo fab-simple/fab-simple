@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useMemo } from "react";
+import Link from "next/link";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
@@ -13,8 +14,10 @@ interface PO {
   id: string; po_number: string; vendor: string; total_amount: number;
   status: string; issued_date: string | null; expected_date: string | null;
   qty_ordered: number | null; qty_received: number; project_id: string | null;
+  rfq_id: string | null;
 }
 interface Project { id: string; name: string; }
+interface RfqRef { id: string; rfq_number: string; }
 
 const STATUSES = ["draft", "issued", "partial", "received", "closed"];
 
@@ -35,6 +38,10 @@ interface ParsedWorkbook {
 export default function PurchaseOrdersPage() {
   const list = useResourceList<PO>("purchase_orders", { order_by: "created_at", dir: "desc" });
   const projects = useResourceList<Project>("projects", { limit: "100" });
+  // Only fetched to resolve the "via RFQ-xxxx" badge (§15.15) — most POs have
+  // no rfq_id and this stays empty/unused for them.
+  const rfqs = useResourceList<RfqRef>("rfqs", { limit: "500" });
+  const rfqLookup = new Map((rfqs.data ?? []).map((r) => [r.id, r.rfq_number]));
   const create = useCreate<PO>("purchase_orders");
   const [showNew, setShowNew] = useState(false);
 
@@ -189,7 +196,18 @@ export default function PurchaseOrdersPage() {
 
   /* ── PO table columns ───────────────────────────────────────────────── */
   const cols: Column<PO>[] = [
-    { key: "num", label: "PO #", mono: true, render: (r) => <strong>{r.po_number}</strong> },
+    {
+      key: "num", label: "PO #", mono: true, render: (r) => (
+        <span className="flex items-center gap-1.5">
+          <strong>{r.po_number}</strong>
+          {r.rfq_id && rfqLookup.has(r.rfq_id) && (
+            <Link href={`/dashboard/rfqs/${r.rfq_id}`} className="pill" style={{ padding: "1px 6px", fontSize: 10 }} onClick={(e) => e.stopPropagation()}>
+              via {rfqLookup.get(r.rfq_id)}
+            </Link>
+          )}
+        </span>
+      ),
+    },
     { key: "vendor", label: "Vendor", render: (r) => r.vendor },
     { key: "amount", label: "Amount", align: "right", mono: true, render: (r) => `$${Number(r.total_amount).toLocaleString()}` },
     { key: "issued", label: "Issued", render: (r) => r.issued_date ? new Date(r.issued_date).toLocaleDateString() : "—" },

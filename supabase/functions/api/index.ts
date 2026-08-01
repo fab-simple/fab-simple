@@ -30,6 +30,9 @@ import { overrideSafetyGate, recordFieldBoltInspection, logErectionDelay } from 
 import { previewPoFromParts, createPoFromParts } from "./controllers/purchaseOrder.ts";
 import { assignHeatToBundle, recommendLots } from "./controllers/heatAssignment.ts";
 import { extractMtrDocument } from "./controllers/mtrExtraction.ts";
+import { reserveLot, releaseLotReservation } from "./controllers/lotReservation.ts";
+import { createRfq, createVendorQuote, awardVendorQuote } from "./controllers/rfq.ts";
+import { importMaterialRequirements } from "./controllers/materialRequirementImport.ts";
 
 const TABLE_RE = /^\/api\/?([a-z_]+)(?:\/([0-9a-f-]{36}))?\/?$/i;
 
@@ -142,6 +145,18 @@ Deno.serve(async (req) => {
     if (assignHeatMatch && method === "POST") return assignHeatToBundle(ctx, assignHeatMatch[1]);
     const extractMtrMatch = path.match(/^\/mtr-documents\/([0-9a-f-]{36})\/extract$/i);
     if (extractMtrMatch && method === "POST") return extractMtrDocument(ctx, extractMtrMatch[1]);
+    const reserveLotMatch = path.match(/^\/material-lots\/([0-9a-f-]{36})\/reserve$/i);
+    if (reserveLotMatch && method === "POST") return reserveLot(ctx, reserveLotMatch[1]);
+    const releaseResMatch = path.match(/^\/lot-reservations\/([0-9a-f-]{36})\/release$/i);
+    if (releaseResMatch && method === "POST") return releaseLotReservation(ctx, releaseResMatch[1]);
+
+    // Sourcing Workflow (Phase 2, §15) — compound creates go through
+    // RPC-backed endpoints, not the generic /rfqs, /vendor_quotes POST route.
+    if (path === "/rfqs" && method === "POST") return createRfq(ctx);
+    if (path === "/vendor-quotes" && method === "POST") return createVendorQuote(ctx);
+    const awardMatch = path.match(/^\/vendor-quotes\/([0-9a-f-]{36})\/award$/i);
+    if (awardMatch && method === "POST") return awardVendorQuote(ctx, awardMatch[1]);
+    if (path === "/material-requirements/import" && method === "POST") return importMaterialRequirements(ctx);
 
     // Files
     if (path === "/files/sign-upload" && method === "POST") return signUpload(ctx);

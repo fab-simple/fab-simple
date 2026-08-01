@@ -419,7 +419,6 @@ export const Schemas = {
   // primary creation path is the fn_assign_heat_to_bundle RPC (see
   // controllers/heatAssignment.ts), not this generic insert route.
   material_lots: z.object({
-    project_id: uuid.optional(),
     bundle_id: uuid.optional(),
     heat_number_id: uuid,
     profile: z.string().min(1).max(80),
@@ -440,6 +439,42 @@ export const Schemas = {
     mill_name: z.string().max(120).optional(),
     ocr_status: z.enum(["pending", "extracted", "manual_review", "verified"]).optional(),
     extracted_by: z.string().max(120).optional(),
+  }),
+
+  // Phase 2 — Sourcing Workflow (§15). Standalone quantity/grade/profile
+  // record, no linkage to `parts` (§15.1 D10).
+  material_requirements: z.object({
+    project_id: uuid,
+    profile: z.string().min(1).max(80),
+    // Structural member descriptor (e.g. "COLUMN", "CRANE_BEAM") — same role
+    // as parts.name. A primary classification field, not incidental notes.
+    name: z.string().max(120).optional(),
+    grade: z.string().max(40).optional(),
+    quantity: numeric.positive(),
+    // Free-form text (e.g. 26'-9 9/16") — stored verbatim, not parsed. Same
+    // reasoning as parts.length.
+    length: z.string().max(40).optional(),
+    weight: numeric.optional(),
+    required_date: dateStr.optional(),
+    status: z.enum(["open", "rfq_created", "awarded", "fulfilled", "cancelled"]).optional(),
+    notes: z.string().max(2000).optional(),
+  }),
+
+  // rfqs/vendor_quotes are insert-blocked (compound creation goes through
+  // controllers/rfq.ts's RPC-backed endpoints) — this schema only backs the
+  // generic UPDATE path (e.g. the "mark as sent" status flip).
+  rfqs: z.object({
+    delivery_requirement: z.string().max(500).optional(),
+    notes: z.string().max(2000).optional(),
+    status: z.enum(["draft", "sent", "quotes_received", "awarded", "cancelled"]).optional(),
+  }),
+
+  vendor_quotes: z.object({
+    status: z.enum(["pending", "submitted", "awarded", "rejected", "expired"]).optional(),
+    lead_time_days: intish.nonnegative().optional(),
+    freight_cost: numeric.nonnegative().optional(),
+    validity_date: dateStr.optional(),
+    notes: z.string().max(2000).optional(),
   }),
 } as const;
 
