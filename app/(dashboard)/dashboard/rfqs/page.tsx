@@ -104,8 +104,18 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
       return next;
     });
   }
+  function toggleAllMrs() {
+    const allMrs = mrs.data ?? [];
+    setSelectedMrs((prev) => {
+      if (allMrs.length > 0 && allMrs.every((mr) => mr.id in prev)) return {};
+      const next: Record<string, string> = { ...prev };
+      for (const mr of allMrs) next[mr.id] = mr.id in prev ? prev[mr.id] : String(mr.quantity);
+      return next;
+    });
+  }
 
   const mrCount = Object.keys(selectedMrs).length;
+  const allMrsSelected = (mrs.data ?? []).length > 0 && (mrs.data ?? []).every((mr) => mr.id in selectedMrs);
   const invalid = mrCount === 0 || selectedVendors.size === 0;
 
   return (
@@ -128,6 +138,12 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
         <div className="rounded-lg border" style={{ borderColor: "var(--border)", maxHeight: 220, overflowY: "auto" }}>
           {(mrs.data ?? []).length === 0 && (
             <div className="text-[12px] p-3" style={{ color: "var(--muted)" }}>No open material requirements. Raise one on a project first.</div>
+          )}
+          {(mrs.data ?? []).length > 0 && (
+            <label className="flex items-center gap-2 px-3 py-2 text-[12px] font-medium" style={{ borderBottom: "1px solid var(--border)" }}>
+              <input type="checkbox" checked={allMrsSelected} onChange={toggleAllMrs} />
+              Select all
+            </label>
           )}
           {(mrs.data ?? []).map((mr) => (
             <label key={mr.id} className="flex items-center gap-2 px-3 py-2 text-[12px]" style={{ borderBottom: "1px solid var(--border)" }}>
