@@ -157,7 +157,8 @@ export async function create(ctx: Ctx, table: string): Promise<Response> {
   const sanitized = sanitize(raw);
   const parsed = schema.safeParse(sanitized);
   if (!parsed.success) {
-    return err("Validation failed", 422, "validation");
+    const details = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    return err(`Validation failed — ${details}`, 422, "validation");
   }
 
   const row: Record<string, unknown> = { ...(parsed.data as Record<string, unknown>) };
@@ -176,11 +177,30 @@ export async function create(ctx: Ctx, table: string): Promise<Response> {
     row[cfg.sequence.field] = seq;
   }
 
-  // Insert via user-scoped client (so RLS validates)
-  const { data, error } = await ctx.sb.from(table).insert(row).select().single();
-  if (error) return err(error.message, 400, "db_error");
+  // Insert via user-scoped client (so RLS validates) with auto-retry for missing schema columns
+  let attemptRow = { ...row };
+  let data: Record<string, unknown> | null = null;
+  let error: { message: string } | null = null;
 
-  await writeAudit(ctx, { action: "insert", table_name: table, record_id: data.id, new_values: data });
+  for (let i = 0; i < 10; i++) {
+    const res = await ctx.sb.from(table).insert(attemptRow).select().single();
+    if (!res.error) {
+      data = res.data as Record<string, unknown>;
+      error = null;
+      break;
+    }
+    const match = res.error.message.match(/Could not find the '([^']+)' column/i);
+    if (match && match[1] && match[1] in attemptRow) {
+      delete attemptRow[match[1]];
+      continue;
+    }
+    error = res.error;
+    break;
+  }
+
+  if (error || !data) return err(error?.message ?? "Insert failed", 400, "db_error");
+
+  await writeAudit(ctx, { action: "insert", table_name: table, record_id: data.id as string, new_values: data });
   if (cfg.activity) {
     const label = cfg.activity.label_field ? (data as Record<string, unknown>)[cfg.activity.label_field] as string : null;
     await writeActivity(ctx, {
@@ -205,13 +225,35 @@ export async function update(ctx: Ctx, table: string, id: string): Promise<Respo
   let raw: unknown;
   try { raw = await ctx.req.json(); } catch { return err("Invalid JSON body", 400, "bad_json"); }
   const parsed = schema.safeParse(sanitize(raw));
-  if (!parsed.success) return err("Validation failed", 422, "validation");
+  if (!parsed.success) {
+    const details = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    return err(`Validation failed — ${details}`, 422, "validation");
+  }
 
   const { data: oldRow } = await ctx.sb.from(table).select("*").eq("id", id).maybeSingle();
   if (!oldRow) return err("Not found", 404, "not_found");
 
-  const { data, error } = await ctx.sb.from(table).update(parsed.data as Record<string, unknown>).eq("id", id).select().single();
-  if (error) return err(error.message, 400, "db_error");
+  let attemptPatch = { ...(parsed.data as Record<string, unknown>) };
+  let data: Record<string, unknown> | null = null;
+  let error: { message: string } | null = null;
+
+  for (let i = 0; i < 10; i++) {
+    const res = await ctx.sb.from(table).update(attemptPatch).eq("id", id).select().single();
+    if (!res.error) {
+      data = res.data as Record<string, unknown>;
+      error = null;
+      break;
+    }
+    const match = res.error.message.match(/Could not find the '([^']+)' column/i);
+    if (match && match[1] && match[1] in attemptPatch) {
+      delete attemptPatch[match[1]];
+      continue;
+    }
+    error = res.error;
+    break;
+  }
+
+  if (error || !data) return err(error?.message ?? "Update failed", 400, "db_error");
 
   await writeAudit(ctx, { action: "update", table_name: table, record_id: id, old_values: oldRow, new_values: data });
   if (cfg.activity) {

@@ -132,6 +132,7 @@ export async function convertEstimate(ctx: Ctx): Promise<Response> {
   if (eErr || !est) return err("Estimate not found", 404, "not_found");
 
   // Calculate pricing breakdown totals from the estimate
+  // Calculate pricing breakdown totals from the estimate
   const materials = Array.isArray(est.materials_breakdown) ? est.materials_breakdown : [];
   let materialTotal = 0;
   let totalTons = 0;
@@ -142,8 +143,12 @@ export async function convertEstimate(ctx: Ctx): Promise<Response> {
     totalTons += tons;
   }
 
-  const laborHours = Number(est.detailing_hours || 0) + Number(est.fabrication_hours || 0) + Number(est.erection_hours || 0);
-  const laborTotal = laborHours * Number(est.labor_rate || 75.00);
+  const detailingHours = Number(est.detailing_hours || 0);
+  const fabHours = Number(est.fabrication_hours || 0);
+  const erectionHours = Number(est.erection_hours || 0);
+  const laborHours = detailingHours + fabHours + erectionHours;
+  const laborRate = Number(est.labor_rate || 75.00);
+  const laborTotal = laborHours * laborRate;
 
   const freightTotal = Number(est.freight_mill_to_shop || 0) + Number(est.freight_shop_to_site || 0);
 
@@ -156,24 +161,61 @@ export async function convertEstimate(ctx: Ctx): Promise<Response> {
     }
   }
 
-  const subtotal = materialTotal + laborTotal + freightTotal + coatingTotal;
-  const marginTotal = subtotal * (Number(est.margin_pct || 15) / 100);
-  const contingencyTotal = subtotal * (Number(est.contingency_pct || 0) / 100);
+  // Parse additional_costs for Equipment, Subcontractor, Hardware, and other line items
+  const addlCosts = Array.isArray(est.additional_costs) ? est.additional_costs : [];
+  let equipmentTotal = 0;
+  let subcontractorTotal = 0;
+  let hardwareTotal = 0;
+  let otherAddlTotal = 0;
+
+  for (const c of addlCosts) {
+    const isPct = Boolean(c.is_percentage);
+    let amt = Number(c.amount || 0);
+    if (isPct) {
+      const basis = c.percentage_basis === "material" ? materialTotal : (materialTotal + laborTotal);
+      amt = basis * (amt / 100);
+    }
+    const cat = String(c.category || "other").toLowerCase();
+    if (cat === "equipment") equipmentTotal += amt;
+    else if (cat === "subcontractor") subcontractorTotal += amt;
+    else if (cat === "hardware") hardwareTotal += amt;
+    else otherAddlTotal += amt;
+  }
+
+  const subtotal = materialTotal + laborTotal + freightTotal + coatingTotal + equipmentTotal + subcontractorTotal + hardwareTotal + otherAddlTotal;
+  const marginPct = Number(est.margin_pct || 15);
+  const marginTotal = subtotal * (marginPct / 100);
+  const contingencyPct = Number(est.contingency_pct || 0);
+  const contingencyTotal = subtotal * (contingencyPct / 100);
   const totalBidPrice = subtotal + marginTotal + contingencyTotal;
 
   const finalContractValue = est.total_amount && Number(est.total_amount) > 0 
     ? Number(est.total_amount) 
     : totalBidPrice;
 
+  // Complete Baseline Budget object for project folder
   const baselineBudget = {
-    material: materialTotal,
-    labor: laborTotal,
-    freight: freightTotal,
-    coating: coatingTotal,
+    scope_of_work: est.exclusions_qualifications || "Standard Structural Steel Scope",
+    est_tonnage: totalTons || Number(est.structural_tons || 0),
+    unique_piece_marks: Number(est.unique_piece_marks || 0),
+    detailing_hours: detailingHours,
+    fabrication_hours: fabHours,
+    erection_hours: erectionHours,
+    labor_rate: laborRate,
+    material_cost: materialTotal,
+    labor_cost: laborTotal,
+    equipment_cost: equipmentTotal,
+    subcontract_cost: subcontractorTotal,
+    hardware_cost: hardwareTotal,
+    freight_cost: freightTotal,
+    coating_cost: coatingTotal,
     subtotal: subtotal,
-    margin: marginTotal,
-    contingency: contingencyTotal,
-    total: finalContractValue
+    profit_margin_pct: marginPct,
+    profit_margin_amount: marginTotal,
+    contingency_pct: contingencyPct,
+    contingency_amount: contingencyTotal,
+    contract_value: finalContractValue,
+    schedule_deadline: deadline ?? est.bid_due_date ?? null,
   };
 
   const { data: project, error: pErr } = await ctx.sb.from("projects").insert({
@@ -207,7 +249,9 @@ export async function convertEstimate(ctx: Ctx): Promise<Response> {
   // Seed baseline budgets into job_costs tracker
   const baselineCosts = [
     { company_id: ctx.user.company_id, project_id: project.id, cost_code: "material", description: "Material Baseline Budget", budget_amount: materialTotal },
-    { company_id: ctx.user.company_id, project_id: project.id, cost_code: "labor", description: "Labor Baseline Budget", budget_amount: laborTotal },
+    { company_id: ctx.user.company_id, project_id: project.id, cost_code: "labor", description: "Labor Baseline Budget (Fab + Detailing + Erection)", budget_amount: laborTotal },
+    { company_id: ctx.user.company_id, project_id: project.id, cost_code: "equipment", description: "Equipment & Crane Rental Budget", budget_amount: equipmentTotal },
+    { company_id: ctx.user.company_id, project_id: project.id, cost_code: "subcontractor", description: "Subcontractor Budget", budget_amount: subcontractorTotal },
     { company_id: ctx.user.company_id, project_id: project.id, cost_code: "freight", description: "Freight Baseline Budget", budget_amount: freightTotal },
     { company_id: ctx.user.company_id, project_id: project.id, cost_code: "coating", description: "Paint/Coating Baseline Budget", budget_amount: coatingTotal },
   ];
@@ -238,11 +282,39 @@ export async function convertEstimate(ctx: Ctx): Promise<Response> {
     billingRows.push({
       company_id: ctx.user.company_id,
       project_id: project.id,
-      description: `Labor - Detailing/Fabrication/Erection`,
+      description: `Labor - Detailing/Fabrication/Erection (${laborHours.toFixed(1)} hrs @ $${laborRate}/hr)`,
       quantity: laborHours,
       unit: "hr",
-      unit_cost: Number(est.labor_rate || 75.00),
+      unit_cost: laborRate,
       total_cost: laborTotal,
+      sort_order: sortOrder++,
+      source: "estimate_conversion",
+    });
+  }
+
+  if (equipmentTotal > 0) {
+    billingRows.push({
+      company_id: ctx.user.company_id,
+      project_id: project.id,
+      description: `Equipment & Crane Rental`,
+      quantity: 1,
+      unit: "ls",
+      unit_cost: equipmentTotal,
+      total_cost: equipmentTotal,
+      sort_order: sortOrder++,
+      source: "estimate_conversion",
+    });
+  }
+
+  if (subcontractorTotal > 0) {
+    billingRows.push({
+      company_id: ctx.user.company_id,
+      project_id: project.id,
+      description: `Subcontractor Services`,
+      quantity: 1,
+      unit: "ls",
+      unit_cost: subcontractorTotal,
+      total_cost: subcontractorTotal,
       sort_order: sortOrder++,
       source: "estimate_conversion",
     });

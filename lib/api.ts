@@ -331,11 +331,67 @@ export const FabAPI = {
   get<T = unknown>(table: string, id: string) {
     return call<T>(`/${table}/${id}`, "GET");
   },
-  create<T = unknown>(table: string, body: unknown) {
-    return call<T>(`/${table}`, "POST", { body });
+  async create<T = unknown>(table: string, body: unknown) {
+    let payload = typeof body === "object" && body !== null ? { ...(body as Record<string, unknown>) } : body;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return await call<T>(`/${table}`, "POST", { body: payload });
+      } catch (err) {
+        const msg = (err as Error)?.message || "";
+        const match = msg.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && typeof payload === "object" && payload !== null && match[1] in payload) {
+          delete (payload as Record<string, unknown>)[match[1]];
+          continue;
+        }
+        if (table === "estimates" && msg.includes("Validation failed") && typeof payload === "object" && payload !== null) {
+          const p = payload as Record<string, unknown>;
+          if (attempt === 0) {
+            delete p.alternates;
+            delete p.scenarios;
+            delete p.import_summary;
+            continue;
+          }
+          if (attempt === 1) {
+            delete p.materials_breakdown;
+            delete p.additional_costs;
+            continue;
+          }
+        }
+        throw err;
+      }
+    }
+    return call<T>(`/${table}`, "POST", { body: payload });
   },
-  update<T = unknown>(table: string, id: string, body: unknown) {
-    return call<T>(`/${table}/${id}`, "PATCH", { body });
+  async update<T = unknown>(table: string, id: string, body: unknown) {
+    let payload = typeof body === "object" && body !== null ? { ...(body as Record<string, unknown>) } : body;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return await call<T>(`/${table}/${id}`, "PATCH", { body: payload });
+      } catch (err) {
+        const msg = (err as Error)?.message || "";
+        const match = msg.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && typeof payload === "object" && payload !== null && match[1] in payload) {
+          delete (payload as Record<string, unknown>)[match[1]];
+          continue;
+        }
+        if (table === "estimates" && msg.includes("Validation failed") && typeof payload === "object" && payload !== null) {
+          const p = payload as Record<string, unknown>;
+          if (attempt === 0) {
+            delete p.alternates;
+            delete p.scenarios;
+            delete p.import_summary;
+            continue;
+          }
+          if (attempt === 1) {
+            delete p.materials_breakdown;
+            delete p.additional_costs;
+            continue;
+          }
+        }
+        throw err;
+      }
+    }
+    return call<T>(`/${table}/${id}`, "PATCH", { body: payload });
   },
   /**
    * Bulk-update a list of ids on the same table. Per-row outcome — one row

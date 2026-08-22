@@ -1,0 +1,73 @@
+import { describe, it, expect } from "vitest";
+import { parseKissFile } from "../lib/parsers/kiss-parser";
+import { aggregateBom } from "../lib/parsers/bom-aggregator";
+import { parseLengthToInches, buildCleanSection } from "../lib/parsers/types";
+
+describe("parseLengthToInches", () => {
+  it("parses SDS2 feet-inch-16ths strings (20-06-08)", () => {
+    expect(parseLengthToInches("20-06-08")).toBe(246.5);
+    expect(parseLengthToInches("20-06-00")).toBe(246);
+  });
+
+  it("parses Tekla feet-inches strings (20-6 1/2)", () => {
+    expect(parseLengthToInches("20-6 1/2")).toBe(246.5);
+    expect(parseLengthToInches("20' 6\"")).toBe(246);
+  });
+
+  it("parses decimal inches and mm", () => {
+    expect(parseLengthToInches("240.00")).toBe(240);
+    expect(parseLengthToInches("6096")).toBeCloseTo(240, 1);
+  });
+});
+
+describe("buildCleanSection", () => {
+  it("cleans member role codes (B, C, M, F) without prepending to profiles", () => {
+    expect(buildCleanSection("B", "W18X40")).toEqual({ section: "W18X40", category: "Wide Flange" });
+    expect(buildCleanSection("C", "W14X90")).toEqual({ section: "W14X90", category: "Wide Flange" });
+    expect(buildCleanSection("M", "HSS8X8X1/2")).toEqual({ section: "HSS8X8X1/2", category: "HSS / Tube" });
+    expect(buildCleanSection("F", "PL1/2X12")).toEqual({ section: "PL1/2X12", category: "Plate" });
+  });
+
+  it("combines raw shape codes (W, PL, HSS, L) with size numbers", () => {
+    expect(buildCleanSection("W", "18X40")).toEqual({ section: "W18X40", category: "Wide Flange" });
+    expect(buildCleanSection("PL", "1/2X12")).toEqual({ section: "PL1/2X12", category: "Plate" });
+    expect(buildCleanSection("HSS", "6X6X3/8")).toEqual({ section: "HSS6X6X3/8", category: "HSS / Tube" });
+  });
+});
+
+describe("parseKissFile & aggregateBom", () => {
+  it("correctly parses KISS file and calculates tons and shapes", () => {
+    const kissText = `
+KISS,1.0,SDS2
+H,JOB100,WAREHOUSE PHASE 1,ACME BUILDERS,2026-07-28,12:00:00,INCH
+D,DWG-1,0,ASM1,M1,2,B,W18X40,A992,20-00-00,800.00,PAINT,BEAM 1
+D,DWG-1,0,ASM2,M2,4,C,HSS8X8X1/2,A500,15-00-00,735.00,NONE,COLUMN
+D,DWG-2,0,ASM3,P1,10,F,PL1/2X12,A36,1-00-00,20.40,NONE,GUSSET
+`.trim();
+
+    const parsed = parseKissFile(kissText, "sample.kss");
+    expect(parsed.members).toHaveLength(3);
+
+    // M1: 2 pcs W18X40 @ 20' = 20 * 40 = 800 lbs/pc -> line total = 1600 lbs
+    expect(parsed.members[0]?.section).toBe("W18X40");
+    expect(parsed.members[0]?.category).toBe("Wide Flange");
+    expect(parsed.members[0]?.length).toBe(240); // 20 feet = 240 inches
+
+    // M2: 4 pcs HSS8X8X1/2 @ 15'
+    expect(parsed.members[1]?.section).toBe("HSS8X8X1/2");
+    expect(parsed.members[1]?.category).toBe("HSS / Tube");
+    expect(parsed.members[1]?.length).toBe(180); // 15 feet = 180 inches
+
+    // P1: 10 pcs PL1/2X12 @ 1'
+    expect(parsed.members[2]?.section).toBe("PL1/2X12");
+    expect(parsed.members[2]?.category).toBe("Plate");
+
+    const aggregated = aggregateBom(parsed);
+    expect(aggregated.materials_breakdown.length).toBeGreaterThanOrEqual(2);
+
+    const wfGroup = aggregated.materials_breakdown.find(m => m.shape === "Wide Flange");
+    expect(wfGroup).toBeDefined();
+    // 1600 lbs / 2000 = 0.8 tons
+    expect(wfGroup?.tons).toBeCloseTo(0.8, 1);
+  });
+});

@@ -7,8 +7,12 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
 import { useResourceList, useCreate, useUpdate } from "@/hooks/useResource";
 import { FabAPI } from "@/lib/api";
-import { Plus, Wand2, ChevronDown, ChevronRight, Save, Trash, AlertCircle } from "lucide-react";
+import { Plus, Wand2, ChevronDown, ChevronRight, Save, Trash, AlertCircle, Copy, FileSpreadsheet, DollarSign, FileDown } from "lucide-react";
 import Link from "next/link";
+import { BomEstimateImport } from "@/components/estimating/BomEstimateImport";
+import type { AggregatedEstimate, AdditionalCost } from "@/lib/parsers/types";
+import { defaultAdditionalCosts } from "@/lib/parsers/types";
+import { generateBidProposalPdf } from "@/lib/reports/bid-proposal-pdf";
 
 interface Estimate {
   id: string;
@@ -43,6 +47,9 @@ interface Estimate {
   alternates: Array<{ description: string; type: "add" | "deduct"; amount: number }>;
   notes: string | null;
   converted_project_id: string | null;
+  additional_costs: AdditionalCost[] | null;
+  building_sqft: number | null;
+  import_summary: Record<string, unknown> | null;
 }
 
 const STATUSES = ["draft", "submitted", "under_review", "won", "lost", "withdrawn"];
@@ -71,6 +78,23 @@ export default function EstimatingPage() {
   const [selectedEstimate, setSelectedEstimate] = useState<Estimate | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [converting, setConverting] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const [importData, setImportData] = useState<AggregatedEstimate | null>(null);
+  const [duplicatingEstimate, setDuplicatingEstimate] = useState<Estimate | null>(null);
+
+  // Handle BOM import → create pre-populated new estimate
+  function handleBomImport(aggregated: AggregatedEstimate) {
+    setShowImport(false);
+    setImportData(aggregated);
+    setShowNew(true);
+  }
+
+  // Handle estimate duplication
+  function handleDuplicate(estimate: Estimate) {
+    setSelectedEstimate(null);
+    setDuplicatingEstimate(estimate);
+    setShowNew(true);
+  }
 
   async function awardProject(id: string) {
     setConverting(id);
@@ -105,34 +129,51 @@ export default function EstimatingPage() {
       mono: true,
       render: (r) => `$${Number(r.total_amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     },
+    {
+      key: "per_ton",
+      label: "$/Ton",
+      align: "right",
+      mono: true,
+      render: (r) => {
+        const t = r.materials_breakdown?.reduce((sum, item) => sum + Number(item.tons || 0), 0) || 0;
+        const amt = Number(r.total_amount ?? 0);
+        return t > 0 && amt > 0 ? `$${(amt / t).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "—";
+      }
+    },
     { key: "due", label: "Bid Due", render: (r) => r.bid_due_date ? new Date(r.bid_due_date).toLocaleDateString() : "—" },
     { key: "status", label: "Status", render: (r) => <StatusPill status={r.status} /> },
     {
       key: "action",
       label: "",
       render: (r) => {
-        if (r.status === "won") {
-          if (r.converted_project_id) {
-            return (
+        return (
+          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline flex items-center gap-1 text-[11px]"
+              title="Export Proposal PDF for General Contractor"
+              onClick={() => generateBidProposalPdf(r)}
+            >
+              <FileDown size={12} /> PDF Proposal
+            </button>
+            {!r.converted_project_id && (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary flex items-center gap-1 text-xs"
+                disabled={converting === r.id}
+                onClick={() => awardProject(r.id)}
+                title="Award project: converts estimate to active project folder with budget baseline"
+              >
+                <Wand2 size={12} /> Award Project
+              </button>
+            )}
+            {r.converted_project_id && (
               <Link href={`/dashboard/projects/${r.converted_project_id}`} className="btn btn-sm btn-outline text-xs">
                 View Project
               </Link>
-            );
-          }
-          return (
-            <button
-              className="btn btn-sm btn-primary flex items-center gap-1 text-xs"
-              disabled={converting === r.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                awardProject(r.id);
-              }}
-            >
-              <Wand2 size={12} /> Award Project
-            </button>
-          );
-        }
-        return null;
+            )}
+          </div>
+        );
       },
     },
   ];
@@ -146,9 +187,14 @@ export default function EstimatingPage() {
             Steel pricing and structural bidding panel · Won bids convert to project baseline budget automatically.
           </div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowNew(true)}>
-          <Plus size={14} /> New Estimate
-        </button>
+        <div className="flex items-center gap-2">
+          <button className="btn btn-sm flex items-center gap-1.5" onClick={() => setShowImport(true)}>
+            <FileSpreadsheet size={14} /> Import from BOM
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowNew(true)}>
+            <Plus size={14} /> New Estimate
+          </button>
+        </div>
       </div>
 
       <DataTable
@@ -163,11 +209,13 @@ export default function EstimatingPage() {
 
       {showNew && (
         <EstimateModal
-          onClose={() => setShowNew(false)}
-          onSubmit={(p) => create.mutate(p, { onSuccess: () => setShowNew(false) })}
+          onClose={() => { setShowNew(false); setImportData(null); setDuplicatingEstimate(null); }}
+          onSubmit={(p) => create.mutate(p, { onSuccess: () => { setShowNew(false); setImportData(null); setDuplicatingEstimate(null); } })}
           submitting={create.isPending}
           error={create.error?.message ?? null}
           allEstimates={list.data ?? []}
+          importData={importData}
+          duplicateFrom={duplicatingEstimate}
         />
       )}
 
@@ -181,6 +229,14 @@ export default function EstimatingPage() {
           submitting={update.isPending}
           error={update.error?.message ?? null}
           allEstimates={list.data ?? []}
+          onDuplicate={handleDuplicate}
+        />
+      )}
+
+      {showImport && (
+        <BomEstimateImport
+          onClose={() => setShowImport(false)}
+          onImport={handleBomImport}
         />
       )}
     </PageWrapper>
@@ -188,7 +244,7 @@ export default function EstimatingPage() {
 }
 
 function EstimateModal({
-  initial, onClose, onSubmit, submitting, error, allEstimates,
+  initial, onClose, onSubmit, submitting, error, allEstimates, importData, duplicateFrom, onDuplicate,
 }: {
   initial?: Estimate | null;
   onClose: () => void;
@@ -196,6 +252,9 @@ function EstimateModal({
   submitting: boolean;
   error: string | null;
   allEstimates: Estimate[];
+  importData?: AggregatedEstimate | null;
+  duplicateFrom?: Estimate | null;
+  onDuplicate?: (e: Estimate) => void;
 }) {
   const [f, setF] = useState({
     project_name: "",
@@ -228,10 +287,13 @@ function EstimateModal({
 
   const [materials, setMaterials] = useState<Array<{ shape: string; tons: string; price_per_ton: string }>>([]);
   const [alternates, setAlternates] = useState<Array<{ description: string; type: "add" | "deduct"; amount: string }>>([]);
+  const [addlCosts, setAddlCosts] = useState<AdditionalCost[]>(defaultAdditionalCosts());
+  const [buildingSqft, setBuildingSqft] = useState("");
   
   const [sections, setSections] = useState({
     bid_info: true,
     material_labor: true,
+    additional_costs: false,
     freight_coatings: false,
     alternates: false,
     exclusions: false,
@@ -289,8 +351,77 @@ function EstimateModal({
         type: a.type || "add",
         amount: a.amount?.toString() || "0",
       })));
+
+      // Load additional costs
+      if (initial.additional_costs && initial.additional_costs.length > 0) {
+        setAddlCosts(initial.additional_costs);
+      } else {
+        setAddlCosts(defaultAdditionalCosts());
+      }
+      setBuildingSqft(initial.building_sqft?.toString() || "");
+    } else if (duplicateFrom) {
+      // Duplicating an existing estimate
+      setF({
+        project_name: (duplicateFrom.project_name || "") + " (Copy)",
+        gc_name: duplicateFrom.gc_name || "",
+        architect_eor: duplicateFrom.architect_eor || "",
+        project_location: duplicateFrom.project_location || "",
+        bid_due_date: duplicateFrom.bid_due_date || "",
+        bid_type: duplicateFrom.bid_type || "Lump Sum",
+        drawing_set_ref: duplicateFrom.drawing_set_ref || "",
+        unique_piece_marks: duplicateFrom.unique_piece_marks?.toString() || "",
+        connection_complexity: duplicateFrom.connection_complexity || "simple_shear",
+        detailing_hours: duplicateFrom.detailing_hours?.toString() || "",
+        fabrication_hours: duplicateFrom.fabrication_hours?.toString() || "",
+        erection_hours: duplicateFrom.erection_hours?.toString() || "",
+        labor_rate: duplicateFrom.labor_rate?.toString() || "75",
+        freight_mill_to_shop: duplicateFrom.freight_mill_to_shop?.toString() || "",
+        freight_shop_to_site: duplicateFrom.freight_shop_to_site?.toString() || "",
+        paint_coating_required: !!duplicateFrom.paint_coating_required,
+        coating_type: duplicateFrom.coating_type || "Shop Primer",
+        coating_pricing_method: duplicateFrom.coating_pricing_method || "per_ton",
+        coating_price_per_ton: duplicateFrom.coating_price_per_ton?.toString() || "",
+        coating_lump_sum: duplicateFrom.coating_lump_sum?.toString() || "",
+        contingency_pct: duplicateFrom.contingency_pct?.toString() || "0",
+        margin_pct: duplicateFrom.margin_pct?.toString() || "15",
+        exclusions_qualifications: duplicateFrom.exclusions_qualifications || "",
+        notes: duplicateFrom.notes || "",
+        status: "draft",
+        total_amount: "",
+      });
+      if (duplicateFrom.materials_breakdown?.length) {
+        setMaterials(duplicateFrom.materials_breakdown.map(m => ({ shape: m.shape, tons: m.tons?.toString() || "0", price_per_ton: m.price_per_ton?.toString() || "0" })));
+      } else {
+        setMaterials(DEFAULT_SHAPES.map(s => ({ shape: s.shape, tons: "0", price_per_ton: s.price_per_ton.toString() })));
+      }
+      setAlternates((duplicateFrom.alternates || []).map(a => ({ description: a.description, type: a.type || "add", amount: a.amount?.toString() || "0" })));
+      if (duplicateFrom.additional_costs?.length) {
+        setAddlCosts(duplicateFrom.additional_costs.map(c => ({ ...c, id: crypto.randomUUID() })));
+      }
+      setBuildingSqft(duplicateFrom.building_sqft?.toString() || "");
+    } else if (importData) {
+      // Pre-populate from BOM import
+      const todayStr = new Date().toISOString().split("T")[0];
+      setF(prev => ({
+        ...prev,
+        project_name: importData.project_name || "BOM Import Project",
+        gc_name: importData.gc_name || "",
+        bid_due_date: prev.bid_due_date || todayStr || "",
+        unique_piece_marks: importData.unique_piece_marks?.toString() || "",
+        connection_complexity: importData.connection_complexity || "simple_shear",
+      }));
+      setMaterials(importData.materials_breakdown.map(m => ({
+        shape: m.shape,
+        tons: m.tons.toString(),
+        price_per_ton: m.price_per_ton.toString(),
+      })));
+      if (importData.additional_costs?.length) {
+        setAddlCosts(importData.additional_costs);
+      }
     } else {
-      // New estimate: load default shapes
+      // New estimate: load default shapes & default due date to 14 days out
+      const defaultDue = new Date(Date.now() + 14 * 86400000).toISOString().split("T")[0];
+      setF(prev => ({ ...prev, bid_due_date: prev.bid_due_date || defaultDue || "" }));
       setMaterials(DEFAULT_SHAPES.map(s => ({ shape: s.shape, tons: "0", price_per_ton: s.price_per_ton.toString() })));
       
       // Load company template for exclusions
@@ -300,7 +431,7 @@ function EstimateModal({
         }
       }).catch(err => console.warn("Could not fetch company default exclusions", err));
     }
-  }, [initial]);
+  }, [initial, importData, duplicateFrom]);
 
   // Update material category row
   const updateMaterial = (idx: number, key: "shape" | "tons" | "price_per_ton", val: string) => {
@@ -363,14 +494,31 @@ function EstimateModal({
 
   const subtotal = materialCost + laborCost + freightCost + coatingCost;
 
+  // Additional costs calculation
+  const additionalCostTotal = addlCosts.reduce((sum, c) => {
+    if (c.is_percentage) {
+      const basis = c.percentage_basis === "material" ? materialCost : c.percentage_basis === "subtotal" ? subtotal : subtotal;
+      return sum + basis * (c.amount / 100);
+    }
+    return sum + c.amount;
+  }, 0);
+
+  const fullSubtotal = subtotal + additionalCostTotal;
+
   const marginPct = Number(f.margin_pct || 15);
-  const marginAmt = subtotal * (marginPct / 100);
+  const marginAmt = fullSubtotal * (marginPct / 100);
 
   const contingencyPct = Number(f.contingency_pct || 0);
-  const contingencyAmt = subtotal * (contingencyPct / 100);
+  const contingencyAmt = fullSubtotal * (contingencyPct / 100);
 
-  const calculatedTotal = subtotal + marginAmt + contingencyAmt;
+  const calculatedTotal = fullSubtotal + marginAmt + contingencyAmt;
   const finalBidPrice = f.total_amount !== "" ? Number(f.total_amount) : calculatedTotal;
+
+  // Key metrics
+  const bidPerTon = totalTons > 0 ? finalBidPrice / totalTons : 0;
+  const costPerTon = totalTons > 0 ? fullSubtotal / totalTons : 0;
+  const marginPerTon = totalTons > 0 ? marginAmt / totalTons : 0;
+  const bidPerSF = buildingSqft && Number(buildingSqft) > 0 ? finalBidPrice / Number(buildingSqft) : 0;
 
   // Detailing / fabrication suggesting averages from historical won estimates
   const wonEstimatesOfComplexity = allEstimates.filter(e => e.status === "won" && e.connection_complexity === f.connection_complexity);
@@ -409,14 +557,11 @@ function EstimateModal({
     e.preventDefault();
     const errs: Record<string, string> = {};
 
+    const effectiveBidDueDate = f.bid_due_date || new Date(Date.now() + 14 * 86400000).toISOString().split("T")[0];
+
     // Required: project_name
     if (!f.project_name.trim()) {
       errs.project_name = "Project name is required.";
-    }
-
-    // Required: bid_due_date
-    if (!f.bid_due_date) {
-      errs.bid_due_date = "Bid due date is required.";
     }
 
     // Non-draft status checks
@@ -424,61 +569,70 @@ function EstimateModal({
       if (totalTons <= 0) {
         errs.materials = "Total tonnage must be greater than 0 to submit.";
       }
-      if (!f.unique_piece_marks || Number(f.unique_piece_marks) <= 0) {
-        errs.unique_piece_marks = "Unique piece marks is required for non-draft estimates.";
-      }
     }
 
     setFieldErrors(errs);
 
     if (Object.keys(errs).length > 0) {
       // Open the section containing the first error
-      if (errs.project_name || errs.bid_due_date) {
+      if (errs.project_name) {
         setSections(prev => ({ ...prev, bid_info: true }));
       }
-      if (errs.materials || errs.unique_piece_marks) {
+      if (errs.materials) {
         setSections(prev => ({ ...prev, material_labor: true }));
       }
       return;
     }
 
+    const safeNum = (val: unknown, fallback: number | null = null): number | null => {
+      if (val === "" || val === null || val === undefined) return fallback;
+      const n = Number(val);
+      return Number.isFinite(n) ? n : fallback;
+    };
+
     const payload = {
-      project_name: f.project_name,
-      gc_name: f.gc_name || null,
-      architect_eor: f.architect_eor || null,
-      project_location: f.project_location || null,
-      bid_due_date: f.bid_due_date || null,
-      bid_type: f.bid_type,
-      drawing_set_ref: f.drawing_set_ref || null,
-      unique_piece_marks: f.unique_piece_marks ? Number(f.unique_piece_marks) : null,
-      connection_complexity: f.connection_complexity,
-      detailing_hours: detHoursUsed || null,
-      fabrication_hours: fabHoursUsed || null,
-      erection_hours: ereHoursUsed || null,
-      labor_rate: laborRate,
-      freight_mill_to_shop: f.freight_mill_to_shop ? Number(f.freight_mill_to_shop) : null,
-      freight_shop_to_site: f.freight_shop_to_site ? Number(f.freight_shop_to_site) : null,
-      paint_coating_required: f.paint_coating_required,
+      project_name: f.project_name.trim() || "New Estimate",
+      gc_name: f.gc_name?.trim() || null,
+      architect_eor: f.architect_eor?.trim() || null,
+      project_location: f.project_location?.trim() || null,
+      bid_due_date: effectiveBidDueDate,
+      bid_type: f.bid_type || "Lump Sum",
+      drawing_set_ref: f.drawing_set_ref?.trim() || null,
+      unique_piece_marks: safeNum(f.unique_piece_marks, 0),
+      connection_complexity: f.connection_complexity || "simple_shear",
+      detailing_hours: safeNum(detHoursUsed, 0),
+      fabrication_hours: safeNum(fabHoursUsed, 0),
+      erection_hours: safeNum(ereHoursUsed, 0),
+      labor_rate: safeNum(laborRate, 75),
+      freight_mill_to_shop: safeNum(f.freight_mill_to_shop, 0),
+      freight_shop_to_site: safeNum(f.freight_shop_to_site, 0),
+      paint_coating_required: Boolean(f.paint_coating_required),
       coating_type: f.coating_type || null,
       coating_pricing_method: f.coating_pricing_method || null,
-      coating_price_per_ton: f.coating_price_per_ton ? Number(f.coating_price_per_ton) : null,
-      coating_lump_sum: f.coating_lump_sum ? Number(f.coating_lump_sum) : null,
-      contingency_pct: Number(f.contingency_pct || 0),
-      margin_pct: Number(f.margin_pct || 15),
+      coating_price_per_ton: safeNum(f.coating_price_per_ton, 0),
+      coating_lump_sum: safeNum(f.coating_lump_sum, 0),
+      contingency_pct: safeNum(f.contingency_pct, 0) ?? 0,
+      margin_pct: safeNum(f.margin_pct, 15) ?? 15,
       exclusions_qualifications: f.exclusions_qualifications || null,
       notes: f.notes || null,
-      status: f.status,
-      total_amount: finalBidPrice,
+      status: f.status || "draft",
+      total_amount: safeNum(finalBidPrice, 0) ?? 0,
       materials_breakdown: materials.map(m => ({
         shape: m.shape,
-        tons: Number(m.tons || 0),
-        price_per_ton: Number(m.price_per_ton || 0),
+        tons: safeNum(m.tons, 0) ?? 0,
+        price_per_ton: safeNum(m.price_per_ton, 0) ?? 0,
       })),
-      alternates: alternates.map(a => ({
-        description: a.description,
-        type: a.type,
-        amount: Number(a.amount || 0),
+      additional_costs: addlCosts.map(c => ({
+        id: c.id,
+        label: c.label || "Cost Item",
+        amount: safeNum(c.amount, 0) ?? 0,
+        is_percentage: Boolean(c.is_percentage),
+        percentage_basis: c.percentage_basis || "subtotal",
+        category: c.category || "other",
+        description: c.description || "",
       })),
+      building_sqft: safeNum(buildingSqft, null),
+      import_summary: importData?.import_summary || initial?.import_summary || null,
     };
 
     onSubmit(payload);
@@ -502,13 +656,42 @@ function EstimateModal({
 
   return (
     <ResourceModal
-      title={initial ? `Edit estimate #${initial.estimate_number}` : "New Estimate"}
+      title={initial ? `Edit estimate #${initial.estimate_number}` : duplicateFrom ? "Duplicate Estimate" : importData ? "New Estimate (from BOM)" : "New Estimate"}
       onClose={onClose}
       onSubmit={handleFormSubmit}
       submitting={submitting || awardingModal}
       error={error}
       width={1000}
       submitLabel={initial ? "Save Estimate" : "Create Estimate"}
+      extraActions={initial ? (
+        <div className="flex items-center gap-2">
+          {onDuplicate && (
+            <button
+              type="button"
+              className="btn btn-sm flex items-center gap-1 text-[11px]"
+              onClick={() => onDuplicate(initial)}
+            >
+              <Copy size={12} /> Duplicate
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-sm flex items-center gap-1.5 text-[11px]"
+            style={{ background: "rgba(59,130,246,0.1)", color: "#3B82F6", border: "1px solid rgba(59,130,246,0.3)" }}
+            onClick={() => generateBidProposalPdf({
+              ...f,
+              estimate_number: initial.estimate_number,
+              total_amount: finalBidPrice,
+              materials_breakdown: materials.map(m => ({ shape: m.shape, tons: Number(m.tons || 0), price_per_ton: Number(m.price_per_ton || 0) })),
+              additional_costs: addlCosts,
+              alternates: alternates.map(a => ({ description: a.description, type: a.type, amount: Number(a.amount || 0) })),
+              building_sqft: buildingSqft ? Number(buildingSqft) : null,
+            })}
+          >
+            <FileDown size={13} /> Export GC Proposal (PDF)
+          </button>
+        </div>
+      ) : undefined}
     >
       <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24, alignItems: "start" }}>
         
@@ -564,7 +747,7 @@ function EstimateModal({
                     <input className="input" value={f.project_location} onChange={(e) => setF({ ...f, project_location: e.target.value })} placeholder="City, State" />
                   </Field>
                 </div>
-                <div className="grid-3 gap-sm">
+                <div className="grid-2 gap-md">
                   <Field label="Bid due" required>
                     <input
                       className="input"
@@ -584,8 +767,19 @@ function EstimateModal({
                       <option value="Design-Build">Design-Build</option>
                     </select>
                   </Field>
+                </div>
+                <div className="grid-2 gap-md">
                   <Field label="Drawing Set Ref">
                     <input className="input" value={f.drawing_set_ref} onChange={(e) => setF({ ...f, drawing_set_ref: e.target.value })} placeholder="e.g. IFC Revision 2" />
+                  </Field>
+                  <Field label="Building Area (SF)" hint="For $/SF metric">
+                    <input
+                      className="input font-mono"
+                      type="number"
+                      value={buildingSqft}
+                      onChange={(e) => setBuildingSqft(e.target.value)}
+                      placeholder="e.g. 25000"
+                    />
                   </Field>
                 </div>
               </div>
@@ -741,6 +935,125 @@ function EstimateModal({
             )}
           </div>
 
+          {/* Section: Additional Costs */}
+          <div className="card" style={{ border: "1px solid var(--border)" }}>
+            <div
+              onClick={() => toggleSection("additional_costs")}
+              className="card-header flex items-center justify-between cursor-pointer py-3 px-4"
+              style={{ background: "rgba(255,255,255,0.02)" }}
+            >
+              <div className="font-semibold text-sm">3. Additional Costs</div>
+              {sections.additional_costs ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </div>
+            {sections.additional_costs && (
+              <div className="card-body p-4 flex flex-col gap-3">
+                <div className="tbl-wrap" style={{ border: "1px solid var(--border)", borderRadius: 6 }}>
+                  <table style={{ margin: 0 }}>
+                    <thead>
+                      <tr>
+                        <th>Cost Item</th>
+                        <th style={{ width: 60, textAlign: "center" }}>Type</th>
+                        <th style={{ width: 120, textAlign: "right" }}>Amount</th>
+                        <th style={{ width: 100, textAlign: "right" }}>Resolved $</th>
+                        <th style={{ width: 40 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {addlCosts.map((c, idx) => {
+                        let resolvedAmt = c.amount;
+                        if (c.is_percentage) {
+                          const basis = c.percentage_basis === "material" ? materialCost : subtotal;
+                          resolvedAmt = basis * (c.amount / 100);
+                        }
+                        return (
+                          <tr key={c.id}>
+                            <td>
+                              <input
+                                className="input text-xs"
+                                style={{ padding: "4px 8px" }}
+                                value={c.label}
+                                onChange={(e) => {
+                                  const next = [...addlCosts];
+                                  next[idx] = { ...next[idx]!, label: e.target.value };
+                                  setAddlCosts(next);
+                                }}
+                              />
+                            </td>
+                            <td style={{ textAlign: "center" }}>
+                              <button
+                                type="button"
+                                className="text-[10px] font-mono px-2 py-0.5 rounded"
+                                style={{
+                                  background: c.is_percentage ? "rgba(59,130,246,0.1)" : "var(--bg-muted)",
+                                  color: c.is_percentage ? "#3B82F6" : "var(--muted)",
+                                  border: "1px solid var(--border)",
+                                  cursor: "pointer",
+                                }}
+                                onClick={() => {
+                                  const next = [...addlCosts];
+                                  next[idx] = { ...next[idx]!, is_percentage: !next[idx]!.is_percentage };
+                                  setAddlCosts(next);
+                                }}
+                              >
+                                {c.is_percentage ? "%" : "$"}
+                              </button>
+                            </td>
+                            <td>
+                              <input
+                                className="input text-xs text-right font-mono"
+                                style={{ padding: "4px 8px" }}
+                                type="number"
+                                step={c.is_percentage ? "0.5" : "1"}
+                                value={c.amount}
+                                onChange={(e) => {
+                                  const next = [...addlCosts];
+                                  next[idx] = { ...next[idx]!, amount: parseFloat(e.target.value) || 0 };
+                                  setAddlCosts(next);
+                                }}
+                              />
+                            </td>
+                            <td className="text-right text-xs font-mono" style={{ color: "var(--muted)" }}>
+                              ${resolvedAmt.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="btn btn-sm text-red-500 hover:bg-red-500/10 border-none p-1"
+                                onClick={() => setAddlCosts(prev => prev.filter((_, i) => i !== idx))}
+                              >
+                                <Trash size={13} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => setAddlCosts(prev => [...prev, {
+                      id: crypto.randomUUID(),
+                      label: "Custom Cost",
+                      amount: 0,
+                      is_percentage: false,
+                      percentage_basis: "subtotal" as const,
+                      category: "other" as const,
+                      description: "",
+                    }])}
+                  >
+                    + Add Cost Item
+                  </button>
+                  <div className="text-xs text-slate-400 font-mono">
+                    Additional total: <strong className="text-white">${additionalCostTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</strong>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Section: Freight & Coatings */}
           <div className="card" style={{ border: "1px solid var(--border)" }}>
             <div
@@ -748,7 +1061,7 @@ function EstimateModal({
               className="card-header flex items-center justify-between cursor-pointer py-3 px-4"
               style={{ background: "rgba(255,255,255,0.02)" }}
             >
-              <div className="font-semibold text-sm">3. Freight & Coatings</div>
+              <div className="font-semibold text-sm">4. Freight & Coatings</div>
               {sections.freight_coatings ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </div>
             {sections.freight_coatings && (
@@ -854,7 +1167,7 @@ function EstimateModal({
               className="card-header flex items-center justify-between cursor-pointer py-3 px-4"
               style={{ background: "rgba(255,255,255,0.02)" }}
             >
-              <div className="font-semibold text-sm">4. Bid Alternates</div>
+              <div className="font-semibold text-sm">5. Bid Alternates</div>
               {sections.alternates ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </div>
             {sections.alternates && (
@@ -929,7 +1242,7 @@ function EstimateModal({
               className="card-header flex items-center justify-between cursor-pointer py-3 px-4"
               style={{ background: "rgba(255,255,255,0.02)" }}
             >
-              <div className="font-semibold text-sm">5. Exclusions & Qualifications</div>
+              <div className="font-semibold text-sm">6. Exclusions & Qualifications</div>
               {sections.exclusions ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </div>
             {sections.exclusions && (
@@ -962,7 +1275,7 @@ function EstimateModal({
               className="card-header flex items-center justify-between cursor-pointer py-3 px-4"
               style={{ background: "rgba(255,255,255,0.02)" }}
             >
-              <div className="font-semibold text-sm">6. Status & Notes</div>
+              <div className="font-semibold text-sm">7. Status & Notes</div>
               {sections.status_notes ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </div>
             {sections.status_notes && (
@@ -1026,12 +1339,16 @@ function EstimateModal({
                 <span className="text-slate-400">Coatings Subtotal:</span>
                 <span className="font-mono font-medium">${coatingCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400">Additional Costs:</span>
+                <span className="font-mono font-medium">${additionalCostTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              </div>
               
               <hr style={{ borderColor: "var(--border)", margin: "4px 0" }} />
               
               <div className="flex justify-between text-xs">
                 <span className="font-semibold text-slate-300">ESTIMATED COST:</span>
-                <span className="font-mono font-semibold">${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className="font-mono font-semibold">${fullSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               </div>
 
               <div className="grid-2 gap-sm mt-1">
@@ -1081,17 +1398,45 @@ function EstimateModal({
                 )}
               </div>
 
-              {/* Award Project directly from modal if Won */}
-              {initial?.id && f.status === "won" && !initial.converted_project_id && (
+              {/* Key Metrics */}
+              {totalTons > 0 && (
+                <>
+                  <hr style={{ borderColor: "var(--border)", margin: "4px 0" }} />
+                  <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--primary)" }}>
+                    KEY METRICS
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Bid $/Ton:</span>
+                    <span className="font-mono font-bold" style={{ color: "#10B981" }}>${bidPerTon.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Cost $/Ton:</span>
+                    <span className="font-mono font-medium">${costPerTon.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Margin $/Ton:</span>
+                    <span className="font-mono font-medium">${marginPerTon.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                  </div>
+                  {bidPerSF > 0 && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400">Bid $/SF:</span>
+                      <span className="font-mono font-bold" style={{ color: "#3B82F6" }}>${bidPerSF.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Award Project directly from modal */}
+              {initial?.id && !initial.converted_project_id && (
                 <button
                   type="button"
                   onClick={awardProjectDirectly}
                   className="btn btn-primary w-full flex items-center justify-center gap-1.5 mt-3 py-2 text-xs font-semibold"
                   style={{ background: "var(--success, #16A34A)" }}
-                  disabled={submitting}
+                  disabled={submitting || awardingModal}
                 >
                   <Wand2 size={13} />
-                  Award Project Now
+                  Award Project to Production
                 </button>
               )}
               {initial?.converted_project_id && (
