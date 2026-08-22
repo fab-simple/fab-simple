@@ -221,7 +221,7 @@ export const Schemas = {
     status: z.enum(["pending", "loaded", "in_transit", "delivered"]).default("pending"),
   }),
 
-  estimates: z.record(z.unknown()).passthrough(),
+  estimates: z.object({}).passthrough(),
 
   estimate_line_items: z.object({
     estimate_id: uuid,
