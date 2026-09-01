@@ -29,7 +29,24 @@ export function ResourceModal({
         </div>
         <form className="card-body" onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {children}
-          {error && <div className="pill pill-red" style={{ padding: "8px 12px", fontSize: 12 }}>{error}</div>}
+          {error && (
+            <div style={{
+              background: "rgba(220, 38, 38, 0.1)",
+              border: "1px solid rgba(220, 38, 38, 0.3)",
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 13,
+              color: "#DC2626",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+              lineHeight: 1.5,
+              wordBreak: "break-word",
+            }}>
+              <span style={{ flexShrink: 0, fontSize: 16, lineHeight: 1 }}>⚠</span>
+              <span>{error}</span>
+            </div>
+          )}
           <div className="flex justify-end gap-2 mt-2">
             <button type="button" onClick={onClose} className="btn">Cancel</button>
             <button type="submit" disabled={submitting || submitDisabled} className="btn btn-primary">

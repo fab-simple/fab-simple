@@ -94,8 +94,8 @@ function aggregateRows(rows: Record<string, string>[], mapping: Record<string, s
 export default function MaterialRequirementsPage() {
   const { selectedProjectId } = useGlobalProject();
   const list = useResourceList<MaterialRequirement>("material_requirements", selectedProjectId
-    ? { project_id: selectedProjectId, order_by: "created_at", dir: "desc" }
-    : { order_by: "created_at", dir: "desc" });
+    ? { project_id: selectedProjectId, order_by: "created_at", dir: "desc", per_page: 200 }
+    : { order_by: "created_at", dir: "desc", per_page: 200 });
   const create = useCreate<MaterialRequirement>("material_requirements");
   const [showNew, setShowNew] = useState(false);
   const [showUpload, setShowUpload] = useState(false);

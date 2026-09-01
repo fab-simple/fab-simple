@@ -10,7 +10,8 @@ import type { LotReservation } from "@/lib/api";
 import { Plus, AlertTriangle, CheckCircle2, Loader2, X, Zap } from "lucide-react";
 
 interface Inv {
-  id: string; profile: string; grade: string | null; quantity: number;
+  id: string; profile: string; name: string | null; grade: string | null;
+  length: string | null; quantity: number;
   location: string | null; reorder_point: number; max_stock: number | null;
   unit_cost: number | null; status: string;
 }
@@ -73,7 +74,9 @@ function BulkStockTab() {
 
   const cols: Column<Inv>[] = [
     { key: "profile", label: "Profile", mono: true, render: (r) => <strong>{r.profile}</strong> },
+    { key: "name", label: "Name", render: (r) => r.name ?? "—" },
     { key: "grade", label: "Grade", render: (r) => r.grade ?? "—" },
+    { key: "length", label: "Length", render: (r) => r.length ?? "—" },
     { key: "qty", label: "Quantity", align: "right", mono: true, render: (r) => Number(r.quantity).toFixed(0) },
     { key: "reorder", label: "Reorder Pt", align: "right", mono: true, render: (r) => r.reorder_point },
     { key: "max", label: "Max", align: "right", mono: true, render: (r) => r.max_stock ?? "—" },
@@ -117,12 +120,13 @@ function BulkStockTab() {
 function NewSkuModal({ onClose, onSubmit, submitting, error }: {
   onClose: () => void; onSubmit: (p: Record<string, unknown>) => void; submitting: boolean; error: string | null;
 }) {
-  const [f, setF] = useState({ profile: "", grade: "A992", quantity: "0", reorder_point: "0", max_stock: "", unit_cost: "", location: "" });
+  const [f, setF] = useState({ profile: "", name: "", grade: "A992", length: "", quantity: "0", reorder_point: "0", max_stock: "", unit_cost: "", location: "" });
   return (
     <ResourceModal title="New inventory SKU" onClose={onClose} submitting={submitting} error={error}
       onSubmit={(e) => { e.preventDefault();
         onSubmit({
-          profile: f.profile, grade: f.grade || undefined,
+          profile: f.profile, name: f.name || undefined,
+          grade: f.grade || undefined, length: f.length || undefined,
           quantity: Number(f.quantity),
           reorder_point: Number(f.reorder_point),
           max_stock: f.max_stock ? Number(f.max_stock) : undefined,
@@ -133,7 +137,11 @@ function NewSkuModal({ onClose, onSubmit, submitting, error }: {
     >
       <div className="grid-2" style={{ gap: 12 }}>
         <Field label="Profile" required><input className="input" required value={f.profile} onChange={(e) => setF({ ...f, profile: e.target.value })} placeholder="W14x82" /></Field>
+        <Field label="Name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="W-BEAM" /></Field>
+      </div>
+      <div className="grid-2" style={{ gap: 12 }}>
         <Field label="Grade"><input className="input" value={f.grade} onChange={(e) => setF({ ...f, grade: e.target.value })} /></Field>
+        <Field label="Length"><input className="input" value={f.length} onChange={(e) => setF({ ...f, length: e.target.value })} placeholder="26'-9 9/16&quot;" /></Field>
       </div>
       <div className="grid-3" style={{ gap: 12 }}>
         <Field label="Qty on hand"><input className="input" type="number" min="0" value={f.quantity} onChange={(e) => setF({ ...f, quantity: e.target.value })} /></Field>

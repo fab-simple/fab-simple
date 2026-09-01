@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -13,11 +13,21 @@ interface Rfq {
   id: string; rfq_number: string; status: string; delivery_requirement: string | null; created_at: string;
 }
 interface MaterialRequirement {
-  id: string; mr_number: string; profile: string; grade: string | null; quantity: number; project_id: string; status: string;
+  id: string; mr_number: string; profile: string; name: string | null; grade: string | null;
+  quantity: number; length: string | null; project_id: string; status: string;
+}
+interface Inv {
+  id: string; profile: string; name: string | null; grade: string | null;
+  length: string | null; quantity: number; status: string;
 }
 interface Vendor { id: string; name: string; status: string; }
 interface Project { id: string; name: string; }
 interface RfqVendorRow { id: string; rfq_id: string; vendor_id: string; }
+
+// Normalise a match key so minor whitespace/case differences don't cause misses.
+function invKey(profile: string, name: string | null, length: string | null) {
+  return [profile, name ?? "", length ?? ""].map((s) => s.trim().toLowerCase()).join("|");
+}
 
 // RFQ is the one page in Procurement that's deliberately NOT gated by the
 // Global Project Context (spec §15.1 D14) — its entire purpose is letting a
@@ -79,13 +89,50 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
 }) {
   // Cross-project by design (§15.4) — every open MR company-wide, not just
   // the one from the currently-selected project in the sidebar.
-  const mrs = useResourceList<MaterialRequirement>("material_requirements", { status: "open", order_by: "created_at", dir: "desc", limit: "200" });
+  const mrs = useResourceList<MaterialRequirement>("material_requirements", { status: "open", order_by: "created_at", dir: "desc", per_page: 200 });
   const vendors = useResourceList<Vendor>("vendors", { status: "active", order_by: "name", dir: "asc", limit: "200" });
   const projects = useResourceList<Project>("projects", { limit: "200" });
+  // Bulk inventory — used to net available stock against each MR quantity
+  const inventory = useResourceList<Inv>("inventory", { per_page: 200 });
+
   const projectLookup = new Map((projects.data ?? []).map((p) => [p.id, p.name]));
+
+  // Build a lookup: invKey(profile, name, length) → qty available in stock.
+  // Only count stock that has qty > 0 (status ok or low).
+  const inventoryLookup = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const inv of inventory.data ?? []) {
+      if (Number(inv.quantity) <= 0) continue;
+      const k = invKey(inv.profile, inv.name, inv.length);
+      map.set(k, (map.get(k) ?? 0) + Number(inv.quantity));
+    }
+    return map;
+  }, [inventory.data]);
+
+  // How much of an MR is covered by current bulk stock?
+  function stockCoverage(mr: MaterialRequirement): number {
+    return inventoryLookup.get(invKey(mr.profile, mr.name, mr.length)) ?? 0;
+  }
+
+  // Net quantity to order = max(0, mr.quantity - stock on hand)
+  function netQty(mr: MaterialRequirement): number {
+    return Math.max(0, mr.quantity - stockCoverage(mr));
+  }
 
   const [selectedMrs, setSelectedMrs] = useState<Record<string, string>>({}); // mr_id -> quantity string
   const [selectedVendors, setSelectedVendors] = useState<Set<string>>(new Set());
+
+  // Pre-select all open MRs with net quantities once both MRs and inventory are loaded.
+  // We wait for inventory so quantities are already netted on first render.
+  useEffect(() => {
+    const allMrs = mrs.data ?? [];
+    if (allMrs.length > 0 && inventory.data && Object.keys(selectedMrs).length === 0) {
+      const all: Record<string, string> = {};
+      for (const mr of allMrs) all[mr.id] = String(netQty(mr));
+      setSelectedMrs(all);
+    }
+  }, [mrs.data, inventory.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [deliveryRequirement, setDeliveryRequirement] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -93,7 +140,7 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
     setSelectedMrs((prev) => {
       const next = { ...prev };
       if (mr.id in next) delete next[mr.id];
-      else next[mr.id] = String(mr.quantity);
+      else next[mr.id] = String(netQty(mr));
       return next;
     });
   }
@@ -109,7 +156,7 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
     setSelectedMrs((prev) => {
       if (allMrs.length > 0 && allMrs.every((mr) => mr.id in prev)) return {};
       const next: Record<string, string> = { ...prev };
-      for (const mr of allMrs) next[mr.id] = mr.id in prev ? prev[mr.id] : String(mr.quantity);
+      for (const mr of allMrs) next[mr.id] = mr.id in prev ? prev[mr.id] : String(netQty(mr));
       return next;
     });
   }
@@ -120,7 +167,7 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
 
   return (
     <ResourceModal title="New RFQ" onClose={onClose} submitting={submitting} error={error}
-      submitDisabled={invalid}
+      submitDisabled={invalid} width={600}
       onSubmit={(e) => {
         e.preventDefault();
         if (invalid) return;
@@ -135,34 +182,88 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
       }}
     >
       <Field label={`Material requirements (${mrCount} selected)`} required>
-        <div className="rounded-lg border" style={{ borderColor: "var(--border)", maxHeight: 220, overflowY: "auto" }}>
+        <div className="rounded-lg border" style={{ borderColor: "var(--border)", maxHeight: 300, overflowY: "auto" }}>
           {(mrs.data ?? []).length === 0 && (
             <div className="text-[12px] p-3" style={{ color: "var(--muted)" }}>No open material requirements. Raise one on a project first.</div>
           )}
           {(mrs.data ?? []).length > 0 && (
-            <label className="flex items-center gap-2 px-3 py-2 text-[12px] font-medium" style={{ borderBottom: "1px solid var(--border)" }}>
+            <label className="flex items-center gap-2 px-3 py-2 text-[12px] font-medium"
+              style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-subtle, rgba(0,0,0,0.03))" }}>
               <input type="checkbox" checked={allMrsSelected} onChange={toggleAllMrs} />
               Select all
             </label>
           )}
-          {(mrs.data ?? []).map((mr) => (
-            <label key={mr.id} className="flex items-center gap-2 px-3 py-2 text-[12px]" style={{ borderBottom: "1px solid var(--border)" }}>
-              <input type="checkbox" checked={mr.id in selectedMrs} onChange={() => toggleMr(mr)} />
-              <span className="font-mono">{mr.mr_number}</span>
-              <span>{mr.profile} {mr.grade ?? ""}</span>
-              <span style={{ color: "var(--muted)" }}>· {projectLookup.get(mr.project_id) ?? mr.project_id.slice(0, 8)}</span>
-              {mr.id in selectedMrs && (
-                <input
-                  className="input" type="number" min="0.01" step="0.01"
-                  style={{ width: 90, marginLeft: "auto", height: 26, fontSize: 11 }}
-                  value={selectedMrs[mr.id]}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => setSelectedMrs((prev) => ({ ...prev, [mr.id]: e.target.value }))}
-                />
-              )}
-            </label>
-          ))}
+          {(mrs.data ?? []).map((mr) => {
+            const covered = stockCoverage(mr);
+            const net = netQty(mr);
+            const fullyCovered = covered > 0 && net === 0;
+            const partiallyCovered = covered > 0 && net > 0;
+            const isSelected = mr.id in selectedMrs;
+
+            return (
+              <label
+                key={mr.id}
+                className="flex items-start gap-2 px-3 py-2 text-[12px]"
+                style={{
+                  borderBottom: "1px solid var(--border)",
+                  background: fullyCovered ? "rgba(16,185,129,0.05)" : undefined,
+                  cursor: "pointer",
+                }}
+              >
+                <input type="checkbox" checked={isSelected} onChange={() => toggleMr(mr)} style={{ marginTop: 3, flexShrink: 0 }} />
+
+                {/* MR identity — profile, name, grade, length, project */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono font-semibold">{mr.mr_number}</span>
+                    <span className="font-medium">{mr.profile}</span>
+                    {mr.name && <span style={{ color: "var(--text)" }}>{mr.name}</span>}
+                    {mr.grade && (
+                      <span className="pill" style={{ padding: "0 5px", fontSize: 10 }}>{mr.grade}</span>
+                    )}
+                    {mr.length && (
+                      <span style={{ color: "var(--muted)" }}>· {mr.length}</span>
+                    )}
+                    <span style={{ color: "var(--muted)" }}>
+                      · {projectLookup.get(mr.project_id) ?? mr.project_id.slice(0, 8)}
+                    </span>
+                  </div>
+
+                  {/* Stock coverage indicators */}
+                  {fullyCovered && (
+                    <div className="text-[11px] mt-1" style={{ color: "#10B981" }}>
+                      ✓ Fully covered by stock ({covered} in inventory) — uncheck to skip
+                    </div>
+                  )}
+                  {partiallyCovered && (
+                    <div className="text-[11px] mt-1" style={{ color: "#F59E0B" }}>
+                      ⚡ {covered} in stock · ordering {net} of {mr.quantity} required
+                    </div>
+                  )}
+                </div>
+
+                {/* Net quantity input — editable, pre-set to net-to-order */}
+                {isSelected && (
+                  <div className="flex flex-col items-end gap-1" style={{ flexShrink: 0 }}>
+                    <input
+                      className="input" type="number" min="0.01" step="0.01"
+                      style={{ width: 80, height: 26, fontSize: 11, textAlign: "right" }}
+                      value={selectedMrs[mr.id]}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => setSelectedMrs((prev) => ({ ...prev, [mr.id]: e.target.value }))}
+                    />
+                    {covered > 0 && (
+                      <span className="text-[10px]" style={{ color: "var(--muted)" }}>of {mr.quantity} req.</span>
+                    )}
+                  </div>
+                )}
+              </label>
+            );
+          })}
         </div>
+        {inventory.isLoading && (
+          <div className="text-[11px] mt-1" style={{ color: "var(--muted)" }}>⏳ Loading inventory for stock netting…</div>
+        )}
       </Field>
 
       <Field label={`Vendors to invite (${selectedVendors.size} selected)`} required>
