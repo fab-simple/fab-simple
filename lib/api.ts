@@ -653,6 +653,41 @@ export const FabAPI = {
     return call<ImportMaterialRequirementsResult>("/material-requirements/import", "POST", { body });
   },
 
+  // ─── Material Lifecycle E2E ───────────────────────────────────────────────
+  /**
+   * Issue (hard-lock) a specific material lot against a part.
+   * Atomically: creates a material_issues row, decrements lot.quantity,
+   * and transitions the matching lot_reservation to 'consumed'.
+   * Fails with 409 if the lot is quarantined or insufficient quantity.
+   */
+  issueMaterial(partId: string, body: IssueMaterialBody) {
+    return call<IssueMaterialResult>(`/parts/${partId}/issue-material`, "POST", { body });
+  },
+  /**
+   * Void a mis-issue. Sets voided=true + void_reason on the material_issues row,
+   * returns the quantity to the lot, and resets the part's material_lot_id.
+   * Only owner/pm may void.
+   */
+  voidMaterialIssue(issueId: string, body: VoidMaterialIssueBody) {
+    return call<VoidMaterialIssueResult>(`/material-issues/${issueId}/void`, "POST", { body });
+  },
+  /**
+   * Full reverse traceability chain for a part: part → material_issue →
+   * lot → heat → bundle → receiving → PO → vendor → mill cert.
+   * Backed by v_part_traceability view.
+   */
+  getPartTraceability(partId: string) {
+    return call<PartTraceabilityResult>(`/parts/${partId}/traceability`, "GET");
+  },
+  /**
+   * Atomic receive + heat-split creation. Creates the receivings row AND
+   * one bundle+lot per heat split in a single DB transaction.
+   * Zero splits → same as POST /receivings (no lots created inline).
+   */
+  receiveWithHeatSplits(body: ReceiveWithSplitsBody) {
+    return call<ReceiveWithSplitsResult>("/receivings/with-heat-splits", "POST", { body });
+  },
+
   // Specials
   dashboard() { return call<DashboardData>("/dashboard", "GET"); },
   getOrganization() { return call<Organization>("/organization", "GET"); },
@@ -802,3 +837,116 @@ export interface DashboardData {
   recent_parts: Array<{ id: string; part_mark: string; profile: string; status: string; project_id: string | null; project_name: string | null }>;
   production_by_day: Array<{ date: string; parts_completed: number }>;
 }
+
+// ─── Material Lifecycle E2E — Types ─────────────────────────────────────────
+
+export interface MaterialIssue {
+  id: string;
+  company_id: string;
+  material_lot_id: string;
+  part_id: string;
+  heat_number: string;
+  quantity: number;
+  issued_by: string | null;
+  issued_at: string;
+  voided: boolean;
+  void_reason: string | null;
+  voided_by: string | null;
+  voided_at: string | null;
+  created_at: string;
+}
+
+export interface IssueMaterialBody {
+  lot_id: string;
+  quantity: number;
+  notes?: string;
+}
+
+export interface IssueMaterialResult {
+  issue: MaterialIssue;
+  lot_number: string;
+  heat_number: string;
+}
+
+export interface VoidMaterialIssueBody {
+  void_reason: string;
+}
+
+export interface VoidMaterialIssueResult {
+  issue: MaterialIssue;
+}
+
+export interface HeatSplit {
+  heat_number_id: string;
+  profile: string;
+  grade: string;
+  quantity: number;
+  length?: number;
+  location?: string;
+}
+
+export interface ReceiveWithSplitsBody {
+  po_id: string;
+  shipment_id?: string;
+  qty_received: number;
+  exceptions?: string;
+  splits: HeatSplit[];
+}
+
+export interface ReceiveWithSplitsResult {
+  receiving: Record<string, unknown>;
+  lots_created: Array<{
+    id: string;
+    lot_number: string;
+    profile: string;
+    grade: string;
+    quantity: number;
+    location: string | null;
+    status: string;
+    heat_number_id: string;
+  }>;
+  splits_count: number;
+}
+
+/** One row from v_part_traceability */
+export interface TraceabilityChainRow {
+  part_id: string;
+  part_mark: string | null;
+  part_name: string | null;
+  profile: string | null;
+  project_id: string;
+  project_name: string;
+  project_number: string;
+  issue_id: string;
+  heat_number: string;
+  qty_consumed: number;
+  issued_at: string;
+  voided: boolean;
+  lot_id: string;
+  lot_number: string;
+  lot_profile: string;
+  lot_grade: string | null;
+  bin_location: string | null;
+  heat_number_id: string;
+  heat_availability_status: string;
+  mtr_status: string;
+  bundle_id: string | null;
+  bundle_number: string | null;
+  receiving_id: string | null;
+  receiving_number: string | null;
+  received_date: string | null;
+  po_id: string | null;
+  po_number: string | null;
+  vendor_id: string | null;
+  vendor_name: string | null;
+  mtr_doc_id: string | null;
+  mill_name: string | null;
+  mtr_ocr_status: string | null;
+  mill_cert_url: string | null;
+}
+
+export interface PartTraceabilityResult {
+  part_id: string;
+  chain: TraceabilityChainRow[];
+}
+

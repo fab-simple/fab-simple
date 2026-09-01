@@ -34,6 +34,7 @@ import {
   Package,
   FileSpreadsheet,
   Send,
+  GitBranch,
 } from "lucide-react";
 
 export interface NavItem {
@@ -126,6 +127,8 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       { key: "inventory",       label: "Inventory",          href: "/dashboard/inventory",       icon: Warehouse,       roles: [...OWNER_ESTIMATOR_PM_FOREMAN_ACCT] },
       // Heat Numbers: Owner Full · PM View · QC Full · Foreman Full (widened, §13 D6)
       { key: "heat-numbers",    label: "Heat Numbers",       href: "/dashboard/heat-numbers",    icon: FlameKindling,   roles: [...OWNER_PM_FOREMAN_QC] },
+      // Material Traceability: Full reverse chain (Part -> Heat -> Lot -> PO -> Vendor -> MTR)
+      { key: "traceability",    label: "Material Traceability", href: "/dashboard/traceability", icon: GitBranch,      roles: [...OWNER_PM_FOREMAN_QC] },
     ],
   },
   {
@@ -245,6 +248,7 @@ export const ROUTE_ACCESS: Array<{ prefix: string; roles: Role[] }> = [
   { prefix: "/dashboard/bundles",            roles: ["owner", "pm", "foreman", "qc"] },
   { prefix: "/dashboard/inventory",          roles: ["owner", "estimator", "pm", "foreman", "accounting"] },
   { prefix: "/dashboard/heat-numbers",       roles: ["owner", "pm", "foreman", "qc"] },
+  { prefix: "/dashboard/traceability",       roles: ["owner", "pm", "foreman", "qc"] },
 
   // Quality & Compliance.
   { prefix: "/dashboard/paint-inspection",   roles: ["owner", "pm", "qc"] },

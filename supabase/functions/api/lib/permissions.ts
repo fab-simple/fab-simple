@@ -444,6 +444,20 @@ export const TABLES: Record<string, TableConfig> = {
     readable: ["owner", "estimator", "pm", "foreman", "qc"],
     hasCompanyId: true,
   },
+  // Material Issues — hard-lock / consumption records. Insertable is blocked
+  // here because issueMaterial() performs an availability check + heat
+  // quarantine guard that the generic CRUD handler can't replicate. The void
+  // path is similarly behind POST /material-issues/:id/void. This entry
+  // enables GET list/get so the traceability tab and part detail can surface
+  // issue history without a bespoke query.
+  material_issues: {
+    table: "material_issues",
+    insertable: [],    // enforced through POST /parts/:id/issue-material
+    updatable: [],     // enforced through POST /material-issues/:id/void
+    deletable: [],     // intentional — material_issues are immutable
+    readable: ["owner", "pm", "foreman", "qc", "estimator", "accounting"],
+    hasCompanyId: true,
+  },
 
   // Phase 2 — Sourcing Workflow (§15). Material Requirements is a plain
   // single-table record (estimator raises requirements during takeoff), so

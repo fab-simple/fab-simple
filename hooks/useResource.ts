@@ -24,6 +24,13 @@ import {
   type AwardVendorQuoteResult,
   type ImportMaterialRequirementsBody,
   type ImportMaterialRequirementsResult,
+  type IssueMaterialBody,
+  type IssueMaterialResult,
+  type VoidMaterialIssueBody,
+  type VoidMaterialIssueResult,
+  type ReceiveWithSplitsBody,
+  type ReceiveWithSplitsResult,
+  type PartTraceabilityResult,
 } from "@/lib/api";
 
 export const FAB_MODE = process.env.NEXT_PUBLIC_FAB_MODE ?? "demo";
@@ -372,5 +379,82 @@ export function useRemove(table: string) {
       qc.invalidateQueries({ queryKey: [table] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
+  });
+}
+
+// ─── Material Lifecycle E2E Hooks ────────────────────────────────────────────
+
+/**
+ * Issue material (hard lock) — consumes a specific lot qty against a part.
+ * Invalidates: material_lots (qty changes), lot_reservations (status
+ * transitions), material_issues list, and the issuing part row.
+ */
+export function useIssueMaterial() {
+  const qc = useQueryClient();
+  return useMutation<
+    IssueMaterialResult,
+    FabApiError,
+    { partId: string; body: IssueMaterialBody }
+  >({
+    mutationFn: ({ partId, body }) => FabAPI.issueMaterial(partId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+      qc.invalidateQueries({ queryKey: ["lot_reservations"] });
+      qc.invalidateQueries({ queryKey: ["material_issues"] });
+      qc.invalidateQueries({ queryKey: ["parts"] });
+    },
+  });
+}
+
+/**
+ * Void a mis-issue. Returns the qty to the lot and resets the part.
+ * Invalidates: same set as useIssueMaterial.
+ */
+export function useVoidMaterialIssue() {
+  const qc = useQueryClient();
+  return useMutation<
+    VoidMaterialIssueResult,
+    FabApiError,
+    { issueId: string; body: VoidMaterialIssueBody }
+  >({
+    mutationFn: ({ issueId, body }) => FabAPI.voidMaterialIssue(issueId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+      qc.invalidateQueries({ queryKey: ["lot_reservations"] });
+      qc.invalidateQueries({ queryKey: ["material_issues"] });
+      qc.invalidateQueries({ queryKey: ["parts"] });
+    },
+  });
+}
+
+/**
+ * Atomic receive-with-heat-splits. Creates the receivings row + N bundles
+ * + N lots in one DB transaction. Invalidates purchase_orders (status
+ * may flip partial/received), receivings, bundles, and material_lots.
+ */
+export function useReceiveWithHeatSplits() {
+  const qc = useQueryClient();
+  return useMutation<ReceiveWithSplitsResult, FabApiError, ReceiveWithSplitsBody>({
+    mutationFn: (body) => FabAPI.receiveWithHeatSplits(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["purchase_orders"] });
+      qc.invalidateQueries({ queryKey: ["receivings"] });
+      qc.invalidateQueries({ queryKey: ["bundles"] });
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+    },
+  });
+}
+
+/**
+ * Traceability chain for a single part — cached for 5 minutes (it's
+ * read-only and changes only when an issue/void happens, which already
+ * invalidates the cache via useIssueMaterial / useVoidMaterialIssue).
+ */
+export function usePartTraceability(partId: string | null) {
+  return useQuery<PartTraceabilityResult, FabApiError>({
+    queryKey: ["part_traceability", partId],
+    queryFn: () => FabAPI.getPartTraceability(partId!),
+    enabled: FAB_MODE === "live" && !!partId,
+    staleTime: 5 * 60 * 1000,
   });
 }

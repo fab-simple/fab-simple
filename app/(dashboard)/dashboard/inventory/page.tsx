@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
-import { useResourceList, useCreate, useReserveLot, useReleaseLotReservation } from "@/hooks/useResource";
+import { useResourceList, useCreate, useReserveLot, useReleaseLotReservation, useIssueMaterial } from "@/hooks/useResource";
 import type { LotReservation } from "@/lib/api";
-import { Plus, AlertTriangle, CheckCircle2, Loader2, X } from "lucide-react";
+import { Plus, AlertTriangle, CheckCircle2, Loader2, X, Zap } from "lucide-react";
 
 interface Inv {
   id: string; profile: string; grade: string | null; quantity: number;
@@ -161,6 +161,7 @@ function TraceableLotsTab() {
   const projects = useResourceList<Project>("projects", { limit: "200", order_by: "name", dir: "asc" });
   const release = useReleaseLotReservation();
   const [reserveTarget, setReserveTarget] = useState<Lot | null>(null);
+  const [issueTarget, setIssueTarget] = useState<Lot | null>(null);
   const [releasingId, setReleasingId] = useState<string | null>(null);
 
   const heatLookup = new Map((heats.data ?? []).map((h) => [h.id, h]));
@@ -225,16 +226,28 @@ function TraceableLotsTab() {
         const quarantined = heat?.status === "quarantine";
         const active = reservationsByLot.get(r.id) ?? [];
         const availableQty = Number(r.quantity) - active.reduce((s, res) => s + Number(res.quantity), 0);
-        if (r.status !== "available" || availableQty <= 0) return null;
+        if (r.status !== "available" || Number(r.quantity) <= 0) return null;
         return (
-          <button
-            className="btn btn-sm"
-            disabled={quarantined}
-            title={quarantined ? "Blocked — heat is quarantined pending MTR verification" : "Reserve for a project"}
-            onClick={() => setReserveTarget(r)}
-          >
-            Reserve
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              className="btn btn-sm btn-primary"
+              disabled={quarantined}
+              title={quarantined ? "Blocked — heat is quarantined pending MTR verification" : "Issue (hard-lock) material to a part"}
+              onClick={() => setIssueTarget(r)}
+            >
+              <Zap size={11} /> Issue
+            </button>
+            {availableQty > 0 && (
+              <button
+                className="btn btn-sm"
+                disabled={quarantined}
+                title={quarantined ? "Blocked — heat is quarantined pending MTR verification" : "Reserve for a project"}
+                onClick={() => setReserveTarget(r)}
+              >
+                Reserve
+              </button>
+            )}
+          </div>
         );
       },
     },
@@ -261,6 +274,10 @@ function TraceableLotsTab() {
           <ReserveModal lot={reserveTarget} available={availableQty} onClose={() => setReserveTarget(null)} />
         );
       })()}
+
+      {issueTarget && (
+        <IssueModal lot={issueTarget} onClose={() => setIssueTarget(null)} />
+      )}
     </>
   );
 }
@@ -318,6 +335,168 @@ function ReserveModal({ lot, available, onClose }: { lot: Lot; available: number
             <button type="submit" disabled={invalid || reserve.isPending} className="btn btn-primary">
               {reserve.isPending ? <Loader2 size={14} className="animate-spin" /> : null}
               {reserve.isPending ? "Reserving…" : "Reserve"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+interface PartOption {
+  id: string;
+  part_mark: string;
+  name: string | null;
+  profile: string;
+  grade: string | null;
+  weight: number | null;
+  quantity: number;
+  status: string;
+  material_lot_id: string | null;
+}
+
+function IssueModal({ lot, onClose }: { lot: Lot; onClose: () => void }) {
+  const projects = useResourceList<Project>("projects", { limit: "200", order_by: "name", dir: "asc" });
+  const issue = useIssueMaterial();
+  const [projectId, setProjectId] = useState("");
+  const [partId, setPartId] = useState("");
+  const [quantity, setQuantity] = useState(String(lot.quantity));
+  const [notes, setNotes] = useState("");
+
+  const parts = useResourceList<PartOption>(
+    "parts",
+    projectId ? { project_id: projectId, limit: "200" } : undefined,
+    { enabled: !!projectId }
+  );
+
+  // Eligible parts: not yet issued to a lot (material_lot_id is null)
+  const eligibleParts = useMemo(() => {
+    return (parts.data ?? []).filter((p) => !p.material_lot_id);
+  }, [parts.data]);
+
+  const selectedPart = eligibleParts.find((p) => p.id === partId);
+
+  const qtyNum = Number(quantity);
+  const invalid = !projectId || !partId || !Number.isFinite(qtyNum) || qtyNum <= 0 || qtyNum > Number(lot.quantity);
+
+  const handlePartSelect = (id: string) => {
+    setPartId(id);
+    const p = eligibleParts.find((item) => item.id === id);
+    if (p) {
+      const suggested = p.weight ? Math.min(Number(p.weight), Number(lot.quantity)) : Math.min(Number(p.quantity) || 1, Number(lot.quantity));
+      setQuantity(String(suggested));
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.5)" }} onClick={onClose}>
+      <div className="card" style={{ width: 460 }} onClick={(e) => e.stopPropagation()}>
+        <div className="card-header">
+          <div>
+            <div className="card-title">Issue material to part</div>
+            <div className="card-sub font-mono">{lot.lot_number} ({lot.profile} {lot.grade}) · {lot.quantity} remaining</div>
+          </div>
+          <button className="btn btn-sm btn-ghost" onClick={onClose}><X size={14} /></button>
+        </div>
+        <form
+          className="card-body"
+          style={{ display: "flex", flexDirection: "column", gap: 12 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (invalid) return;
+            issue.mutate(
+              { partId, body: { lot_id: lot.id, quantity: qtyNum, notes: notes || undefined } },
+              { onSuccess: onClose }
+            );
+          }}
+        >
+          <Field label="Project" required>
+            <select
+              className="input"
+              required
+              value={projectId}
+              onChange={(e) => {
+                setProjectId(e.target.value);
+                setPartId("");
+              }}
+            >
+              <option value="">— select project —</option>
+              {(projects.data ?? []).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </Field>
+
+          {projectId && (
+            <Field label="Part mark" required>
+              {parts.isLoading ? (
+                <div className="flex items-center gap-2 text-[12px]" style={{ color: "var(--muted)" }}>
+                  <Loader2 size={12} className="animate-spin" /> Loading parts…
+                </div>
+              ) : eligibleParts.length === 0 ? (
+                <div className="text-[12px]" style={{ color: "var(--muted)" }}>
+                  No unissued parts found for this project.
+                </div>
+              ) : (
+                <select
+                  className="input"
+                  required
+                  value={partId}
+                  onChange={(e) => handlePartSelect(e.target.value)}
+                >
+                  <option value="">— select part —</option>
+                  {eligibleParts.map((p) => {
+                    const match = p.profile === lot.profile;
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {p.part_mark} {p.name ? `(${p.name})` : ""} — {p.profile} {p.grade || ""} {match ? "✓ profile match" : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
+            </Field>
+          )}
+
+          {selectedPart && selectedPart.profile !== lot.profile && (
+            <div className="pill pill-warning text-[11px]" style={{ padding: "6px 10px" }}>
+              Note: Part profile ({selectedPart.profile}) differs from lot profile ({lot.profile}).
+            </div>
+          )}
+
+          <Field label={`Quantity to consume (max ${lot.quantity})`} required>
+            <input
+              className="input"
+              type="number"
+              min="0.001"
+              max={lot.quantity}
+              step="0.001"
+              required
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+            />
+          </Field>
+
+          <Field label="Notes">
+            <input
+              className="input"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Optional — e.g. cut to size for main beam"
+            />
+          </Field>
+
+          {issue.error && (
+            <div className="pill pill-red" style={{ padding: "8px 12px", fontSize: 12 }}>
+              {issue.error.message}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 mt-1">
+            <button type="button" onClick={onClose} className="btn">Cancel</button>
+            <button type="submit" disabled={invalid || issue.isPending} className="btn btn-primary">
+              {issue.isPending ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+              {issue.isPending ? "Issuing…" : "Issue to part"}
             </button>
           </div>
         </form>
