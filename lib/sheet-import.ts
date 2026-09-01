@@ -47,6 +47,8 @@ const HEADER_HINTS = new Set([
   "extarea", "surfacearea", "paintarea",
   // Quantity
   "qty", "quantity", "count", "pcs", "pieces", "noofpieces",
+  // Pricing (vendor quote sheets/letters)
+  "price", "unitprice", "priceperunit", "unitcost", "cost", "rate", "extendedprice", "totalprice",
   // Scheduling
   "phase", "lot", "sequence", "seq", "lotnumber",
   // Traceability
@@ -92,6 +94,12 @@ function matrixToRows(matrix: string[][], headerIdx: number): Record<string, str
   return out;
 }
 
+/** Auto-detects the header row in a raw cell matrix and converts the rest into header-keyed rows. Shared by every importer that can produce a matrix — CSV/XLSX here, and the PDF table extractor in lib/pdf-parse.ts. */
+export function rowsFromMatrix(matrix: string[][]): Record<string, string>[] {
+  const headerIdx = detectHeaderRowIdx(matrix);
+  return dropBlankRows(matrixToRows(matrix, headerIdx));
+}
+
 export async function parseExcelRows(file: File): Promise<Record<string, string>[]> {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: "array" });
@@ -101,16 +109,14 @@ export async function parseExcelRows(file: File): Promise<Record<string, string>
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1, defval: "", raw: false, blankrows: false,
   }).map((row) => (row as unknown[]).map((c) => (c == null ? "" : String(c))));
-  const headerIdx = detectHeaderRowIdx(matrix);
-  return dropBlankRows(matrixToRows(matrix, headerIdx));
+  return rowsFromMatrix(matrix);
 }
 
 export async function parseCsvRows(file: File): Promise<Record<string, string>[]> {
   const text = await file.text();
   const parsed = Papa.parse<string[]>(text, { header: false, skipEmptyLines: true });
   const matrix = (parsed.data as string[][]).map((row) => row.map((c) => String(c ?? "")));
-  const headerIdx = detectHeaderRowIdx(matrix);
-  return dropBlankRows(matrixToRows(matrix, headerIdx));
+  return rowsFromMatrix(matrix);
 }
 
 /** Parse a file (CSV/TSV or XLSX) into header-keyed rows, auto-detecting the header row. */

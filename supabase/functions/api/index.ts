@@ -33,6 +33,8 @@ import { extractMtrDocument } from "./controllers/mtrExtraction.ts";
 import { reserveLot, releaseLotReservation } from "./controllers/lotReservation.ts";
 import { createRfq, createVendorQuote, awardVendorQuote } from "./controllers/rfq.ts";
 import { importMaterialRequirements } from "./controllers/materialRequirementImport.ts";
+import { issueMaterial, voidMaterialIssue, getPartTraceability } from "./controllers/materialIssue.ts";
+import { receiveWithHeatSplits } from "./controllers/receiveHeatSplit.ts";
 
 const TABLE_RE = /^\/api\/?([a-z_]+)(?:\/([0-9a-f-]{36}))?\/?$/i;
 
@@ -157,6 +159,17 @@ Deno.serve(async (req) => {
     const awardMatch = path.match(/^\/vendor-quotes\/([0-9a-f-]{36})\/award$/i);
     if (awardMatch && method === "POST") return awardVendorQuote(ctx, awardMatch[1]);
     if (path === "/material-requirements/import" && method === "POST") return importMaterialRequirements(ctx);
+
+    // Material Lifecycle E2E (Branch: feature/material-lifecycle-e2e)
+    // Issue material to a part (hard lock) and void a mis-issue
+    const issueMtlMatch = path.match(/^\/parts\/([0-9a-f-]{36})\/issue-material$/i);
+    if (issueMtlMatch && method === "POST") return issueMaterial(ctx, issueMtlMatch[1]);
+    const voidIssueMatch = path.match(/^\/material-issues\/([0-9a-f-]{36})\/void$/i);
+    if (voidIssueMatch && method === "POST") return voidMaterialIssue(ctx, voidIssueMatch[1]);
+    const traceMatch = path.match(/^\/parts\/([0-9a-f-]{36})\/traceability$/i);
+    if (traceMatch && method === "GET") return getPartTraceability(ctx, traceMatch[1]);
+    // Atomic receive + heat-split creation
+    if (path === "/receivings/with-heat-splits" && method === "POST") return receiveWithHeatSplits(ctx);
 
     // Files
     if (path === "/files/sign-upload" && method === "POST") return signUpload(ctx);
