@@ -6,8 +6,8 @@ import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
-import { useResourceList, useCreateRfq } from "@/hooks/useResource";
-import { Plus } from "lucide-react";
+import { useResourceList, useCreateRfq, useFulfillMrFromInventory } from "@/hooks/useResource";
+import { Plus, PackageCheck, CheckCircle2 } from "lucide-react";
 
 interface Rfq {
   id: string; rfq_number: string; status: string; delivery_requirement: string | null; created_at: string;
@@ -39,7 +39,6 @@ export default function RfqsPage() {
   const router = useRouter();
   const list = useResourceList<Rfq>("rfqs", { order_by: "created_at", dir: "desc" });
   const rfqVendors = useResourceList<RfqVendorRow>("rfq_vendors", { limit: "500" });
-  const create = useCreateRfq();
   const [showNew, setShowNew] = useState(false);
 
   const vendorCountByRfq = new Map<string, number>();
@@ -74,22 +73,34 @@ export default function RfqsPage() {
       />
 
       {showNew && (
-        <NewRfqModal onClose={() => setShowNew(false)}
-          onSubmit={(p) => create.mutate(p, {
-            onSuccess: (res) => { setShowNew(false); router.push(`/dashboard/rfqs/${res.rfq.id}`); },
-          })}
-          submitting={create.isPending} error={create.error?.message ?? null}
+        <NewRfqModal
+          onClose={() => setShowNew(false)}
+          onSuccess={(rfqId) => { setShowNew(false); router.push(`/dashboard/rfqs/${rfqId}`); }}
         />
       )}
     </PageWrapper>
   );
 }
 
-function NewRfqModal({ onClose, onSubmit, submitting, error }: {
+// ---------------------------------------------------------------------------
+// NewRfqModal — owns its own mutations so it controls the full submit sequence:
+//   1. Create the RFQ (lines + vendors)
+//   2. Only on success → fire fulfill-from-stock for any queued MRs
+//
+// "Fulfill from Stock" is LOCAL STATE ONLY until the RFQ is saved.
+// Closing the modal without saving discards the queue with zero side-effects.
+// ---------------------------------------------------------------------------
+function NewRfqModal({
+  onClose,
+  onSuccess,
+}: {
   onClose: () => void;
-  onSubmit: (p: { delivery_requirement?: string; notes?: string; lines: { material_requirement_id: string; quantity: number }[]; vendor_ids: string[] }) => void;
-  submitting: boolean; error: string | null;
+  onSuccess: (rfqId: string) => void;
 }) {
+  const router = useRouter(); void router; // consumed by parent; kept for future use
+  const createRfq = useCreateRfq();
+  const fulfill = useFulfillMrFromInventory();
+
   // Cross-project by design (§15.4) — every open MR company-wide, not just
   // the one from the currently-selected project in the sidebar.
   const mrs = useResourceList<MaterialRequirement>("material_requirements", { status: "open", order_by: "created_at", dir: "desc", per_page: 200 });
@@ -111,24 +122,27 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
     return map;
   }, [invReservations.data]);
 
-  // Build a lookup: invKey(profile, name, length) → truly available in stock.
+  // Build a lookup: invKey(profile, name, length) → { available qty, inventoryId }.
   // truly_available = raw quantity − active reservations from other RFQs.
-  // Only count stock that has net available > 0.
+  // When multiple SKU rows share the same key, pick the one with the most available.
   const inventoryLookup = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { available: number; inventoryId: string }>();
     for (const inv of inventory.data ?? []) {
       const reserved = reservedByInvId.get(inv.id) ?? 0;
       const available = Math.max(0, Number(inv.quantity) - reserved);
       if (available <= 0) continue;
       const k = invKey(inv.profile, inv.name, inv.length);
-      map.set(k, (map.get(k) ?? 0) + available);
+      const existing = map.get(k);
+      if (!existing || available > existing.available) {
+        map.set(k, { available, inventoryId: inv.id });
+      }
     }
     return map;
   }, [inventory.data, reservedByInvId]);
 
   // How much of an MR is covered by current bulk stock?
   function stockCoverage(mr: MaterialRequirement): number {
-    return inventoryLookup.get(invKey(mr.profile, mr.name, mr.length)) ?? 0;
+    return inventoryLookup.get(invKey(mr.profile, mr.name, mr.length))?.available ?? 0;
   }
 
   // Net quantity to order = max(0, mr.quantity - stock on hand)
@@ -136,8 +150,22 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
     return Math.max(0, mr.quantity - stockCoverage(mr));
   }
 
-  const [selectedMrs, setSelectedMrs] = useState<Record<string, string>>({}); // mr_id -> quantity string
+  const [selectedMrs, setSelectedMrs] = useState<Record<string, string>>({}); // mr_id → quantity string
   const [selectedVendors, setSelectedVendors] = useState<Set<string>>(new Set());
+
+  // ── Fulfill-from-stock queue ──────────────────────────────────────────────
+  // Pure local state — no API calls until the RFQ is saved.
+  // Contains IDs of fully-stocked MRs the user has opted to fulfill from
+  // inventory instead of including in this RFQ. Discarded on modal close.
+  const [fulfillQueue, setFulfillQueue] = useState<Set<string>>(new Set());
+
+  function toggleFulfillQueue(mr: MaterialRequirement) {
+    setFulfillQueue((prev) => {
+      const next = new Set(prev);
+      if (next.has(mr.id)) next.delete(mr.id); else next.add(mr.id);
+      return next;
+    });
+  }
 
   // Pre-select all open MRs with net quantities once both MRs and inventory are loaded.
   // We wait for inventory + reservations so quantities are already netted on first render.
@@ -160,6 +188,8 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
       else next[mr.id] = String(netQty(mr));
       return next;
     });
+    // Un-queueing from fulfill if re-checking for RFQ
+    setFulfillQueue((prev) => { const next = new Set(prev); next.delete(mr.id); return next; });
   }
   function toggleVendor(id: string) {
     setSelectedVendors((prev) => {
@@ -180,26 +210,59 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
 
   const mrCount = Object.keys(selectedMrs).length;
   const allMrsSelected = (mrs.data ?? []).length > 0 && (mrs.data ?? []).every((mr) => mr.id in selectedMrs);
-  const invalid = mrCount === 0 || selectedVendors.size === 0;
+  // RFQ itself is invalid if no lines or no vendors; fulfill queue doesn't block submit.
+  const rfqInvalid = mrCount === 0 || selectedVendors.size === 0;
+  const submitting = createRfq.isPending;
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (rfqInvalid) return;
+
+    createRfq.mutate(
+      {
+        delivery_requirement: deliveryRequirement || undefined,
+        notes: notes || undefined,
+        lines: Object.entries(selectedMrs).map(([material_requirement_id, qty]) => ({
+          material_requirement_id, quantity: Number(qty),
+        })),
+        vendor_ids: Array.from(selectedVendors),
+      },
+      {
+        onSuccess: (res) => {
+          // ── Fire fulfill-from-stock for all queued MRs ──────────────────
+          // Runs AFTER the RFQ is successfully created so there are no orphans.
+          // These run fire-and-forget in parallel — a failure here is surfaced
+          // through React Query's error state and can be retried from the
+          // Material Requirements page. Navigation is not blocked.
+          for (const mrId of fulfillQueue) {
+            const mr = (mrs.data ?? []).find((m) => m.id === mrId);
+            if (!mr) continue;
+            const inv = inventoryLookup.get(invKey(mr.profile, mr.name, mr.length));
+            if (!inv) continue;
+            fulfill.mutate({ mrId, inventoryId: inv.inventoryId, quantity: mr.quantity, projectId: mr.project_id });
+          }
+
+          onSuccess(res.rfq.id);
+        },
+      },
+    );
+  }
+
+  const fulfillQueueCount = fulfillQueue.size;
 
   return (
-    <ResourceModal title="New RFQ" onClose={onClose} submitting={submitting} error={error}
-      submitDisabled={invalid} width={600}
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (invalid) return;
-        onSubmit({
-          delivery_requirement: deliveryRequirement || undefined,
-          notes: notes || undefined,
-          lines: Object.entries(selectedMrs).map(([material_requirement_id, qty]) => ({
-            material_requirement_id, quantity: Number(qty),
-          })),
-          vendor_ids: Array.from(selectedVendors),
-        });
-      }}
+    <ResourceModal
+      title="New RFQ"
+      onClose={onClose}
+      submitting={submitting}
+      error={createRfq.error?.message ?? null}
+      submitDisabled={rfqInvalid}
+      submitLabel={fulfillQueueCount > 0 ? `Save RFQ + Fulfill ${fulfillQueueCount} from Stock` : "Save RFQ"}
+      width={600}
+      onSubmit={handleSubmit}
     >
-      <Field label={`Material requirements (${mrCount} selected)`} required>
-        <div className="rounded-lg border" style={{ borderColor: "var(--border)", maxHeight: 300, overflowY: "auto" }}>
+      <Field label={`Material requirements (${mrCount} for RFQ${fulfillQueueCount > 0 ? ` · ${fulfillQueueCount} fulfill from stock` : ""})`} required>
+        <div className="rounded-lg border" style={{ borderColor: "var(--border)", maxHeight: 320, overflowY: "auto" }}>
           {(mrs.data ?? []).length === 0 && (
             <div className="text-[12px] p-3" style={{ color: "var(--muted)" }}>No open material requirements. Raise one on a project first.</div>
           )}
@@ -216,18 +279,30 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
             const fullyCovered = covered > 0 && net === 0;
             const partiallyCovered = covered > 0 && net > 0;
             const isSelected = mr.id in selectedMrs;
+            const isQueued = fulfillQueue.has(mr.id);
+
+            // Wrapper: use <div> when the row has the "Fulfill from Stock" toggle on the
+            // right-hand side to prevent button clicks from propagating to the checkbox.
+            const Wrapper = fullyCovered && !isSelected ? "div" : "label";
 
             return (
-              <label
+              <Wrapper
                 key={mr.id}
                 className="flex items-start gap-2 px-3 py-2 text-[12px]"
                 style={{
                   borderBottom: "1px solid var(--border)",
-                  background: fullyCovered ? "rgba(16,185,129,0.05)" : undefined,
-                  cursor: "pointer",
+                  background: isQueued
+                    ? "rgba(79,70,229,0.06)"    // indigo tint — queued for fulfillment
+                    : fullyCovered ? "rgba(16,185,129,0.05)" : undefined,
+                  cursor: fullyCovered && !isSelected ? "default" : "pointer",
                 }}
               >
-                <input type="checkbox" checked={isSelected} onChange={() => toggleMr(mr)} style={{ marginTop: 3, flexShrink: 0 }} />
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => toggleMr(mr)}
+                  style={{ marginTop: 3, flexShrink: 0 }}
+                />
 
                 {/* MR identity — profile, name, grade, length, project */}
                 <div className="flex-1 min-w-0">
@@ -246,40 +321,74 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
                     </span>
                   </div>
 
-                  {/* Stock coverage indicators */}
-                  {fullyCovered && (
-                    <div className="text-[11px] mt-1" style={{ color: "#10B981" }}>
-                      ✓ Fully covered by stock ({covered} in inventory) — uncheck to skip
+                  {/* Stock coverage / queue indicators */}
+                  {isQueued && (
+                    <div className="flex items-center gap-1 text-[11px] mt-1" style={{ color: "var(--primary)" }}>
+                      <PackageCheck size={11} />
+                      Will be fulfilled from inventory when RFQ is saved
                     </div>
                   )}
-                  {partiallyCovered && (
+                  {!isQueued && fullyCovered && (
+                    <div className="text-[11px] mt-1" style={{ color: "#10B981" }}>
+                      ✓ Fully covered by stock ({covered} in inventory)
+                      {isSelected ? " — uncheck to skip" : ""}
+                    </div>
+                  )}
+                  {partiallyCovered && !isQueued && (
                     <div className="text-[11px] mt-1" style={{ color: "#F59E0B" }}>
                       ⚡ {covered} in stock · ordering {net} of {mr.quantity} required
                     </div>
                   )}
                 </div>
 
-                {/* Net quantity input — editable, pre-set to net-to-order */}
-                {isSelected && (
-                  <div className="flex flex-col items-end gap-1" style={{ flexShrink: 0 }}>
-                    <input
-                      className="input" type="number" min="0.01" step="0.01"
-                      style={{ width: 80, height: 26, fontSize: 11, textAlign: "right" }}
-                      value={selectedMrs[mr.id]}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => setSelectedMrs((prev) => ({ ...prev, [mr.id]: e.target.value }))}
-                    />
-                    {covered > 0 && (
-                      <span className="text-[10px]" style={{ color: "var(--muted)" }}>of {mr.quantity} req.</span>
-                    )}
-                  </div>
-                )}
-              </label>
+                {/* Right-side controls */}
+                <div className="flex flex-col items-end gap-1" style={{ flexShrink: 0 }}>
+                  {/* Qty input — shown when MR is included in the RFQ */}
+                  {isSelected && (
+                    <>
+                      <input
+                        className="input" type="number" min="0.01" step="0.01"
+                        style={{ width: 80, height: 26, fontSize: 11, textAlign: "right" }}
+                        value={selectedMrs[mr.id]}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setSelectedMrs((prev) => ({ ...prev, [mr.id]: e.target.value }))}
+                      />
+                      {covered > 0 && (
+                        <span className="text-[10px]" style={{ color: "var(--muted)" }}>of {mr.quantity} req.</span>
+                      )}
+                    </>
+                  )}
+
+                  {/* Fulfill from Stock toggle — only for fully-stocked MRs that are NOT in the RFQ.
+                      This is LOCAL STATE ONLY. No API call happens until the RFQ is saved. */}
+                  {fullyCovered && !isSelected && (
+                    <button
+                      type="button"
+                      className={`btn btn-sm${isQueued ? " btn-primary" : ""}`}
+                      style={{ fontSize: 10, height: 24, padding: "0 8px", whiteSpace: "nowrap" }}
+                      onClick={(e) => { e.stopPropagation(); toggleFulfillQueue(mr); }}
+                      title={isQueued
+                        ? "Click to remove from fulfillment queue"
+                        : "Mark to fulfill from existing inventory stock when RFQ is saved"}
+                    >
+                      {isQueued
+                        ? <><CheckCircle2 size={10} /> Queued</>
+                        : <><PackageCheck size={10} /> Fulfill from Stock</>}
+                    </button>
+                  )}
+                </div>
+              </Wrapper>
             );
           })}
         </div>
         {(inventory.isLoading || invReservations.isLoading) && (
           <div className="text-[11px] mt-1" style={{ color: "var(--muted)" }}>⏳ Loading inventory for stock netting…</div>
+        )}
+        {fulfillQueueCount > 0 && (
+          <div className="text-[11px] mt-1.5 flex items-center gap-1" style={{ color: "var(--primary)" }}>
+            <PackageCheck size={11} />
+            {fulfillQueueCount} MR{fulfillQueueCount > 1 ? "s" : ""} will be marked <strong>fulfilled</strong> and inventory reserved when you save
+          </div>
         )}
       </Field>
 

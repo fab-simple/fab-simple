@@ -5,15 +5,18 @@ import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
-import { useResourceList, useCreate, useImportMaterialRequirements } from "@/hooks/useResource";
+import {
+  useResourceList, useCreate, useImportMaterialRequirements,
+  useFulfillMrFromInventory,
+} from "@/hooks/useResource";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
 import type { ImportMaterialRequirementsRow, ImportMaterialRequirementsResult } from "@/lib/api";
-import { Plus, Loader2, X, CheckCircle2, Layers } from "lucide-react";
+import { Plus, Loader2, X, CheckCircle2, Layers, PackageCheck } from "lucide-react";
 
 interface MaterialRequirement {
   id: string; mr_number: string; profile: string; name: string | null; grade: string | null;
   quantity: number; length: string | null; required_date: string | null; status: string;
-  notes: string | null;
+  notes: string | null; project_id: string;
 }
 
 // Shape of a part row as returned by useResourceList("parts")
@@ -25,6 +28,19 @@ interface PartRow {
   grade: string | null;
   length: string | null;
   quantity: number;
+}
+
+interface InvRow {
+  id: string; profile: string; name: string | null; grade: string | null;
+  length: string | null; quantity: number; status: string;
+}
+interface InvReservation {
+  id: string; inventory_id: string; quantity: number; status: string;
+}
+
+// Normalise a match key so minor whitespace/case differences don't cause misses.
+function invKey(profile: string, name: string | null, length: string | null) {
+  return [profile, name ?? "", length ?? ""].map((s) => s.trim().toLowerCase()).join("|");
 }
 
 // Material Requirements are a per-(profile, name, grade, length) aggregate.
@@ -82,6 +98,42 @@ export default function MaterialRequirementsPage() {
   const create = useCreate<MaterialRequirement>("material_requirements");
   const [showNew, setShowNew] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
+  const [fulfillTarget, setFulfillTarget] = useState<MaterialRequirement | null>(null);
+
+  // Fetch bulk inventory + active reservations so we can compute stock coverage
+  // and surface "Fulfill from Inventory" on any open MR with sufficient stock.
+  const inventory = useResourceList<InvRow>("inventory", { per_page: 200 });
+  const invReservations = useResourceList<InvReservation>("inventory_reservations", { status: "active", per_page: 500 });
+
+  // Map: inventory_id → total qty currently reserved by other open RFQs.
+  const reservedByInvId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of invReservations.data ?? []) {
+      map.set(r.inventory_id, (map.get(r.inventory_id) ?? 0) + Number(r.quantity));
+    }
+    return map;
+  }, [invReservations.data]);
+
+  // Map: invKey → { available qty, inventory id } for the best-matching SKU.
+  // "available" = raw quantity minus active reservations from existing RFQs.
+  const inventoryLookup = useMemo(() => {
+    const map = new Map<string, { available: number; inventoryId: string }>();
+    for (const inv of inventory.data ?? []) {
+      const reserved = reservedByInvId.get(inv.id) ?? 0;
+      const available = Math.max(0, Number(inv.quantity) - reserved);
+      if (available <= 0) continue;
+      const k = invKey(inv.profile, inv.name, inv.length);
+      const existing = map.get(k);
+      if (!existing || available > existing.available) {
+        map.set(k, { available, inventoryId: inv.id });
+      }
+    }
+    return map;
+  }, [inventory.data, reservedByInvId]);
+
+  function stockCoverageFor(mr: MaterialRequirement) {
+    return inventoryLookup.get(invKey(mr.profile, mr.name, mr.length));
+  }
 
   const cols: Column<MaterialRequirement>[] = [
     { key: "num", label: "MR #", mono: true, render: (r) => <strong>{r.mr_number}</strong> },
@@ -93,6 +145,25 @@ export default function MaterialRequirementsPage() {
     { key: "notes", label: "Notes", render: (r) => r.notes ?? "—" },
     { key: "req", label: "Required by", render: (r) => r.required_date ? new Date(r.required_date).toLocaleDateString() : "—" },
     { key: "status", label: "Status", render: (r) => <StatusPill status={r.status} /> },
+    {
+      key: "action", label: "", render: (r) => {
+        // Only open MRs that are fully covered by current stock get the action.
+        if (r.status !== "open") return null;
+        const coverage = stockCoverageFor(r);
+        if (!coverage || coverage.available < r.quantity) return null;
+        return (
+          <button
+            className="btn btn-sm"
+            title="Mark as fulfilled from existing inventory stock"
+            style={{ whiteSpace: "nowrap" }}
+            onClick={(e) => { e.stopPropagation(); setFulfillTarget(r); }}
+          >
+            <PackageCheck size={12} />
+            Fulfill from Stock
+          </button>
+        );
+      },
+    },
   ];
 
   const openCount = (list.data ?? []).filter((m) => m.status === "open").length;
@@ -130,6 +201,19 @@ export default function MaterialRequirementsPage() {
       {showGenerate && selectedProjectId && (
         <GenerateFromPartsModal projectId={selectedProjectId} onClose={() => setShowGenerate(false)} />
       )}
+
+      {fulfillTarget && (() => {
+        const coverage = stockCoverageFor(fulfillTarget);
+        if (!coverage) return null;
+        return (
+          <FulfillFromInventoryModal
+            mr={fulfillTarget}
+            inventoryId={coverage.inventoryId}
+            available={coverage.available}
+            onClose={() => setFulfillTarget(null)}
+          />
+        );
+      })()}
     </PageWrapper>
   );
 }
@@ -173,6 +257,102 @@ function NewModal({ projectId, onClose, onSubmit, submitting, error }: {
       <Field label="Required by"><input className="input" type="date" value={f.required_date} onChange={(e) => setF({ ...f, required_date: e.target.value })} /></Field>
       <Field label="Notes"><textarea className="input" rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} style={{ height: "auto", padding: "8px 12px", resize: "vertical" }} /></Field>
     </ResourceModal>
+  );
+}
+
+// ===========================================================================
+// Fulfill Material Requirement from existing bulk inventory stock.
+// Updates MR status → "fulfilled" and creates an active inventory_reservation
+// so the reserved quantity is properly attributed in the Inventory page.
+// ===========================================================================
+
+function FulfillFromInventoryModal({ mr, inventoryId, available, onClose }: {
+  mr: MaterialRequirement;
+  inventoryId: string;
+  available: number;
+  onClose: () => void;
+}) {
+  const fulfill = useFulfillMrFromInventory();
+
+  function handleConfirm() {
+    fulfill.mutate(
+      { mrId: mr.id, inventoryId, quantity: mr.quantity, projectId: mr.project_id },
+      { onSuccess: onClose },
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(15,23,42,0.5)" }}
+      onClick={onClose}
+    >
+      <div className="card" style={{ width: 460 }} onClick={(e) => e.stopPropagation()}>
+        <div className="card-header">
+          <div>
+            <div className="card-title">Fulfill from Inventory</div>
+            <div className="card-sub font-mono">{mr.mr_number}</div>
+          </div>
+          <button className="btn btn-sm btn-ghost" onClick={onClose}><X size={14} /></button>
+        </div>
+
+        <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* MR summary */}
+          <div className="rounded-lg border p-3 text-[12px]"
+            style={{ borderColor: "var(--border)", background: "var(--bg-muted)" }}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-mono font-semibold" style={{ color: "var(--text)" }}>{mr.profile}</span>
+              {mr.name && <span style={{ color: "var(--text)" }}>{mr.name}</span>}
+              {mr.grade && <span className="pill" style={{ padding: "0 5px", fontSize: 10 }}>{mr.grade}</span>}
+              {mr.length && <span style={{ color: "var(--muted)" }}>· {mr.length}</span>}
+            </div>
+            <div className="mt-1.5" style={{ color: "var(--muted)" }}>
+              Required: <strong style={{ color: "var(--text)" }}>{mr.quantity}</strong> units
+            </div>
+          </div>
+
+          {/* Stock coverage */}
+          <div className="rounded-lg border p-3 text-[12px]"
+            style={{ background: "rgba(16,185,129,0.06)", borderColor: "rgba(16,185,129,0.3)" }}>
+            <div className="flex items-center gap-2">
+              <CheckCircle2 size={14} style={{ color: "var(--green)", flexShrink: 0 }} />
+              <span style={{ color: "var(--text)" }}>
+                <strong>{available}</strong> units available in bulk stock —{" "}
+                fully covers the requirement of <strong>{mr.quantity}</strong>
+              </span>
+            </div>
+          </div>
+
+          {/* What will happen */}
+          <div className="text-[12px]" style={{ color: "var(--muted)" }}>
+            Confirming will:
+            <ul style={{ marginTop: 6, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 4 }}>
+              <li>Set this MR's status to <strong style={{ color: "var(--text)" }}>Fulfilled</strong></li>
+              <li>Reserve <strong style={{ color: "var(--text)" }}>{mr.quantity}</strong> unit{mr.quantity !== 1 ? "s" : ""} in the Inventory against this project</li>
+            </ul>
+          </div>
+
+          {fulfill.error && (
+            <div className="pill pill-red" style={{ padding: "8px 12px", fontSize: 12 }}>
+              {fulfill.error.message}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 mt-1">
+            <button type="button" onClick={onClose} className="btn" disabled={fulfill.isPending}>Cancel</button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={fulfill.isPending}
+              onClick={handleConfirm}
+            >
+              {fulfill.isPending ? <Loader2 size={14} className="animate-spin" /> : <PackageCheck size={14} />}
+              {fulfill.isPending ? "Fulfilling…" : "Confirm & Fulfill"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

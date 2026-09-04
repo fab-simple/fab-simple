@@ -482,3 +482,41 @@ export function usePartTraceability(partId: string | null) {
     staleTime: 5 * 60 * 1000,
   });
 }
+
+/**
+ * Fulfill a Material Requirement from existing bulk inventory stock.
+ * Calls POST /inventory-reservations/fulfill-from-stock which atomically:
+ *   1. Checks available stock (guards against over-reserving)
+ *   2. Creates the inventory_reservation via service-role (same as fn_create_rfq)
+ *   3. Updates the MR status to "fulfilled"
+ *
+ * The previous approach tried to POST /inventory_reservations directly, which
+ * is intentionally blocked (insertable: [] in permissions.ts) — this is the
+ * correct dedicated endpoint.
+ *
+ * Invalidates: material_requirements, inventory_reservations, inventory,
+ * and the dashboard so every downstream widget reflects the change.
+ */
+export function useFulfillMrFromInventory() {
+  const qc = useQueryClient();
+  return useMutation<void, FabApiError, {
+    mrId: string;
+    inventoryId: string;
+    quantity: number;
+    projectId: string;
+  }>({
+    mutationFn: ({ mrId, inventoryId, quantity, projectId }) =>
+      FabAPI.fulfillMrFromStock({
+        material_requirement_id: mrId,
+        inventory_id: inventoryId,
+        quantity,
+        project_id: projectId,
+      }).then(() => undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["material_requirements"] });
+      qc.invalidateQueries({ queryKey: ["inventory_reservations"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}

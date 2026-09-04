@@ -623,6 +623,25 @@ export const FabAPI = {
     return call<{ reservation: InventoryReservation }>(`/inventory-reservations/${reservationId}/release`, "POST");
   },
   /**
+   * Mark a Material Requirement as fulfilled from existing bulk inventory stock
+   * without raising an RFQ. Calls the dedicated endpoint which:
+   *   1. Verifies available stock is ≥ requested quantity (409 if not)
+   *   2. Writes the inventory_reservation via service-role (same as fn_create_rfq)
+   *   3. Updates the MR status to "fulfilled"
+   *
+   * Do NOT use the generic POST /inventory_reservations — that is intentionally
+   * blocked (insertable: [] in permissions.ts) because it skips the availability
+   * check and RLS requires the reservation to come through an RPC or this endpoint.
+   */
+  fulfillMrFromStock(body: {
+    material_requirement_id: string;
+    inventory_id: string;
+    quantity: number;
+    project_id: string;
+  }) {
+    return call<{ reservation: InventoryReservation }>("/inventory-reservations/fulfill-from-stock", "POST", { body });
+  },
+  /**
    * Trigger OCR extraction on an MTR document that already has a file
    * attached. Advisory only — never sets ocr_status to 'verified'; a QC
    * user must review and verify separately.
