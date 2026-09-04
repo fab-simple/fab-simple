@@ -244,6 +244,14 @@ body {
   border-color: var(--primary-bd);
 }
 
+.pill-awarded {
+  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+  color: #92400E;
+  border-color: #F59E0B;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 /* ─── Cards ─── */
 .card {
   background: var(--bg-card);

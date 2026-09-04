@@ -615,6 +615,14 @@ export const FabAPI = {
     return call<ReleaseReservationResult>(`/lot-reservations/${reservationId}/release`, "POST");
   },
   /**
+   * Manually release an active bulk-inventory reservation back to the
+   * available pool. Normally auto-released when the RFQ is awarded or
+   * cancelled — use this only for exceptional manual overrides.
+   */
+  releaseInventoryReservation(reservationId: string) {
+    return call<{ reservation: InventoryReservation }>(`/inventory-reservations/${reservationId}/release`, "POST");
+  },
+  /**
    * Trigger OCR extraction on an MTR document that already has a file
    * attached. Advisory only — never sets ocr_status to 'verified'; a QC
    * user must review and verify separately.
@@ -950,3 +958,21 @@ export interface PartTraceabilityResult {
   chain: TraceabilityChainRow[];
 }
 
+// ─── Bulk Inventory Reservation — Types ────────────────────────────────────
+
+export interface InventoryReservation {
+  id: string;
+  company_id: string;
+  inventory_id: string;
+  rfq_id: string | null;
+  project_id: string | null;
+  quantity: number;
+  /** 'active' | 'released' | 'consumed' */
+  status: string;
+  reserved_by: string | null;
+  reserved_at: string;
+  released_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}

@@ -72,6 +72,7 @@ export function statusToClass(status: string): string {
     "under_review": "pill-warn",
     "withdrawn": "pill-danger",
     "awarded_setup": "pill-warn",
+    "awarded": "pill-awarded",
     // Procurement & Material Traceability — Phase 1
     Available: "pill-done",
     Verified: "pill-done",

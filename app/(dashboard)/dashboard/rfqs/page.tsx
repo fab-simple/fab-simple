@@ -20,6 +20,9 @@ interface Inv {
   id: string; profile: string; name: string | null; grade: string | null;
   length: string | null; quantity: number; status: string;
 }
+interface InvReservation {
+  id: string; inventory_id: string; quantity: number; status: string;
+}
 interface Vendor { id: string; name: string; status: string; }
 interface Project { id: string; name: string; }
 interface RfqVendorRow { id: string; rfq_id: string; vendor_id: string; }
@@ -94,20 +97,34 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
   const projects = useResourceList<Project>("projects", { limit: "200" });
   // Bulk inventory — used to net available stock against each MR quantity
   const inventory = useResourceList<Inv>("inventory", { per_page: 200 });
+  // Active inventory reservations — subtract from raw stock to get truly available
+  const invReservations = useResourceList<InvReservation>("inventory_reservations", { status: "active", per_page: 500 });
 
   const projectLookup = new Map((projects.data ?? []).map((p) => [p.id, p.name]));
 
-  // Build a lookup: invKey(profile, name, length) → qty available in stock.
-  // Only count stock that has qty > 0 (status ok or low).
+  // Map: inventory_id → total qty reserved by OTHER open RFQs
+  const reservedByInvId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of invReservations.data ?? []) {
+      map.set(r.inventory_id, (map.get(r.inventory_id) ?? 0) + Number(r.quantity));
+    }
+    return map;
+  }, [invReservations.data]);
+
+  // Build a lookup: invKey(profile, name, length) → truly available in stock.
+  // truly_available = raw quantity − active reservations from other RFQs.
+  // Only count stock that has net available > 0.
   const inventoryLookup = useMemo(() => {
     const map = new Map<string, number>();
     for (const inv of inventory.data ?? []) {
-      if (Number(inv.quantity) <= 0) continue;
+      const reserved = reservedByInvId.get(inv.id) ?? 0;
+      const available = Math.max(0, Number(inv.quantity) - reserved);
+      if (available <= 0) continue;
       const k = invKey(inv.profile, inv.name, inv.length);
-      map.set(k, (map.get(k) ?? 0) + Number(inv.quantity));
+      map.set(k, (map.get(k) ?? 0) + available);
     }
     return map;
-  }, [inventory.data]);
+  }, [inventory.data, reservedByInvId]);
 
   // How much of an MR is covered by current bulk stock?
   function stockCoverage(mr: MaterialRequirement): number {
@@ -123,15 +140,15 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
   const [selectedVendors, setSelectedVendors] = useState<Set<string>>(new Set());
 
   // Pre-select all open MRs with net quantities once both MRs and inventory are loaded.
-  // We wait for inventory so quantities are already netted on first render.
+  // We wait for inventory + reservations so quantities are already netted on first render.
   useEffect(() => {
     const allMrs = mrs.data ?? [];
-    if (allMrs.length > 0 && inventory.data && Object.keys(selectedMrs).length === 0) {
+    if (allMrs.length > 0 && inventory.data && invReservations.data && Object.keys(selectedMrs).length === 0) {
       const all: Record<string, string> = {};
       for (const mr of allMrs) all[mr.id] = String(netQty(mr));
       setSelectedMrs(all);
     }
-  }, [mrs.data, inventory.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mrs.data, inventory.data, invReservations.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [deliveryRequirement, setDeliveryRequirement] = useState("");
   const [notes, setNotes] = useState("");
@@ -261,7 +278,7 @@ function NewRfqModal({ onClose, onSubmit, submitting, error }: {
             );
           })}
         </div>
-        {inventory.isLoading && (
+        {(inventory.isLoading || invReservations.isLoading) && (
           <div className="text-[11px] mt-1" style={{ color: "var(--muted)" }}>⏳ Loading inventory for stock netting…</div>
         )}
       </Field>
