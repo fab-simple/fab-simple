@@ -228,18 +228,22 @@ function NewRfqModal({
         vendor_ids: Array.from(selectedVendors),
       },
       {
-        onSuccess: (res) => {
+        onSuccess: async (res) => {
           // ── Fire fulfill-from-stock for all queued MRs ──────────────────
           // Runs AFTER the RFQ is successfully created so there are no orphans.
-          // These run fire-and-forget in parallel — a failure here is surfaced
-          // through React Query's error state and can be retried from the
-          // Material Requirements page. Navigation is not blocked.
-          for (const mrId of fulfillQueue) {
+          // We MUST await these before calling onSuccess (which navigates away),
+          // otherwise the browser/React Query will cancel the requests when the
+          // modal unmounts.
+          const promises = Array.from(fulfillQueue).map((mrId) => {
             const mr = (mrs.data ?? []).find((m) => m.id === mrId);
-            if (!mr) continue;
+            if (!mr) return Promise.resolve();
             const inv = inventoryLookup.get(invKey(mr.profile, mr.name, mr.length));
-            if (!inv) continue;
-            fulfill.mutate({ mrId, inventoryId: inv.inventoryId, quantity: mr.quantity, projectId: mr.project_id });
+            if (!inv) return Promise.resolve();
+            return fulfill.mutateAsync({ mrId, inventoryId: inv.inventoryId, quantity: mr.quantity, projectId: mr.project_id });
+          });
+
+          if (promises.length > 0) {
+            await Promise.allSettled(promises);
           }
 
           onSuccess(res.rfq.id);
