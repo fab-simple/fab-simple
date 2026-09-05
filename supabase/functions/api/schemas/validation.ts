@@ -325,8 +325,9 @@ export const Schemas = {
 
   inventory: z.object({
     profile: z.string().min(1).max(80),
+    name: z.string().max(120).optional(),
     grade: z.string().max(40).optional(),
-    length: numeric.optional(),
+    length: z.string().max(60).optional(),
     quantity: numeric.nonnegative(),
     location: z.string().max(60).optional(),
     reorder_point: numeric.nonnegative().default(0),

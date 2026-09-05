@@ -444,6 +444,20 @@ export const TABLES: Record<string, TableConfig> = {
     readable: ["owner", "estimator", "pm", "foreman", "qc"],
     hasCompanyId: true,
   },
+  // Inventory Reservations — soft holds on bulk stock created atomically
+  // inside fn_create_rfq and released/consumed by fn_award_vendor_quote.
+  // Manual release goes through POST /inventory-reservations/:id/release
+  // in controllers/inventoryReservation.ts. Same read-only CRUD pattern
+  // as lot_reservations: this entry exists only for GET list/get so the
+  // Inventory page can display Reserved / Available columns.
+  inventory_reservations: {
+    table: "inventory_reservations",
+    insertable: [],
+    updatable: [],
+    deletable: [],
+    readable: ["owner", "estimator", "pm", "foreman", "accounting"],
+    hasCompanyId: true,
+  },
   // Material Issues — hard-lock / consumption records. Insertable is blocked
   // here because issueMaterial() performs an availability check + heat
   // quarantine guard that the generic CRUD handler can't replicate. The void

@@ -3,7 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Download, Send, Award, CheckCircle2, Upload } from "lucide-react";
+import { ArrowLeft, Loader2, Download, Send, Award, CheckCircle2, Upload, Trophy } from "lucide-react";
 
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -81,16 +81,19 @@ export default function RfqDetailPage() {
   }
   const lowestTotal = totalByQuote.size > 0 ? Math.min(...totalByQuote.values()) : null;
 
-  // Lowest unit price per line, so the cheaper vendor on any given line
-  // stands out at a glance instead of requiring a manual scan across columns.
-  const lowestPriceByLine = new Map<string, number>();
+  // Lowest line total per line (unit_price × qty), so the cheapest vendor on
+  // any given line stands out at a glance instead of requiring manual scanning.
+  const lowestTotalByLine = new Map<string, number>();
   for (const l of lines.data ?? []) {
     let min: number | null = null;
     for (const q of quotes.data ?? []) {
       const price = priceByQuoteAndLine.get(`${q.id}:${l.id}`);
-      if (price != null && (min == null || price < min)) min = price;
+      if (price != null) {
+        const lineTotal = price * l.quantity;
+        if (min == null || lineTotal < min) min = lineTotal;
+      }
     }
-    if (min != null) lowestPriceByLine.set(l.id, min);
+    if (min != null) lowestTotalByLine.set(l.id, min);
   }
 
   if (rfqQ.isLoading || !rfq) {
@@ -195,13 +198,16 @@ export default function RfqDetailPage() {
         <table className="w-full text-[12px]" style={{ borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
-              <th className="text-left p-2">Profile Size</th>
-              <th className="text-left p-2">Grade</th>
-              <th className="text-left p-2">Name</th>
-              <th className="text-left p-2">Length</th>
-              <th className="text-right p-2" style={{ width: 70 }}>Qty</th>
+              <th className="p-2" style={{ textAlign: "left" }}>Profile Size</th>
+              <th className="p-2" style={{ textAlign: "left" }}>Grade</th>
+              <th className="p-2" style={{ textAlign: "left" }}>Name</th>
+              <th className="p-2" style={{ textAlign: "left" }}>Length</th>
+              <th className="p-2" style={{ width: 70, textAlign: "right" }}>Qty</th>
               {(quotes.data ?? []).map((q) => (
-                <th key={q.id} className="text-right p-2 font-mono">{vendorLookup.get(q.vendor_id)?.name ?? q.vendor_id.slice(0, 8)}</th>
+                <th key={q.id} className="p-2 font-mono" style={{ textAlign: "right" }}>
+                  {vendorLookup.get(q.vendor_id)?.name ?? q.vendor_id.slice(0, 8)}
+                  <div className="text-[9px] font-normal" style={{ color: "var(--muted)", marginTop: 1, textAlign: "right" }}>line total</div>
+                </th>
               ))}
             </tr>
           </thead>
@@ -217,10 +223,15 @@ export default function RfqDetailPage() {
                   <td className="text-right p-2 font-mono">{l.quantity}</td>
                   {(quotes.data ?? []).map((q) => {
                     const price = priceByQuoteAndLine.get(`${q.id}:${l.id}`);
-                    const isLowest = price != null && (quotes.data ?? []).length > 1 && price === lowestPriceByLine.get(l.id);
+                    const lineTotal = price != null ? price * l.quantity : null;
+                    const isLowest = lineTotal != null && (quotes.data ?? []).length > 1 && lineTotal === lowestTotalByLine.get(l.id);
                     return (
-                      <td key={q.id} className="text-right p-2 font-mono" style={isLowest ? { color: "var(--green)", fontWeight: 600 } : undefined}>
-                        {price != null ? `$${price.toFixed(2)}` : "—"}
+                      <td key={q.id} className="text-right p-2 font-mono"
+                        title={price != null ? `$${price.toFixed(2)} / unit` : undefined}
+                        style={isLowest ? { color: "var(--green)", fontWeight: 600 } : undefined}>
+                        {lineTotal != null
+                          ? `$${lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : "—"}
                       </td>
                     );
                   })}
@@ -327,7 +338,12 @@ export default function RfqDetailPage() {
                       Award
                     </button>
                   )}
-                  {q.status === "awarded" && <StatusPill status="awarded" />}
+                  {q.status === "awarded" && (
+                    <span className="pill pill-awarded" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <Trophy size={11} />
+                      Awarded
+                    </span>
+                  )}
                 </td>
               ))}
             </tr>

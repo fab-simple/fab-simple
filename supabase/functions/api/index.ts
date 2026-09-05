@@ -31,6 +31,7 @@ import { previewPoFromParts, createPoFromParts } from "./controllers/purchaseOrd
 import { assignHeatToBundle, recommendLots } from "./controllers/heatAssignment.ts";
 import { extractMtrDocument } from "./controllers/mtrExtraction.ts";
 import { reserveLot, releaseLotReservation } from "./controllers/lotReservation.ts";
+import { releaseInventoryReservation, fulfillMrFromStock } from "./controllers/inventoryReservation.ts";
 import { createRfq, createVendorQuote, awardVendorQuote } from "./controllers/rfq.ts";
 import { importMaterialRequirements } from "./controllers/materialRequirementImport.ts";
 import { issueMaterial, voidMaterialIssue, getPartTraceability } from "./controllers/materialIssue.ts";
@@ -151,6 +152,11 @@ Deno.serve(async (req) => {
     if (reserveLotMatch && method === "POST") return reserveLot(ctx, reserveLotMatch[1]);
     const releaseResMatch = path.match(/^\/lot-reservations\/([0-9a-f-]{36})\/release$/i);
     if (releaseResMatch && method === "POST") return releaseLotReservation(ctx, releaseResMatch[1]);
+    const releaseInvResMatch = path.match(/^\/inventory-reservations\/([0-9a-f-]{36})\/release$/i);
+    if (releaseInvResMatch && method === "POST") return releaseInventoryReservation(ctx, releaseInvResMatch[1]);
+    // Fulfill a Material Requirement from existing bulk stock (no RFQ needed).
+    // Declared before generic CRUD so this path isn't parsed as /{table}/{id}.
+    if (path === "/inventory-reservations/fulfill-from-stock" && method === "POST") return fulfillMrFromStock(ctx);
 
     // Sourcing Workflow (Phase 2, §15) — compound creates go through
     // RPC-backed endpoints, not the generic /rfqs, /vendor_quotes POST route.

@@ -273,7 +273,7 @@ $$;
 create or replace view v_part_traceability as
 select
   p.id                        as part_id,
-  p.mark                      as part_mark,
+  p.part_mark                  as part_mark,
   p.name                      as part_name,
   p.profile,
   p.project_id,
@@ -296,7 +296,7 @@ select
   b.bundle_number,
   rcv.id                      as receiving_id,
   rcv.receiving_number,
-  rcv.received_at             as received_date,
+  rcv.received_date           as received_date,
   po.id                       as po_id,
   po.po_number,
   v.id                        as vendor_id,
@@ -305,7 +305,7 @@ select
   mtr.id                      as mtr_doc_id,
   mtr.mill_name,
   mtr.ocr_status              as mtr_ocr_status,
-  fa.file_url                 as mill_cert_url
+  fa.storage_path             as mill_cert_url
 from parts p
 join projects proj             on proj.id = p.project_id
 join material_issues mi        on mi.part_id = p.id

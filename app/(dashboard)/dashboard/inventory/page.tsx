@@ -5,14 +5,19 @@ import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
-import { useResourceList, useCreate, useReserveLot, useReleaseLotReservation, useIssueMaterial } from "@/hooks/useResource";
+import { useResourceList, useCreate, useReserveLot, useReleaseLotReservation, useIssueMaterial, useReleaseInventoryReservation } from "@/hooks/useResource";
 import type { LotReservation } from "@/lib/api";
-import { Plus, AlertTriangle, CheckCircle2, Loader2, X, Zap } from "lucide-react";
+import { Plus, AlertTriangle, CheckCircle2, Loader2, X, Zap, Lock } from "lucide-react";
 
 interface Inv {
-  id: string; profile: string; grade: string | null; quantity: number;
+  id: string; profile: string; name: string | null; grade: string | null;
+  length: string | null; quantity: number;
   location: string | null; reorder_point: number; max_stock: number | null;
   unit_cost: number | null; status: string;
+}
+interface InvReservation {
+  id: string; inventory_id: string; quantity: number; status: string;
+  rfq_id: string | null; project_id: string | null;
 }
 interface Lot {
   id: string; lot_number: string; profile: string; grade: string; quantity: number;
@@ -68,13 +73,52 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 
 function BulkStockTab() {
   const list = useResourceList<Inv>("inventory", { order_by: "profile", dir: "asc" });
+  const reservations = useResourceList<InvReservation>("inventory_reservations", { status: "active", per_page: 500 });
   const create = useCreate<Inv>("inventory");
   const [showNew, setShowNew] = useState(false);
 
+  // Map of inventory_id → total reserved qty across all active RFQs
+  const reservedByInv = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of reservations.data ?? []) {
+      map.set(r.inventory_id, (map.get(r.inventory_id) ?? 0) + Number(r.quantity));
+    }
+    return map;
+  }, [reservations.data]);
+
   const cols: Column<Inv>[] = [
     { key: "profile", label: "Profile", mono: true, render: (r) => <strong>{r.profile}</strong> },
+    { key: "name", label: "Name", render: (r) => r.name ?? "—" },
     { key: "grade", label: "Grade", render: (r) => r.grade ?? "—" },
-    { key: "qty", label: "Quantity", align: "right", mono: true, render: (r) => Number(r.quantity).toFixed(0) },
+    { key: "length", label: "Length", render: (r) => r.length ?? "—" },
+    {
+      key: "qty", label: "In Stock", align: "right", mono: true,
+      render: (r) => Number(r.quantity).toFixed(0),
+    },
+    {
+      key: "reserved", label: "Reserved", align: "right", mono: true,
+      render: (r) => {
+        const res = reservedByInv.get(r.id) ?? 0;
+        if (res === 0) return <span style={{ color: "var(--muted)" }}>—</span>;
+        return (
+          <span style={{ color: "var(--amber)", display: "inline-flex", alignItems: "center", gap: 3 }}>
+            <Lock size={10} />{res.toFixed(0)}
+          </span>
+        );
+      },
+    },
+    {
+      key: "available", label: "Available", align: "right", mono: true,
+      render: (r) => {
+        const res  = reservedByInv.get(r.id) ?? 0;
+        const avail = Math.max(0, Number(r.quantity) - res);
+        return (
+          <span style={{ fontWeight: 600, color: avail > 0 ? "var(--green)" : "var(--red)" }}>
+            {avail.toFixed(0)}
+          </span>
+        );
+      },
+    },
     { key: "reorder", label: "Reorder Pt", align: "right", mono: true, render: (r) => r.reorder_point },
     { key: "max", label: "Max", align: "right", mono: true, render: (r) => r.max_stock ?? "—" },
     { key: "loc", label: "Location", render: (r) => r.location ?? "—" },
@@ -90,18 +134,25 @@ function BulkStockTab() {
 
   const lowCount = (list.data ?? []).filter((r) => r.status === "low").length;
   const outCount = (list.data ?? []).filter((r) => r.status === "out").length;
+  const totalReserved = Array.from(reservedByInv.values()).reduce((s, v) => s + v, 0);
   const totalValue = (list.data ?? []).reduce((s, r) => s + (Number(r.quantity) * Number(r.unit_cost ?? 0)), 0);
 
   return (
     <>
       <div className="flex items-center justify-between mb-4">
         <div className="text-[12px]" style={{ color: "var(--muted)" }}>
-          {list.data?.length ?? 0} SKUs · {lowCount} low · {outCount} out · ${totalValue.toLocaleString()} on hand
+          {list.data?.length ?? 0} SKUs · {lowCount} low · {outCount} out
+          {totalReserved > 0 && (
+            <span style={{ color: "var(--amber)", marginLeft: 6 }}>
+              · <Lock size={10} style={{ display: "inline", verticalAlign: "middle" }} /> {totalReserved.toFixed(0)} reserved across open RFQs
+            </span>
+          )}
+          {" "}· ${totalValue.toLocaleString()} on hand
         </div>
         <button className="btn btn-primary" onClick={() => setShowNew(true)}><Plus size={14} /> New SKU</button>
       </div>
 
-      <DataTable data={list.data} columns={cols} loading={list.isLoading} error={list.error}
+      <DataTable data={list.data} columns={cols} loading={list.isLoading || reservations.isLoading} error={list.error}
         empty={{ title: "No inventory items yet" }} rowKey={(r) => r.id} />
 
       {showNew && (
@@ -117,12 +168,13 @@ function BulkStockTab() {
 function NewSkuModal({ onClose, onSubmit, submitting, error }: {
   onClose: () => void; onSubmit: (p: Record<string, unknown>) => void; submitting: boolean; error: string | null;
 }) {
-  const [f, setF] = useState({ profile: "", grade: "A992", quantity: "0", reorder_point: "0", max_stock: "", unit_cost: "", location: "" });
+  const [f, setF] = useState({ profile: "", name: "", grade: "A992", length: "", quantity: "0", reorder_point: "0", max_stock: "", unit_cost: "", location: "" });
   return (
     <ResourceModal title="New inventory SKU" onClose={onClose} submitting={submitting} error={error}
       onSubmit={(e) => { e.preventDefault();
         onSubmit({
-          profile: f.profile, grade: f.grade || undefined,
+          profile: f.profile, name: f.name || undefined,
+          grade: f.grade || undefined, length: f.length || undefined,
           quantity: Number(f.quantity),
           reorder_point: Number(f.reorder_point),
           max_stock: f.max_stock ? Number(f.max_stock) : undefined,
@@ -133,7 +185,11 @@ function NewSkuModal({ onClose, onSubmit, submitting, error }: {
     >
       <div className="grid-2" style={{ gap: 12 }}>
         <Field label="Profile" required><input className="input" required value={f.profile} onChange={(e) => setF({ ...f, profile: e.target.value })} placeholder="W14x82" /></Field>
+        <Field label="Name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="W-BEAM" /></Field>
+      </div>
+      <div className="grid-2" style={{ gap: 12 }}>
         <Field label="Grade"><input className="input" value={f.grade} onChange={(e) => setF({ ...f, grade: e.target.value })} /></Field>
+        <Field label="Length"><input className="input" value={f.length} onChange={(e) => setF({ ...f, length: e.target.value })} placeholder="26'-9 9/16&quot;" /></Field>
       </div>
       <div className="grid-3" style={{ gap: 12 }}>
         <Field label="Qty on hand"><input className="input" type="number" min="0" value={f.quantity} onChange={(e) => setF({ ...f, quantity: e.target.value })} /></Field>
