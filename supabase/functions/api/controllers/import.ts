@@ -2,14 +2,14 @@
 // imperial/metric units. Returns summary + skipped + errors arrays.
 //
 // Supported sheet columns (and their aliases):
-//   QTY / Quantity  → quantity
-//   Mark / Part Mark → part_mark
-//   Profile / Section → profile
-//   Name            → name  (structural member label, e.g. "W-BEAM", "COLUMN")
-//   Length          → length (stored verbatim as text — no unit parsing/conversion)
-//   Grade / Material → grade
-//   Part Weight / Weight → weight (per-piece weight, stored in lb)
-//   Heat Number / Heat No → heat_number
+//   QTY / Quantity           → quantity
+//   Mark / Part Mark         → part_mark
+//   Profile Size / Profile / Section → profile  (Tekla: "Profile Size" = e.g. W12X26)
+//   Profile name / Name      → name    (Tekla: "Profile name" = e.g. "W-BEAM", "COLUMN")
+//   Length                   → length (stored verbatim as text — no unit parsing/conversion)
+//   Grade / Material         → grade
+//   Part Weight / Weight     → weight (per-piece weight, stored in lb)
+//   Heat Number / Heat No    → heat_number
 
 import type { Ctx } from "../lib/types.ts";
 import { ok, err } from "../lib/response.ts";
@@ -43,8 +43,8 @@ interface ImportBody {
 const COL_ALIASES: Record<string, string[]> = {
   quantity:      ["qty", "quantity", "count", "pcs", "pieces", "no_of_pieces", "no of pieces"],
   part_mark:     ["mark", "part mark", "part_mark", "partmark", "piecemark", "piece mark", "part id", "partid", "part_pos", "member_mark", "member mark"],
-  profile:       ["profile", "section", "shape", "size", "profile_name", "section_size", "profilename"],
-  name:          ["name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"],
+  profile:       ["profile size", "profile", "section", "shape", "size", "profile_name", "section_size", "profilename", "profilesize"],
+  name:          ["profile name", "name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"],
   length:        ["length", "len", "length_mm", "length_in", "length_ft", "cut_length", "cut length"],
   grade:         ["grade", "material", "material grade", "material_grade", "spec", "matl"],
   // "Part Weight" (per-piece weight) is highest priority. "Ext. Weight" /

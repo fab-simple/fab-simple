@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/Toast";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { useResourceList } from "@/hooks/useResource";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
@@ -32,9 +34,9 @@ const PART_FIELDS: PartField[] = [
   { key: "quantity",      label: "Quantity",
     aliases: ["qty", "quantity", "count", "pcs", "pieces", "no_of_pieces", "no of pieces"] },
   { key: "profile",       label: "Profile / Section",
-    aliases: ["profile", "section", "shape", "size", "profile_name", "section_size", "profilename"] },
+    aliases: ["profile size", "profile", "section", "shape", "size", "profile_name", "section_size", "profilename", "profilesize"] },
   { key: "name",          label: "Name / Description",
-    aliases: ["name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"] },
+    aliases: ["profile name", "name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"] },
   { key: "length",        label: "Length",
     aliases: ["length", "len", "length_mm", "length_in", "length_ft", "cut_length", "cut length"] },
   { key: "grade",         label: "Grade / Material",
@@ -156,6 +158,8 @@ interface ImportResult {
 }
 
 function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultProjectId: string }) {
+  const router = useRouter();
+  const { toast } = useToast();
   const [projectId, setProjectId] = useState<string>(defaultProjectId);
   const [file, setFile] = useState<File | null>(null);
   const [units, setUnits] = useState<"auto" | "imperial" | "metric">("auto");
@@ -217,7 +221,20 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
         return out;
       });
       const res = await FabAPI.importCsv({ project_id: projectId, rows: mappedRows, units });
-      setResult(res as ImportResult);
+      const r = res as ImportResult;
+      setResult(r);
+      // Toast + redirect on success
+      const { inserted, updated } = r.summary;
+      const parts = inserted + updated;
+      toast(
+        parts > 0
+          ? `✓ Import complete — ${inserted} part${inserted === 1 ? "" : "s"} added${updated > 0 ? `, ${updated} updated` : ""}`
+          : "Import complete — no new parts were added.",
+        parts > 0 ? "success" : "info",
+      );
+      if (parts > 0) {
+        setTimeout(() => router.push("/dashboard/parts"), 1500);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
     } finally {
