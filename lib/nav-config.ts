@@ -111,7 +111,7 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       // Requirements are project-scoped (raised against a specific job);
       // RFQ is deliberately the one procurement page that ISN'T — it can
       // bundle requirements from several projects into one vendor ask.
-      { key: "material-requirements", label: "Material Requirements", href: "/dashboard/material-requirements", icon: FileSpreadsheet, roles: [...OWNER_ESTIMATOR_PM_FOREMAN_ACCT], projectScoped: true },
+      { key: "material-requirements", label: "Material Requirements", href: "/dashboard/material-requirements", icon: FileSpreadsheet, roles: [...OWNER_ESTIMATOR_PM_FOREMAN_ACCT] },
       { key: "rfqs",            label: "RFQs",                href: "/dashboard/rfqs",            icon: Send,            roles: [...OWNER_ESTIMATOR_PM_ACCT] },
       // Purchase Orders: Owner Full · PM Full · Foreman View · Accounting Full
       { key: "purchase-orders", label: "Purchase Orders",    href: "/dashboard/purchase-orders", icon: ShoppingCart,    roles: [...OWNER_PM_FOREMAN_ACCT] },
