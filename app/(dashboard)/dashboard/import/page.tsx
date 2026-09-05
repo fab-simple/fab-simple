@@ -7,9 +7,11 @@ import { PageWrapper } from "@/components/ui/PageWrapper";
 import { useResourceList } from "@/hooks/useResource";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI, uploadFile } from "@/lib/api";
+import Link from "next/link";
 import {
   Upload, FileText, Loader2, CheckCircle2, AlertCircle, Info,
   FileSpreadsheet, Files, X, Sparkles, Database, Link2, ChevronRight,
+  PackageCheck,
 } from "lucide-react";
 import type { PartLite, PdfMatchResult } from "@/lib/pdf-parse";
 import {
@@ -151,7 +153,15 @@ function TabSwitcher({ value, onChange }: { value: TabId; onChange: (v: TabId) =
 // ===========================================================================
 
 interface ImportResult {
-  summary: { inserted: number; updated: number; skipped: number; errors: number; units: string };
+  summary: {
+    inserted: number;
+    updated: number;
+    skipped: number;
+    errors: number;
+    units: string;
+    mr_created?: number;
+    mr_updated?: number;
+  };
   skipped: Array<{ row: number; part_mark?: string; reason: string }>;
   errors: Array<{ row: number; reason: string }>;
   mapping?: { matched_fields: string[]; unmapped_headers: string[] };
@@ -453,6 +463,34 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
               <Tally label="Skipped"  value={result.summary.skipped}  icon={<AlertCircle size={14} style={{ color: "#D97706" }} />} />
               <Tally label="Errors"   value={result.summary.errors}   icon={<AlertCircle size={14} style={{ color: "#DC2626" }} />} />
             </div>
+
+            {((result.summary.mr_created ?? 0) > 0 || (result.summary.mr_updated ?? 0) > 0) && (
+              <div
+                className="flex items-center justify-between gap-3 p-3 rounded-lg border mb-4 text-[12.5px]"
+                style={{
+                  background: "rgba(79,70,229,0.06)",
+                  borderColor: "rgba(79,70,229,0.25)",
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <PackageCheck size={16} style={{ color: "var(--primary)", flexShrink: 0 }} />
+                  <span>
+                    Material Requirements automatically synced:{" "}
+                    <strong>{result.summary.mr_created ?? 0} created</strong>
+                    {(result.summary.mr_updated ?? 0) > 0 && (
+                      <span>, <strong>{result.summary.mr_updated} updated</strong></span>
+                    )}
+                    .
+                  </span>
+                </div>
+                <Link
+                  href="/dashboard/material-requirements"
+                  className="btn btn-sm btn-primary flex items-center gap-1 text-[11px]"
+                >
+                  View Requirements
+                </Link>
+              </div>
+            )}
             {result.mapping && (result.mapping.matched_fields.length > 0 || result.mapping.unmapped_headers.length > 0) && (
               <div style={{
                 background: "var(--bg-muted)", borderRadius: 6, padding: "10px 12px",

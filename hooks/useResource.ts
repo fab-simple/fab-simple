@@ -191,6 +191,9 @@ export function useCreate<T = unknown>(table: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [table] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      if (table === "parts") {
+        qc.invalidateQueries({ queryKey: ["material_requirements"] });
+      }
     },
   });
 }
@@ -202,6 +205,9 @@ export function useUpdate<T = unknown>(table: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [table] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      if (table === "parts") {
+        qc.invalidateQueries({ queryKey: ["material_requirements"] });
+      }
     },
   });
 }
@@ -402,6 +408,9 @@ export function useRemove(table: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [table] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      if (table === "parts") {
+        qc.invalidateQueries({ queryKey: ["material_requirements"] });
+      }
     },
   });
 }
