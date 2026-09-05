@@ -276,5 +276,6 @@ insert into storage.buckets (id, name, public) values
   ('drawings', 'drawings', false),
   ('mtrs',     'mtrs',     false),
   ('photos',   'photos',   false),
-  ('billing',  'billing',  false)
+  ('billing',  'billing',  false),
+  ('vendor_quotes', 'vendor_quotes', false)
 on conflict do nothing;

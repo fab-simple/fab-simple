@@ -12,7 +12,7 @@ import type { Ctx } from "../lib/types.ts";
 import { ok, err } from "../lib/response.ts";
 import { writeAudit, writeActivity } from "../services/audit.ts";
 
-const ALLOWED_BUCKETS = new Set(["drawings", "mtrs", "photos", "billing"]);
+const ALLOWED_BUCKETS = new Set(["drawings", "mtrs", "photos", "billing", "vendor_quotes"]);
 
 // Map entity → required role(s) to upload to it
 const UPLOAD_RBAC: Record<string, string[]> = {
@@ -29,6 +29,7 @@ const UPLOAD_RBAC: Record<string, string[]> = {
   inbound_shipments: ["owner", "pm", "foreman", "accounting"],
   receivings:        ["owner", "pm", "foreman"],
   mtr_documents:     ["owner", "qc", "foreman"],
+  vendor_quotes:     ["owner", "pm", "accounting"],
 };
 
 // Map entity → required role(s) to READ attachments on it. Mirrors the
@@ -48,6 +49,7 @@ const READ_RBAC: Record<string, string[]> = {
   inbound_shipments: ["owner", "pm", "foreman", "accounting"],
   receivings:        ["owner", "pm", "foreman", "accounting"],
   mtr_documents:     ["owner", "pm", "qc", "foreman"],
+  vendor_quotes:     ["owner", "pm", "accounting"],
 };
 
 function allowedReadRoles(entityType: string): string[] {
