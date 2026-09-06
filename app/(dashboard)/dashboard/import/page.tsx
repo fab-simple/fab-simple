@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useToast } from "@/components/ui/Toast";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { useResourceList } from "@/hooks/useResource";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
@@ -15,16 +13,69 @@ import {
 } from "lucide-react";
 import type { PartLite, PdfMatchResult } from "@/lib/pdf-parse";
 import {
-  BOM_ACCEPT_EXT as ACCEPT_EXT,
-  BOM_ACCEPT_MIME as ACCEPT_MIME,
-  isExcelFile,
-  parseExcelRows,
-  parseCsvRows,
-  autoDetectMapping,
-  PART_FIELDS,
-  type PartField,
-} from "@/lib/parsers/bom-parse-utils";
+  ACCEPT_EXT, ACCEPT_MIME, isExcelFile, parseExcelRows, parseCsvRows,
+  autoDetectMapping as autoDetectMappingGeneric, type MappableField,
+} from "@/lib/sheet-import";
+
 interface Project { id: string; name: string; number: string; }
+
+// ===========================================================================
+// Column mapping — mirrors the backend's COL_ALIASES priority list
+// (supabase/functions/api/controllers/import.ts) so the auto-detected default
+// shown here matches what the server would have picked on its own. The user
+// can then override any field before the rows are ever sent for import.
+// ===========================================================================
+
+type PartField = MappableField;
+
+const PART_FIELDS: PartField[] = [
+  {
+    key: "part_mark", label: "Part Mark", required: true,
+    aliases: ["mark", "part mark", "part_mark", "partmark", "piecemark", "piece mark", "part id", "partid", "part_pos", "member_mark", "member mark"]
+  },
+  {
+    key: "quantity", label: "Quantity",
+    aliases: ["qty", "quantity", "count", "pcs", "pieces", "no_of_pieces", "no of pieces"]
+  },
+  {
+    key: "profile", label: "Profile Size",
+    aliases: ["profile", "section", "shape", "size", "profile_name", "section_size", "profilename"]
+  },
+  {
+    key: "name", label: "Profile Name",
+    aliases: ["name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"]
+  },
+  {
+    key: "length", label: "Length",
+    aliases: ["length", "len", "length_mm", "length_in", "length_ft", "cut_length", "cut length"]
+  },
+  {
+    key: "grade", label: "Grade",
+    aliases: ["grade", "material", "material grade", "material_grade", "spec", "matl"]
+  },
+  {
+    key: "weight", label: "Part Weight",
+    aliases: ["part weight", "part_weight", "partweight", "weight", "wt", "weight_lbs", "weight_lb", "weight_kg", "weight_ea", "unit_weight", "unit weight", "unitweight", "ext_weight", "ext weight", "extended_weight", "extended weight", "total_weight"]
+  },
+  {
+    key: "heat_number", label: "Heat Number",
+    aliases: ["heat number", "heat_number", "heat no", "heat_no", "heat", "heatno", "heat#"]
+  },
+  {
+    key: "assembly_mark", label: "Assembly Mark",
+    aliases: ["assembly_mark", "assemblymark", "assembly mark", "assembly", "asm", "assembly_pos", "main_part", "main part"]
+  },
+  {
+    key: "phase", label: "Phase / Lot",
+    aliases: ["phase", "lot", "sequence", "seq", "lot_number", "lotnumber"]
+  },
+];
+
+// Default mapping — first header (in sheet order) whose normalised name
+// matches a field's alias list wins, same priority order the server uses.
+function autoDetectMapping(headers: string[]): Record<string, string> {
+  return autoDetectMappingGeneric(headers, PART_FIELDS);
+}
 
 // ===========================================================================
 // Page shell + tab switcher
@@ -121,8 +172,13 @@ function TabSwitcher({ value, onChange }: { value: TabId; onChange: (v: TabId) =
 
 interface ImportResult {
   summary: {
-    inserted: number; updated: number; skipped: number; errors: number; units: string;
-    assemblies_created?: number; assemblies_updated?: number; drawings_created?: number;
+    inserted: number;
+    updated: number;
+    skipped: number;
+    errors: number;
+    units: string;
+    mr_created?: number;
+    mr_updated?: number;
   };
   skipped: Array<{ row: number; part_mark?: string; reason: string }>;
   errors: Array<{ row: number; reason: string }>;
@@ -130,8 +186,6 @@ interface ImportResult {
 }
 
 function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultProjectId: string }) {
-  const router = useRouter();
-  const { toast } = useToast();
   const [projectId, setProjectId] = useState<string>(defaultProjectId);
   const [file, setFile] = useState<File | null>(null);
   const [units, setUnits] = useState<"auto" | "imperial" | "metric">("auto");
@@ -193,20 +247,7 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
         return out;
       });
       const res = await FabAPI.importCsv({ project_id: projectId, rows: mappedRows, units });
-      const r = res as ImportResult;
-      setResult(r);
-      // Toast + redirect on success
-      const { inserted, updated } = r.summary;
-      const parts = inserted + updated;
-      toast(
-        parts > 0
-          ? `✓ Import complete — ${inserted} part${inserted === 1 ? "" : "s"} added${updated > 0 ? `, ${updated} updated` : ""}`
-          : "Import complete — no new parts were added.",
-        parts > 0 ? "success" : "info",
-      );
-      if (parts > 0) {
-        setTimeout(() => router.push("/dashboard/parts"), 1500);
-      }
+      setResult(res as ImportResult);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
     } finally {
@@ -425,13 +466,34 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
               <Tally label="Skipped" value={result.summary.skipped} icon={<AlertCircle size={14} style={{ color: "#D97706" }} />} />
               <Tally label="Errors" value={result.summary.errors} icon={<AlertCircle size={14} style={{ color: "#DC2626" }} />} />
             </div>
-            {(result.summary.assemblies_created || result.summary.drawings_created) ? (
-              <div className="grid-3" style={{ gap: 12, marginBottom: 16 }}>
-                <Tally label="Assemblies Created" value={result.summary.assemblies_created ?? 0} icon={<Database size={14} style={{ color: "#7C3AED" }} />} />
-                <Tally label="Assemblies Updated" value={result.summary.assemblies_updated ?? 0} icon={<Link2 size={14} style={{ color: "#0D9488" }} />} />
-                <Tally label="Drawings Created" value={result.summary.drawings_created ?? 0} icon={<FileText size={14} style={{ color: "#2563EB" }} />} />
+
+            {((result.summary.mr_created ?? 0) > 0 || (result.summary.mr_updated ?? 0) > 0) && (
+              <div
+                className="flex items-center justify-between gap-3 p-3 rounded-lg border mb-4 text-[12.5px]"
+                style={{
+                  background: "rgba(79,70,229,0.06)",
+                  borderColor: "rgba(79,70,229,0.25)",
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <PackageCheck size={16} style={{ color: "var(--primary)", flexShrink: 0 }} />
+                  <span>
+                    Material Requirements automatically synced:{" "}
+                    <strong>{result.summary.mr_created ?? 0} created</strong>
+                    {(result.summary.mr_updated ?? 0) > 0 && (
+                      <span>, <strong>{result.summary.mr_updated} updated</strong></span>
+                    )}
+                    .
+                  </span>
+                </div>
+                <Link
+                  href="/dashboard/material-requirements"
+                  className="btn btn-sm btn-primary flex items-center gap-1 text-[11px]"
+                >
+                  View Requirements
+                </Link>
               </div>
-            ) : null}
+            )}
             {result.mapping && (result.mapping.matched_fields.length > 0 || result.mapping.unmapped_headers.length > 0) && (
               <div style={{
                 background: "var(--bg-muted)", borderRadius: 6, padding: "10px 12px",
