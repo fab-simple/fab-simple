@@ -41,19 +41,19 @@ interface ImportBody {
 //   • "Heat Number" is the exact column label from the target sheet.
 // ---------------------------------------------------------------------------
 const COL_ALIASES: Record<string, string[]> = {
-  quantity:      ["qty", "quantity", "count", "pcs", "pieces", "no_of_pieces", "no of pieces"],
-  part_mark:     ["mark", "part mark", "part_mark", "partmark", "piecemark", "piece mark", "part id", "partid", "part_pos", "member_mark", "member mark"],
-  profile:       ["profile size", "profile", "section", "shape", "size", "profile_name", "section_size", "profilename", "profilesize"],
-  name:          ["profile name", "name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"],
-  length:        ["length", "len", "length_mm", "length_in", "length_ft", "cut_length", "cut length"],
-  grade:         ["grade", "material", "material grade", "material_grade", "spec", "matl"],
+  quantity: ["qty", "quantity", "count", "pcs", "pieces", "no_of_pieces", "no of pieces"],
+  part_mark: ["mark", "part mark", "part_mark", "partmark", "piecemark", "piece mark", "part id", "partid", "part_pos", "member_mark", "member mark"],
+  profile: ["profile size", "profile", "section", "shape", "size", "profile_name", "section_size", "profilename", "profilesize"],
+  name: ["profile name", "name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"],
+  length: ["length", "len", "length_mm", "length_in", "length_ft", "cut_length", "cut length"],
+  grade: ["grade", "material", "material grade", "material_grade", "spec", "matl"],
   // "Part Weight" (per-piece weight) is highest priority. "Ext. Weight" /
   // "Extended Weight" are total-line weights and intentionally listed after so
   // they act only as a fallback when the sheet has no per-piece weight column.
-  weight:        ["part weight", "part_weight", "partweight", "weight", "wt", "weight_lbs", "weight_lb", "weight_kg", "weight_ea", "unit_weight", "unit weight", "unitweight", "ext_weight", "ext weight", "extended_weight", "extended weight", "total_weight"],
-  heat_number:   ["heat number", "heat_number", "heat no", "heat_no", "heat", "heatno", "heat#"],
+  weight: ["part weight", "part_weight", "partweight", "weight", "wt", "weight_lbs", "weight_lb", "weight_kg", "weight_ea", "unit_weight", "unit weight", "unitweight", "ext_weight", "ext weight", "extended_weight", "extended weight", "total_weight"],
+  heat_number: ["heat number", "heat_number", "heat no", "heat_no", "heat", "heatno", "heat#"],
   assembly_mark: ["assembly_mark", "assemblymark", "assembly mark", "assembly", "asm", "assembly_pos", "main_part", "main part"],
-  phase:         ["phase", "lot", "sequence", "seq", "lot_number", "lotnumber"],
+  phase: ["phase", "lot", "sequence", "seq", "lot_number", "lotnumber"],
 };
 
 // Strips everything that isn't a-z0-9 and lower-cases — so "Part Weight",
@@ -195,9 +195,9 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
   const kgToLb = (v: number) => v * 2.20462;
 
   const inserted: Record<string, unknown>[] = [];
-  const updated:  Record<string, unknown>[] = [];
+  const updated: Record<string, unknown>[] = [];
   const skipped: { row: number; part_mark?: string; reason: string }[] = [];
-  const errors:  { row: number; reason: string }[] = [];
+  const errors: { row: number; reason: string }[] = [];
 
   for (let i = 0; i < body.rows.length; i++) {
     const lookup = lookups[i];
@@ -218,9 +218,9 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
       .maybeSingle();
 
     if (existing) {
-      const progressed    = ["in_progress", "complete", "shipped"].includes((existing.status as string));
+      const progressed = ["in_progress", "complete", "shipped"].includes((existing.status as string));
       const incomingProfile = pickFrom(lookup, "profile");
-      const profileChanged  = incomingProfile && (existing.profile as string) !== incomingProfile;
+      const profileChanged = incomingProfile && (existing.profile as string) !== incomingProfile;
 
       // Block geometry changes on parts already in production.
       // Profile is the single field that drives CNC and cutting — changing it
@@ -234,17 +234,17 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
       // for idle parts (not_started / on_hold). Metadata (name, grade, heat,
       // phase) is always refreshed regardless of status.
       const patch: Record<string, unknown> = {
-        name:         pickFrom(lookup, "name")          ?? null,
-        grade:        pickFrom(lookup, "grade")         ?? null,
-        heat_number:  pickFrom(lookup, "heat_number")   ?? null,
-        phase:        pickFrom(lookup, "phase")         ?? null,
-        quantity:     Number(pickFrom(lookup, "quantity") ?? "1"),
+        name: pickFrom(lookup, "name") ?? null,
+        grade: pickFrom(lookup, "grade") ?? null,
+        heat_number: pickFrom(lookup, "heat_number") ?? null,
+        phase: pickFrom(lookup, "phase") ?? null,
+        quantity: Number(pickFrom(lookup, "quantity") ?? "1"),
       };
       if (!progressed) {
         // Only update geometry for idle parts.
-        if (incomingProfile)  patch.profile = incomingProfile;
-        if (length !== null)  patch.length  = length;
-        if (weight !== null)  patch.weight  = weight;
+        if (incomingProfile) patch.profile = incomingProfile;
+        if (length !== null) patch.length = length;
+        if (weight !== null) patch.weight = weight;
       }
 
       const { data: updatedRow } = await ctx.sb.from("parts")
@@ -255,29 +255,27 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
 
     // New part — insert with all fields.
     const row = {
-      company_id:    ctx.user.company_id,
-      project_id:    body.project_id,
+      company_id: ctx.user.company_id,
+      project_id: body.project_id,
       part_mark,
       assembly_mark: pickFrom(lookup, "assembly_mark") ?? null,
-      profile:       pickFrom(lookup, "profile")       ?? "UNKNOWN",
-      name:          pickFrom(lookup, "name")          ?? null,
-      grade:         pickFrom(lookup, "grade")         ?? null,
+      profile: pickFrom(lookup, "profile") ?? "UNKNOWN",
+      name: pickFrom(lookup, "name") ?? null,
+      grade: pickFrom(lookup, "grade") ?? null,
       length,
       weight,
-      quantity:      Number(pickFrom(lookup, "quantity") ?? "1"),
-      phase:         pickFrom(lookup, "phase")         ?? null,
-      heat_number:   pickFrom(lookup, "heat_number")   ?? null,
-      status:        "not_started",
+      quantity: Number(pickFrom(lookup, "quantity") ?? "1"),
+      phase: pickFrom(lookup, "phase") ?? null,
+      heat_number: pickFrom(lookup, "heat_number") ?? null,
+      status: "not_started",
     };
     const { data, error } = await ctx.sb.from("parts").insert(row).select().single();
     if (error) { errors.push({ row: i, reason: error.message }); continue; }
     inserted.push(data);
   }
 
-<<<<<<< Updated upstream
   // Automatically generate / update Material Requirements for this project
   const mrSync = await syncMaterialRequirements(ctx, body.project_id);
-=======
   // -------------------------------------------------------------------------
   // Auto-create assemblies from imported parts
   // -------------------------------------------------------------------------
@@ -336,31 +334,31 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
     const total = totalParts ?? 0;
     const completed = completedParts ?? 0;
     const asmStatus = total > 0 && completed >= total ? "complete"
-                    : completed > 0 ? "in_progress"
-                    : "not_started";
+      : completed > 0 ? "in_progress"
+        : "not_started";
 
     if (existingAsm) {
       // Update existing assembly with fresh counts
       await ctx.sb.from("assemblies").update({
-        total_parts:     total,
+        total_parts: total,
         completed_parts: completed,
-        total_weight:    Math.round(totalWeight * 100) / 100,
-        status:          asmStatus,
+        total_weight: Math.round(totalWeight * 100) / 100,
+        status: asmStatus,
       }).eq("id", existingAsm.id);
       assembliesUpdated++;
     } else {
       // Create new assembly
       const asmRow = {
-        company_id:      ctx.user.company_id,
-        project_id:      body.project_id,
-        assembly_mark:   asm_mark,
-        description:     samplePart?.profile
-                           ? `${samplePart.profile} assembly`
-                           : `Assembly ${asm_mark}`,
-        total_weight:    Math.round(totalWeight * 100) / 100,
-        total_parts:     total,
+        company_id: ctx.user.company_id,
+        project_id: body.project_id,
+        assembly_mark: asm_mark,
+        description: samplePart?.profile
+          ? `${samplePart.profile} assembly`
+          : `Assembly ${asm_mark}`,
+        total_weight: Math.round(totalWeight * 100) / 100,
+        total_parts: total,
         completed_parts: completed,
-        status:          asmStatus,
+        status: asmStatus,
       };
       const { error: asmErr } = await ctx.sb.from("assemblies").insert(asmRow);
       if (!asmErr) assembliesCreated++;
@@ -419,21 +417,20 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
       }).eq("id", existingDwg.id);
     } else {
       const dwgRow = {
-        company_id:      ctx.user.company_id,
-        project_id:      body.project_id,
-        drawing_number:  drawingNumber,
-        revision:        "A",
-        title:           info.title,
-        type:            "shop",
-        status:          "in_progress",
+        company_id: ctx.user.company_id,
+        project_id: body.project_id,
+        drawing_number: drawingNumber,
+        revision: "A",
+        title: info.title,
+        type: "shop",
+        status: "in_progress",
         current_revision: true,
-        parts_count:     info.parts_count,
+        parts_count: info.parts_count,
       };
       const { error: dwgErr } = await ctx.sb.from("drawings").insert(dwgRow);
       if (!dwgErr) drawingsCreated++;
     }
   }
->>>>>>> Stashed changes
 
   await writeAudit(ctx, {
     action: "import",
@@ -443,22 +440,15 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
       inserted: inserted.length,
       skipped: skipped.length,
       errors: errors.length,
-<<<<<<< Updated upstream
+      assemblies_created: assembliesCreated,
+      assemblies_updated: assembliesUpdated,
+      drawings_created: drawingsCreated,
       mr_created: mrSync.created,
       mr_updated: mrSync.updated,
     },
   });
   await writeActivity(ctx, {
-    action: `imported ${inserted.length} parts, updated ${updated.length} from CSV · ${mrSync.created} MRs created, ${mrSync.updated} updated`,
-=======
-      assemblies_created: assembliesCreated,
-      assemblies_updated: assembliesUpdated,
-      drawings_created: drawingsCreated,
-    },
-  });
-  await writeActivity(ctx, {
-    action: `imported ${inserted.length} parts, updated ${updated.length}, created ${assembliesCreated} assemblies & ${drawingsCreated} drawings`,
->>>>>>> Stashed changes
+    action: `imported ${inserted.length} parts, updated ${updated.length}, created ${assembliesCreated} assemblies & ${drawingsCreated} drawings, ${mrSync.created} MRs created, ${mrSync.updated} updated`,
     entity_type: "projects",
     entity_id: body.project_id,
     entity_label: project.name as string,
@@ -468,14 +458,11 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
       updated: updated.length,
       skipped: skipped.length,
       errors: errors.length,
-<<<<<<< Updated upstream
       mr_created: mrSync.created,
       mr_updated: mrSync.updated,
-=======
       assemblies_created: assembliesCreated,
       assemblies_updated: assembliesUpdated,
       drawings_created: drawingsCreated,
->>>>>>> Stashed changes
     },
   });
 
@@ -485,21 +472,17 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
       updated: updated.length,
       skipped: skipped.length,
       errors: errors.length,
-<<<<<<< Updated upstream
       mr_created: mrSync.created,
       mr_updated: mrSync.updated,
-      units,
-=======
       units,
       assemblies_created: assembliesCreated,
       assemblies_updated: assembliesUpdated,
       drawings_created: drawingsCreated,
->>>>>>> Stashed changes
     },
     skipped,
     errors,
     mapping: {
-      matched_fields:   Array.from(matchedFields).sort(),
+      matched_fields: Array.from(matchedFields).sort(),
       unmapped_headers: Array.from(unmappedHeaders).sort(),
     },
   });

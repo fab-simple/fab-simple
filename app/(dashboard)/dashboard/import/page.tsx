@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { useResourceList } from "@/hooks/useResource";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
@@ -16,6 +17,7 @@ import {
   ACCEPT_EXT, ACCEPT_MIME, isExcelFile, parseExcelRows, parseCsvRows,
   autoDetectMapping as autoDetectMappingGeneric, type MappableField,
 } from "@/lib/sheet-import";
+import { useToast } from "@/components/ui/Toast";
 
 interface Project { id: string; name: string; number: string; }
 
@@ -39,11 +41,13 @@ const PART_FIELDS: PartField[] = [
   },
   {
     key: "profile", label: "Profile Size",
-    aliases: ["profile", "section", "shape", "size", "profile_name", "section_size", "profilename"]
+    // Tekla exports: "Profile", "Profile size", "Section size", "Size"
+    aliases: ["profile", "section", "shape", "size", "profile size", "profile_size", "profilesize", "section_size", "sectionsize"]
   },
   {
     key: "name", label: "Profile Name",
-    aliases: ["name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"]
+    // Tekla exports: "Name", "Profile Name", "Profile name", "Member Name"
+    aliases: ["profile name", "profile_name", "profilename", "name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"]
   },
   {
     key: "length", label: "Length",
@@ -55,7 +59,8 @@ const PART_FIELDS: PartField[] = [
   },
   {
     key: "weight", label: "Part Weight",
-    aliases: ["part weight", "part_weight", "partweight", "weight", "wt", "weight_lbs", "weight_lb", "weight_kg", "weight_ea", "unit_weight", "unit weight", "unitweight", "ext_weight", "ext weight", "extended_weight", "extended weight", "total_weight"]
+    // Tekla exports: "Part weight", "Weight", "Unit weight"
+    aliases: ["part weight", "part_weight", "partweight", "weight", "wt", "weight_lbs", "weight_lb", "weight_kg", "weight_ea", "weight_net", "weight net", "weight_gross", "weight gross", "unit_weight", "unit weight", "unitweight", "ext_weight", "ext weight", "extended_weight", "extended weight", "total_weight"]
   },
   {
     key: "heat_number", label: "Heat Number",
@@ -186,6 +191,8 @@ interface ImportResult {
 }
 
 function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultProjectId: string }) {
+  const router = useRouter();
+  const { toast } = useToast();
   const [projectId, setProjectId] = useState<string>(defaultProjectId);
   const [file, setFile] = useState<File | null>(null);
   const [units, setUnits] = useState<"auto" | "imperial" | "metric">("auto");
@@ -247,7 +254,19 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
         return out;
       });
       const res = await FabAPI.importCsv({ project_id: projectId, rows: mappedRows, units });
-      setResult(res as ImportResult);
+      const r = res as ImportResult;
+      setResult(r);
+      const inserted = r.summary.inserted ?? 0;
+      const updated = r.summary.updated ?? 0;
+      const parts = inserted + updated;
+      toast(
+        parts > 0
+          ? `Import complete — ${inserted} part${inserted === 1 ? "" : "s"} added${updated > 0 ? `, ${updated} updated` : ""}`
+          : "Import complete — no new parts were added",
+        parts > 0 ? "success" : "warning",
+      );
+      // Redirect to parts list after a brief delay so the user sees the toast
+      setTimeout(() => router.push("/dashboard/parts"), 1200);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
     } finally {
