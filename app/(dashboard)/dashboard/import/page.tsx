@@ -10,7 +10,7 @@ import Link from "next/link";
 import {
   Upload, FileText, Loader2, CheckCircle2, AlertCircle, Info,
   FileSpreadsheet, Files, X, Sparkles, Database, Link2, ChevronRight,
-  PackageCheck,
+  PackageCheck, Download, Layers, Clock,
 } from "lucide-react";
 import type { PartLite, PdfMatchResult } from "@/lib/pdf-parse";
 import {
@@ -190,6 +190,515 @@ interface ImportResult {
   mapping?: { matched_fields: string[]; unmapped_headers: string[] };
 }
 
+function downloadIssuesCsv(
+  result: ImportResult,
+  parsedRows: Record<string, string>[],
+  headers: string[],
+  mapping: Record<string, string>
+) {
+  type IssueItem = {
+    sheetRow: number;
+    type: "ERROR" | "SKIPPED";
+    mark: string;
+    reason: string;
+    orig: Record<string, string>;
+  };
+
+  const items: IssueItem[] = [];
+
+  for (const err of result.errors) {
+    const orig = parsedRows[err.row] || {};
+    const mark = orig[mapping.part_mark] || "";
+    items.push({
+      sheetRow: err.row + 2, // Row 1 is header in CSV/XLSX
+      type: "ERROR",
+      mark,
+      reason: err.reason,
+      orig,
+    });
+  }
+
+  for (const skip of result.skipped) {
+    const orig = parsedRows[skip.row] || {};
+    const mark = skip.part_mark || orig[mapping.part_mark] || "";
+    items.push({
+      sheetRow: skip.row + 2,
+      type: "SKIPPED",
+      mark,
+      reason: skip.reason,
+      orig,
+    });
+  }
+
+  items.sort((a, b) => a.sheetRow - b.sheetRow);
+
+  const escapeCsv = (val: unknown) => {
+    const s = String(val ?? "");
+    if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+
+  const outHeaders = ["Sheet Row", "Status", "Issue Reason", "Part Mark", ...headers];
+  const csvRows = [outHeaders.map(escapeCsv).join(",")];
+
+  for (const item of items) {
+    const row = [
+      item.sheetRow,
+      item.type,
+      item.reason,
+      item.mark,
+      ...headers.map((h) => item.orig[h] ?? ""),
+    ];
+    csvRows.push(row.map(escapeCsv).join(","));
+  }
+
+  const blob = new Blob([csvRows.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `bom_import_issues_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+type PipelineStage = "preparing" | "batching_parts" | "aggregating_assemblies" | "syncing_mr" | "complete" | "error";
+
+interface ImportProgressModalProps {
+  isOpen: boolean;
+  stage: PipelineStage;
+  progressPercent: number;
+  elapsedSeconds: number;
+  totalRows: number;
+  fileName: string;
+  result: ImportResult | null;
+  errorMessage: string | null;
+  onClose: () => void;
+  onGoToParts: () => void;
+  onDownloadIssues: () => void;
+}
+
+function ImportProgressModal({
+  isOpen,
+  stage,
+  progressPercent,
+  elapsedSeconds,
+  totalRows,
+  fileName,
+  result,
+  errorMessage,
+  onClose,
+  onGoToParts,
+  onDownloadIssues,
+}: ImportProgressModalProps) {
+  if (!isOpen) return null;
+
+  const isComplete = stage === "complete";
+  const isError = stage === "error";
+
+  const stagesList: { id: PipelineStage; label: string; desc: string; icon: React.ReactNode }[] = [
+    {
+      id: "preparing",
+      label: "Schema & Field Mapping",
+      desc: `${totalRows.toLocaleString()} rows verified against project requirements`,
+      icon: <FileSpreadsheet size={15} />,
+    },
+    {
+      id: "batching_parts",
+      label: "Parts Batch Pipeline",
+      desc: "Bulk insert (500/chunk) + parallel updates with production locks",
+      icon: <Layers size={15} />,
+    },
+    {
+      id: "aggregating_assemblies",
+      label: "Assembly & Drawing Hierarchy",
+      desc: "Computing marks, total assembly weights & drawing series links",
+      icon: <Files size={15} />,
+    },
+    {
+      id: "syncing_mr",
+      label: "Material Requirements Auto-Sync",
+      desc: "Evaluating incremental demand & concurrent MR sequence creation",
+      icon: <PackageCheck size={15} />,
+    },
+  ];
+
+  const getStageStatus = (stageId: PipelineStage) => {
+    if (isError) {
+      if (stage === stageId) return "error";
+      const order: PipelineStage[] = ["preparing", "batching_parts", "aggregating_assemblies", "syncing_mr"];
+      const currentIndex = order.indexOf(stage);
+      const stageIndex = order.indexOf(stageId);
+      if (stageIndex < currentIndex) return "complete";
+      return "pending";
+    }
+
+    if (isComplete) return "complete";
+
+    const order: PipelineStage[] = ["preparing", "batching_parts", "aggregating_assemblies", "syncing_mr"];
+    const currentIndex = order.indexOf(stage);
+    const stageIndex = order.indexOf(stageId);
+
+    if (stageIndex < currentIndex) return "complete";
+    if (stageIndex === currentIndex) return "active";
+    return "pending";
+  };
+
+  const getStageDescription = () => {
+    switch (stage) {
+      case "preparing":
+        return "Validating sheet format and mapping canonical fields…";
+      case "batching_parts":
+        return `Batching parts into database (${totalRows.toLocaleString()} rows)…`;
+      case "aggregating_assemblies":
+        return "Aggregating assembly marks & drawing revisions…";
+      case "syncing_mr":
+        return "Calculating unmet steel demand & issuing material requirements…";
+      case "complete":
+        return "Import & synchronization complete!";
+      case "error":
+        return "Import encountered an error";
+    }
+  };
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m > 0 ? `${m}m ` : ""}${s}s`;
+  };
+
+  const hasIssues = (result?.summary.skipped ?? 0) > 0 || (result?.summary.errors ?? 0) > 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={isComplete || isError ? onClose : undefined}
+    >
+      <div
+        className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col"
+        style={{
+          boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.35)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Top Header */}
+        <div
+          className="p-5 text-white"
+          style={{
+            background: "linear-gradient(135deg, #1E1B4B 0%, #0F172A 100%)",
+          }}
+        >
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-lg bg-indigo-500/20 border border-indigo-400/30 text-indigo-300">
+                <Database size={18} />
+              </div>
+              <div>
+                <h3 className="text-[15px] font-bold tracking-tight text-white m-0">
+                  Tekla BOM Import Pipeline
+                </h3>
+                <p className="text-[12px] text-slate-300 m-0 truncate max-w-[280px]">
+                  {fileName}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span
+                className="pill font-mono"
+                style={{
+                  fontSize: 10.5,
+                  background: totalRows >= 1000 ? "rgba(99, 102, 241, 0.25)" : "rgba(255,255,255,0.12)",
+                  color: totalRows >= 1000 ? "#A5B4FC" : "#E2E8F0",
+                  borderColor: "rgba(255,255,255,0.15)",
+                }}
+              >
+                {totalRows >= 1000 ? `⚡ High Volume (${totalRows.toLocaleString()})` : `${totalRows.toLocaleString()} rows`}
+              </span>
+              <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono bg-white/5 px-2 py-1 rounded">
+                <Clock size={11} /> {formatTime(elapsedSeconds)}
+              </div>
+            </div>
+          </div>
+
+          {/* Progress Bar & Status Line */}
+          <div className="mt-4 pt-2 border-t border-slate-700/60">
+            <div className="flex items-center justify-between text-[11.5px] mb-1.5 font-medium">
+              <span className="text-slate-200 flex items-center gap-1.5">
+                {!isComplete && !isError && <Loader2 size={12} className="animate-spin text-cyan-400" />}
+                {getStageDescription()}
+              </span>
+              <span className="font-mono text-cyan-300 font-semibold">{progressPercent}%</span>
+            </div>
+
+            <div
+              className="w-full rounded-full overflow-hidden p-0.5"
+              style={{ background: "rgba(255,255,255,0.12)", height: 10 }}
+            >
+              <div
+                className="h-full rounded-full transition-all duration-300 ease-out"
+                style={{
+                  width: `${progressPercent}%`,
+                  background: isError
+                    ? "#DC2626"
+                    : isComplete && !hasIssues
+                    ? "#16A34A"
+                    : "linear-gradient(90deg, #4F46E5 0%, #06B6D4 100%)",
+                  boxShadow: isError
+                    ? "0 0 10px rgba(220, 38, 38, 0.5)"
+                    : "0 0 10px rgba(6, 182, 212, 0.5)",
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Body: Pipeline Stages */}
+        <div className="p-5 space-y-3 bg-slate-50/50">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+            Execution Stages
+          </div>
+
+          <div className="space-y-2">
+            {stagesList.map((s, idx) => {
+              const status = getStageStatus(s.id);
+              return (
+                <div
+                  key={s.id}
+                  className="flex items-center justify-between p-3 rounded-xl border transition-all duration-200"
+                  style={{
+                    background:
+                      status === "active"
+                        ? "white"
+                        : status === "complete"
+                        ? "rgba(240, 253, 244, 0.7)"
+                        : status === "error"
+                        ? "rgba(254, 242, 242, 0.8)"
+                        : "rgba(255, 255, 255, 0.4)",
+                    borderColor:
+                      status === "active"
+                        ? "#6366F1"
+                        : status === "complete"
+                        ? "#BBF7D0"
+                        : status === "error"
+                        ? "#FECACA"
+                        : "#E2E8F0",
+                    boxShadow: status === "active" ? "0 4px 12px rgba(99, 102, 241, 0.08)" : "none",
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                      style={{
+                        background:
+                          status === "active"
+                            ? "#EEF2FF"
+                            : status === "complete"
+                            ? "#DCFCE7"
+                            : status === "error"
+                            ? "#FEE2E2"
+                            : "#F1F5F9",
+                        color:
+                          status === "active"
+                            ? "#4F46E5"
+                            : status === "complete"
+                            ? "#16A34A"
+                            : status === "error"
+                            ? "#DC2626"
+                            : "#94A3B8",
+                      }}
+                    >
+                      {status === "complete" ? (
+                        <CheckCircle2 size={16} />
+                      ) : status === "active" ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : status === "error" ? (
+                        <AlertCircle size={16} />
+                      ) : (
+                        s.icon
+                      )}
+                    </div>
+
+                    <div>
+                      <div
+                        className="text-[13px] font-semibold leading-tight"
+                        style={{
+                          color:
+                            status === "active"
+                              ? "#1E1B4B"
+                              : status === "complete"
+                              ? "#14532D"
+                              : status === "error"
+                              ? "#991B1B"
+                              : "#64748B",
+                        }}
+                      >
+                        {idx + 1}. {s.label}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5 leading-normal">
+                        {s.desc}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex-shrink-0 ml-2">
+                    {status === "complete" && (
+                      <span className="pill" style={{ fontSize: 9.5, background: "#DCFCE7", color: "#166534" }}>
+                        Done
+                      </span>
+                    )}
+                    {status === "active" && (
+                      <span className="pill" style={{ fontSize: 9.5, background: "#EEF2FF", color: "#4338CA" }}>
+                        Processing
+                      </span>
+                    )}
+                    {status === "pending" && (
+                      <span className="pill" style={{ fontSize: 9.5, background: "#F1F5F9", color: "#94A3B8" }}>
+                        Queued
+                      </span>
+                    )}
+                    {status === "error" && (
+                      <span className="pill pill-red" style={{ fontSize: 9.5 }}>
+                        Failed
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Results Summary Box when Complete */}
+          {isComplete && result && (
+            <div
+              className="p-3.5 rounded-xl border mt-3 animate-in fade-in slide-in-from-bottom-2 duration-300"
+              style={{
+                background: hasIssues ? "rgba(254, 243, 199, 0.4)" : "rgba(240, 253, 244, 0.7)",
+                borderColor: hasIssues ? "rgba(245, 158, 11, 0.3)" : "rgba(34, 197, 94, 0.3)",
+              }}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[12px] font-bold text-slate-800 flex items-center gap-1.5">
+                  {hasIssues ? (
+                    <AlertCircle size={14} className="text-amber-600" />
+                  ) : (
+                    <CheckCircle2 size={14} className="text-emerald-600" />
+                  )}
+                  {hasIssues ? "Import Finished with Notices" : "Import Succeeded Cleanly"}
+                </span>
+                <span className="text-[11px] text-slate-500 font-mono">
+                  {(result.summary.inserted ?? 0) + (result.summary.updated ?? 0)} total parts
+                </span>
+              </div>
+
+              <div className="grid grid-cols-4 gap-2 text-center text-[11px]">
+                <div className="bg-white p-2 rounded border border-slate-200">
+                  <div className="text-slate-400 uppercase text-[9px] font-semibold">Inserted</div>
+                  <div className="text-emerald-600 font-bold text-sm">{result.summary.inserted}</div>
+                </div>
+                <div className="bg-white p-2 rounded border border-slate-200">
+                  <div className="text-slate-400 uppercase text-[9px] font-semibold">Updated</div>
+                  <div className="text-blue-600 font-bold text-sm">{result.summary.updated}</div>
+                </div>
+                <div className="bg-white p-2 rounded border border-slate-200">
+                  <div className="text-slate-400 uppercase text-[9px] font-semibold">Skipped</div>
+                  <div className={`font-bold text-sm ${result.summary.skipped > 0 ? "text-amber-600" : "text-slate-600"}`}>
+                    {result.summary.skipped}
+                  </div>
+                </div>
+                <div className="bg-white p-2 rounded border border-slate-200">
+                  <div className="text-slate-400 uppercase text-[9px] font-semibold">Errors</div>
+                  <div className={`font-bold text-sm ${result.summary.errors > 0 ? "text-red-600" : "text-slate-600"}`}>
+                    {result.summary.errors}
+                  </div>
+                </div>
+              </div>
+
+              {((result.summary.mr_created ?? 0) > 0 || (result.summary.mr_updated ?? 0) > 0) && (
+                <div className="text-[11px] text-indigo-700 mt-2 flex items-center gap-1">
+                  <PackageCheck size={13} />
+                  <span>
+                    Material Requirements: {result.summary.mr_created ?? 0} created
+                    {(result.summary.mr_updated ?? 0) > 0 && `, ${result.summary.mr_updated} updated`}.
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Error Message if Failed */}
+          {isError && errorMessage && (
+            <div className="p-3 rounded-xl border border-red-200 bg-red-50 text-red-700 text-[12px] flex items-center gap-2">
+              <AlertCircle size={16} className="text-red-600 flex-shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer Actions */}
+        <div className="p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3">
+          <div className="text-[11px] text-slate-500">
+            {!isComplete && !isError ? (
+              <span>Do not close window during high-volume batch sync</span>
+            ) : isComplete && !hasIssues ? (
+              <span className="text-emerald-600 font-medium">Redirecting to Parts List…</span>
+            ) : (
+              <span>Review notices or export report</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {isError && (
+              <button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>
+                Close
+              </button>
+            )}
+
+            {isComplete && hasIssues && (
+              <>
+                <button
+                  type="button"
+                  onClick={onDownloadIssues}
+                  className="btn btn-sm btn-secondary flex items-center gap-1 text-[11px]"
+                >
+                  <Download size={12} /> Issues CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="btn btn-sm btn-secondary text-[11px]"
+                >
+                  View Details
+                </button>
+                <button
+                  type="button"
+                  onClick={onGoToParts}
+                  className="btn btn-sm btn-primary flex items-center gap-1 text-[11px]"
+                >
+                  Parts List <ChevronRight size={12} />
+                </button>
+              </>
+            )}
+
+            {isComplete && !hasIssues && (
+              <button
+                type="button"
+                onClick={onGoToParts}
+                className="btn btn-sm btn-primary flex items-center gap-1 text-[11px]"
+              >
+                Go to Parts Now <ChevronRight size={12} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultProjectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -199,6 +708,14 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Multi-stage visual progress states for high-volume BOM imports
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [pipelineStage, setPipelineStage] = useState<PipelineStage>("preparing");
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [modalResult, setModalResult] = useState<ImportResult | null>(null);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
 
   // Parsed sheet + column mapping — populated as soon as a file is chosen so
   // the user can review/override the system-detected mapping before any
@@ -230,7 +747,7 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
       setHeaders(hdrs);
       setMapping(autoDetectMapping(hdrs));
     } catch (e) {
-      setParseError(e instanceof Error ? e.message : "Failed to read file");
+      setParseError(e instanceof Error ? e.message : "Failed to parse file");
     } finally {
       setParsing(false);
     }
@@ -241,6 +758,41 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
     setImporting(true);
     setError(null);
     setResult(null);
+    setPipelineError(null);
+    setModalResult(null);
+    setPipelineStage("preparing");
+    setProgressPercent(10);
+    setElapsedSeconds(0);
+    setShowProgressModal(true);
+
+    const startTime = Date.now();
+
+    // Timer interval to smoothly advance visual stages while HTTP batch request executes
+    const interval = setInterval(() => {
+      const elapsedMs = Date.now() - startTime;
+      setElapsedSeconds(Math.floor(elapsedMs / 1000));
+
+      // Dynamic time estimate: large BOMs (>1000 rows) take ~3-4s; smaller ones take ~1.5-2s
+      const estimatedTotalMs = Math.max(2200, Math.min(6500, parsedRows.length * 2.5));
+
+      if (elapsedMs < 300) {
+        setPipelineStage("preparing");
+        setProgressPercent(Math.min(20, Math.round((elapsedMs / 300) * 20)));
+      } else if (elapsedMs < estimatedTotalMs * 0.45) {
+        setPipelineStage("batching_parts");
+        const stageRatio = (elapsedMs - 300) / (estimatedTotalMs * 0.45 - 300);
+        setProgressPercent(Math.min(55, Math.round(20 + stageRatio * 35)));
+      } else if (elapsedMs < estimatedTotalMs * 0.75) {
+        setPipelineStage("aggregating_assemblies");
+        const stageRatio = (elapsedMs - estimatedTotalMs * 0.45) / (estimatedTotalMs * 0.3);
+        setProgressPercent(Math.min(80, Math.round(55 + stageRatio * 25)));
+      } else {
+        setPipelineStage("syncing_mr");
+        const creep = Math.min(14, Math.round(((elapsedMs - estimatedTotalMs * 0.75) / 2000) * 14));
+        setProgressPercent(Math.min(94, 80 + creep));
+      }
+    }, 100);
+
     try {
       // Re-key every row from raw sheet headers to canonical field names
       // using the (possibly user-edited) mapping, so the backend receives
@@ -253,22 +805,46 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
         }
         return out;
       });
+
       const res = await FabAPI.importCsv({ project_id: projectId, rows: mappedRows, units });
       const r = res as ImportResult;
+
+      clearInterval(interval);
+      setProgressPercent(100);
+      setPipelineStage("complete");
+      setModalResult(r);
       setResult(r);
+
       const inserted = r.summary.inserted ?? 0;
       const updated = r.summary.updated ?? 0;
+      const skippedCount = r.summary.skipped ?? 0;
+      const errorCount = r.summary.errors ?? 0;
       const parts = inserted + updated;
-      toast(
-        parts > 0
-          ? `Import complete — ${inserted} part${inserted === 1 ? "" : "s"} added${updated > 0 ? `, ${updated} updated` : ""}`
-          : "Import complete — no new parts were added",
-        parts > 0 ? "success" : "warning",
-      );
-      // Redirect to parts list after a brief delay so the user sees the toast
-      setTimeout(() => router.push("/dashboard/parts"), 1200);
+
+      if (errorCount === 0 && skippedCount === 0) {
+        toast(
+          parts > 0
+            ? `Import complete — ${inserted} part${inserted === 1 ? "" : "s"} added${updated > 0 ? `, ${updated} updated` : ""}`
+            : "Import complete — no new parts were added",
+          parts > 0 ? "success" : "warning",
+        );
+        // Show the 100% completed stage screen briefly before redirecting
+        setTimeout(() => {
+          setShowProgressModal(false);
+          router.push("/dashboard/parts");
+        }, 1800);
+      } else {
+        toast(
+          `Import finished with notices: ${parts} parts processed (${skippedCount} skipped, ${errorCount} errors)`,
+          "warning",
+        );
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Import failed");
+      clearInterval(interval);
+      setPipelineStage("error");
+      const msg = e instanceof Error ? e.message : "Import failed";
+      setPipelineError(msg);
+      setError(msg);
     } finally {
       setImporting(false);
     }
@@ -466,7 +1042,7 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
               onClick={handleImport}
             >
               {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-              {importing ? "Importing…" : "Import parts"}
+              {importing ? "Importing & syncing…" : "Import parts"}
             </button>
           </div>
         </div>
@@ -474,11 +1050,64 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
 
       {result && (
         <div className="card mt-section">
-          <div className="card-header">
-            <div className="card-title">Import results</div>
-            <span className="pill" style={{ fontSize: 10 }}>Units: {result.summary.units}</span>
+          <div className="card-header flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="card-title">Import results</div>
+              <span className="pill" style={{ fontSize: 10 }}>Units: {result.summary.units}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {(result.skipped.length > 0 || result.errors.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => downloadIssuesCsv(result, parsedRows, headers, mapping)}
+                  className="btn btn-sm btn-secondary flex items-center gap-1.5 text-[11px]"
+                  title="Download CSV of skipped and error rows"
+                >
+                  <Download size={13} /> Export Issues ({result.skipped.length + result.errors.length})
+                </button>
+              )}
+              <Link
+                href="/dashboard/parts"
+                className="btn btn-sm btn-primary flex items-center gap-1 text-[11px]"
+              >
+                Go to Parts List <ChevronRight size={13} />
+              </Link>
+            </div>
           </div>
           <div className="card-body">
+            {(result.errors.length > 0 || result.skipped.length > 0) && (
+              <div
+                className="flex items-center justify-between gap-3 p-3 rounded-lg border mb-4 text-[12.5px]"
+                style={{
+                  background: "rgba(217, 119, 6, 0.08)",
+                  borderColor: "rgba(217, 119, 6, 0.25)",
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={16} style={{ color: "#D97706", flexShrink: 0 }} />
+                  <span>
+                    Some rows could not be imported cleanly:{" "}
+                    {result.errors.length > 0 && (
+                      <strong style={{ color: "#DC2626" }}>{result.errors.length} error{result.errors.length === 1 ? "" : "s"}</strong>
+                    )}
+                    {result.errors.length > 0 && result.skipped.length > 0 && " and "}
+                    {result.skipped.length > 0 && (
+                      <strong style={{ color: "#D97706" }}>{result.skipped.length} skipped row{result.skipped.length === 1 ? "" : "s"}</strong>
+                    )}
+                    . Automatic redirect was paused so you can inspect issues or download the report.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => downloadIssuesCsv(result, parsedRows, headers, mapping)}
+                  className="btn btn-sm flex items-center gap-1 text-[11px] whitespace-nowrap"
+                  style={{ background: "white", borderColor: "rgba(217,119,6,0.4)" }}
+                >
+                  <Download size={13} /> Download Issues CSV
+                </button>
+              </div>
+            )}
+
             <div className="grid-4" style={{ gap: 12, marginBottom: 16 }}>
               <Tally label="Inserted" value={result.summary.inserted} icon={<CheckCircle2 size={14} style={{ color: "#16A34A" }} />} />
               <Tally label="Updated" value={result.summary.updated} icon={<Info size={14} style={{ color: "#2563EB" }} />} />
@@ -548,30 +1177,43 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
               </div>
             )}
             {result.skipped.length > 0 && (
-              <details>
-                <summary className="text-[13px] font-semibold cursor-pointer" style={{ color: "var(--text)" }}>
-                  Skipped rows ({result.skipped.length})
+              <details className="mt-3" open={result.skipped.length <= 10}>
+                <summary className="text-[13px] font-semibold cursor-pointer flex items-center gap-2" style={{ color: "var(--text)" }}>
+                  <span>Skipped rows ({result.skipped.length})</span>
+                  <span className="text-[11px] font-normal" style={{ color: "var(--muted)" }}>
+                    — parts in production with geometry changes blocked
+                  </span>
                 </summary>
-                <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>
+                <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)", maxHeight: 260, overflowY: "auto" }}>
                   {result.skipped.map((s, i) => (
-                    <div key={i} className="flex gap-2 py-1" style={{ borderBottom: "1px solid var(--bg-muted)" }}>
-                      <span style={{ width: 50 }}>row {s.row}</span>
-                      <span style={{ flex: 1 }}>{s.part_mark} — {s.reason}</span>
+                    <div key={i} className="flex items-center gap-3 py-1.5 px-2 rounded" style={{ borderBottom: "1px solid var(--bg-muted)" }}>
+                      <span className="pill" style={{ fontSize: 10, width: 90, textAlign: "center" }}>
+                        Sheet Row {s.row + 2}
+                      </span>
+                      <span className="font-mono font-medium text-[11.5px]" style={{ minWidth: 100, color: "var(--text)" }}>
+                        {s.part_mark || "—"}
+                      </span>
+                      <span style={{ flex: 1, color: "#92400E" }}>{s.reason}</span>
                     </div>
                   ))}
                 </div>
               </details>
             )}
             {result.errors.length > 0 && (
-              <details style={{ marginTop: 8 }}>
-                <summary className="text-[13px] font-semibold cursor-pointer" style={{ color: "#DC2626" }}>
-                  Errors ({result.errors.length})
+              <details className="mt-3" open={result.errors.length <= 10}>
+                <summary className="text-[13px] font-semibold cursor-pointer flex items-center gap-2" style={{ color: "#DC2626" }}>
+                  <span>Errors ({result.errors.length})</span>
+                  <span className="text-[11px] font-normal" style={{ color: "var(--muted)" }}>
+                    — missing required fields or database rejection
+                  </span>
                 </summary>
-                <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>
+                <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)", maxHeight: 260, overflowY: "auto" }}>
                   {result.errors.map((e, i) => (
-                    <div key={i} className="flex gap-2 py-1" style={{ borderBottom: "1px solid var(--bg-muted)" }}>
-                      <span style={{ width: 50 }}>row {e.row}</span>
-                      <span>{e.reason}</span>
+                    <div key={i} className="flex items-center gap-3 py-1.5 px-2 rounded" style={{ borderBottom: "1px solid var(--bg-muted)" }}>
+                      <span className="pill pill-red" style={{ fontSize: 10, width: 90, textAlign: "center" }}>
+                        Sheet Row {e.row + 2}
+                      </span>
+                      <span style={{ flex: 1, color: "#DC2626" }}>{e.reason}</span>
                     </div>
                   ))}
                 </div>
@@ -580,6 +1222,25 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
           </div>
         </div>
       )}
+
+      <ImportProgressModal
+        isOpen={showProgressModal}
+        stage={pipelineStage}
+        progressPercent={progressPercent}
+        elapsedSeconds={elapsedSeconds}
+        totalRows={parsedRows.length}
+        fileName={file?.name ?? "BOM File"}
+        result={modalResult}
+        errorMessage={pipelineError}
+        onClose={() => setShowProgressModal(false)}
+        onGoToParts={() => {
+          setShowProgressModal(false);
+          router.push("/dashboard/parts");
+        }}
+        onDownloadIssues={() => {
+          if (result) downloadIssuesCsv(result, parsedRows, headers, mapping);
+        }}
+      />
     </>
   );
 }
