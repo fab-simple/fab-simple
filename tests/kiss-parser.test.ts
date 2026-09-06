@@ -70,4 +70,54 @@ D,DWG-2,0,ASM3,P1,10,F,PL1/2X12,A36,1-00-00,20.40,NONE,GUSSET
     // 1600 lbs / 2000 = 0.8 tons
     expect(wfGroup?.tons).toBeCloseTo(0.8, 1);
   });
+
+  it("parseSheetFile correctly converts .kss file into tabular rows for import pipeline", async () => {
+    const { parseSheetFile, isKissFile, getFileFormatBadge } = await import("../lib/sheet-import");
+    const kissContent = `
+KISS,1.0,Tekla Structures
+H,JOB42,STADIUM EXPANSION,GENERAL CONTRACTOR,2026-09-01,08:30:00,INCH
+D,D-101,A,B10,b101,3,W,W24X68,A992,30-00-00,2040.00,PAINT,BEAM 10
+D,D-102,B,C20,c201,2,C,HSS10X10X1/2,A500,20-00-00,1234.00,NONE,COLUMN 20
+`.trim();
+
+    const mockKssFile = new File([kissContent], "tekla_export.kss", { type: "text/plain" });
+    expect(isKissFile(mockKssFile)).toBe(true);
+    expect(getFileFormatBadge(mockKssFile).label).toBe("KISS");
+
+    const rows = await parseSheetFile(mockKssFile);
+    expect(rows).toHaveLength(2);
+
+    expect(rows[0]?.["Part Mark"]).toBe("b101");
+    expect(rows[0]?.["Quantity"]).toBe("3");
+    expect(rows[0]?.["Profile"]).toBe("W24X68");
+    expect(rows[0]?.["Grade"]).toBe("A992");
+    expect(rows[0]?.["Assembly Mark"]).toBe("B10");
+    expect(rows[0]?.["Length"]).toBe("30'");
+    expect(rows[0]?.["Part Weight"]).toBe("2040");
+
+    expect(rows[1]?.["Part Mark"]).toBe("c201");
+    expect(rows[1]?.["Quantity"]).toBe("2");
+    expect(rows[1]?.["Profile"]).toBe("HSS10X10X1/2");
+    expect(rows[1]?.["Assembly Mark"]).toBe("C20");
+
+    const { autoDetectMapping } = await import("../lib/sheet-import");
+    const testFields = [
+      { key: "part_mark", label: "Part Mark", required: true, aliases: ["mark", "part mark", "part_mark"] },
+      { key: "quantity", label: "Quantity", aliases: ["qty", "quantity"] },
+      { key: "profile", label: "Profile Size", aliases: ["profile", "section"] },
+      { key: "length", label: "Length", aliases: ["length"] },
+      { key: "grade", label: "Grade", aliases: ["grade", "material"] },
+      { key: "weight", label: "Part Weight", aliases: ["part weight", "weight"] },
+      { key: "assembly_mark", label: "Assembly Mark", aliases: ["assembly_mark", "assembly mark"] },
+    ];
+    const mapping = autoDetectMapping(Object.keys(rows[0]!), testFields);
+    expect(mapping.part_mark).toBe("Part Mark");
+    expect(mapping.quantity).toBe("Quantity");
+    expect(mapping.profile).toBe("Profile");
+    expect(mapping.length).toBe("Length");
+    expect(mapping.grade).toBe("Grade");
+    expect(mapping.weight).toBe("Part Weight");
+    expect(mapping.assembly_mark).toBe("Assembly Mark");
+  });
 });
+

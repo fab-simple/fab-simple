@@ -7,16 +7,43 @@
 
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
+import { parseKissFile } from "./parsers/kiss-parser";
+import { parseEjeFile } from "./parsers/eje-parser";
+import { formatFeetInches, type ParsedMember } from "./parsers/types";
 
-export const ACCEPT_EXT = ".csv,.tsv,.txt,.xlsx,.xls";
+export const ACCEPT_EXT = ".kss,.kis,.eje,.csv,.tsv,.txt,.xlsx,.xls";
 export const ACCEPT_MIME =
   "text/csv,text/tab-separated-values,text/plain," +
   "application/vnd.ms-excel," +
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-export function isExcelFile(file: File): boolean {
-  const name = file.name.toLowerCase();
+export function isKissFile(file: File | string): boolean {
+  const name = (typeof file === "string" ? file : file.name).toLowerCase();
+  return name.endsWith(".kss") || name.endsWith(".kis");
+}
+
+export function isEjeFile(file: File | string): boolean {
+  const name = (typeof file === "string" ? file : file.name).toLowerCase();
+  return name.endsWith(".eje");
+}
+
+export function isExcelFile(file: File | string): boolean {
+  const name = (typeof file === "string" ? file : file.name).toLowerCase();
   return name.endsWith(".xlsx") || name.endsWith(".xls");
+}
+
+export function getFileFormatBadge(file: File | string): { label: string; color: string; bg: string } {
+  const name = (typeof file === "string" ? file : file.name).toLowerCase();
+  if (name.endsWith(".kss") || name.endsWith(".kis")) {
+    return { label: "KISS", color: "#2563EB", bg: "rgba(37, 99, 235, 0.08)" };
+  }
+  if (name.endsWith(".eje")) {
+    return { label: "EJE", color: "#7C3AED", bg: "rgba(124, 58, 237, 0.08)" };
+  }
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+    return { label: "XLSX", color: "#059669", bg: "rgba(5, 150, 105, 0.08)" };
+  }
+  return { label: "CSV", color: "#D97706", bg: "rgba(217, 119, 6, 0.08)" };
 }
 
 function dropBlankRows(rows: Record<string, string>[]): Record<string, string>[] {
@@ -112,16 +139,75 @@ export async function parseExcelRows(file: File): Promise<Record<string, string>
   return rowsFromMatrix(matrix);
 }
 
-export async function parseCsvRows(file: File): Promise<Record<string, string>[]> {
+export function membersToRows(members: ParsedMember[]): Record<string, string>[] {
+  return members.map((m) => {
+    const lengthDisplay = m.length ? formatFeetInches(m.length) : "";
+    return {
+      "Part Mark": m.pieceMark || "",
+      "Quantity": String(m.quantity || 1),
+      "Profile": m.section || "",
+      "Profile Name": m.materialType || m.category || "",
+      "Length": lengthDisplay,
+      "Grade": m.grade || "",
+      "Part Weight": m.weight > 0 ? String(m.weight) : "",
+      "Assembly Mark": m.assemblyMark || "",
+      "Drawing No": m.drawingNo || "",
+      "Phase / Lot": m.sequence || "",
+      "Notes": m.notes || "",
+    };
+  });
+}
+
+export async function parseKissRows(file: File): Promise<Record<string, string>[]> {
   const text = await file.text();
+  const parsed = parseKissFile(text, file.name);
+  if (parsed.errors.length > 0 && parsed.members.length === 0) {
+    throw new Error(`Failed to parse KISS file: ${parsed.errors.join("; ")}`);
+  }
+  return membersToRows(parsed.members);
+}
+
+export async function parseEjeRows(file: File): Promise<Record<string, string>[]> {
+  const text = await file.text();
+  const parsed = parseEjeFile(text, file.name);
+  if (parsed.errors.length > 0 && parsed.members.length === 0) {
+    throw new Error(`Failed to parse EJE file: ${parsed.errors.join("; ")}`);
+  }
+  return membersToRows(parsed.members);
+}
+
+export function parseCsvRowsFromText(text: string): Record<string, string>[] {
   const parsed = Papa.parse<string[]>(text, { header: false, skipEmptyLines: true });
   const matrix = (parsed.data as string[][]).map((row) => row.map((c) => String(c ?? "")));
   return rowsFromMatrix(matrix);
 }
 
-/** Parse a file (CSV/TSV or XLSX) into header-keyed rows, auto-detecting the header row. */
+export async function parseCsvRows(file: File): Promise<Record<string, string>[]> {
+  const text = await file.text();
+  return parseCsvRowsFromText(text);
+}
+
+/** Parse any supported sheet file (KISS .kss, EJE .eje, Excel .xlsx, CSV/TSV) into header-keyed rows. */
 export async function parseSheetFile(file: File): Promise<Record<string, string>[]> {
-  return isExcelFile(file) ? parseExcelRows(file) : parseCsvRows(file);
+  if (isKissFile(file)) {
+    return parseKissRows(file);
+  }
+  if (isEjeFile(file)) {
+    return parseEjeRows(file);
+  }
+  if (isExcelFile(file)) {
+    return parseExcelRows(file);
+  }
+
+  // For CSV / TSV / TXT, peek at content to detect if it's a KISS file formatted with a txt/csv extension
+  const text = await file.text();
+  const firstLine = text.split(/\r?\n/)[0]?.trim().toUpperCase() ?? "";
+  if (firstLine.startsWith("KISS")) {
+    const parsed = parseKissFile(text, file.name);
+    return membersToRows(parsed.members);
+  }
+
+  return parseCsvRowsFromText(text);
 }
 
 export interface MappableField {

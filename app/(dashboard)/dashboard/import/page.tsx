@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import type { PartLite, PdfMatchResult } from "@/lib/pdf-parse";
 import {
-  ACCEPT_EXT, ACCEPT_MIME, isExcelFile, parseExcelRows, parseCsvRows,
+  ACCEPT_EXT, ACCEPT_MIME, isExcelFile, isKissFile, isEjeFile, parseSheetFile, getFileFormatBadge,
   autoDetectMapping as autoDetectMappingGeneric, type MappableField,
 } from "@/lib/sheet-import";
 import { useToast } from "@/components/ui/Toast";
@@ -123,7 +123,7 @@ export default function ImportPage() {
 
 function TabSwitcher({ value, onChange }: { value: TabId; onChange: (v: TabId) => void }) {
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
-    { id: "bom", label: "Import Tekla Model (CSV)", icon: <FileSpreadsheet size={14} /> },
+    { id: "bom", label: "Import Tekla / SDS2 BOM", icon: <FileSpreadsheet size={14} /> },
     { id: "pdf", label: "Detailing PDF Package (Upload)", icon: <Files size={14} /> },
   ];
   return (
@@ -719,6 +719,7 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
   // Parsed sheet + column mapping — populated as soon as a file is chosen so
   // the user can review/override the system-detected mapping before any
   // import happens.
+  const [dragOver, setDragOver] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -737,9 +738,9 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
 
     setParsing(true);
     try {
-      const rows = isExcelFile(f) ? await parseExcelRows(f) : await parseCsvRows(f);
+      const rows = await parseSheetFile(f);
       if (rows.length === 0) {
-        throw new Error("No rows found in file. Check that the first row contains column headers.");
+        throw new Error("No rows found in file. Check that the file contains data rows or valid KISS detail lines.");
       }
       const hdrs = Object.keys(rows[0]);
       setParsedRows(rows);
@@ -875,7 +876,7 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
         <div className="card-header">
           <div>
             <div className="card-title">Tekla / SDS2 BOM Import</div>
-            <div className="card-sub">CSV or XLSX export — maps QTY, Mark, Profile, Name, Length, Grade, Part Weight, Heat Number</div>
+            <div className="card-sub">KISS (.kss), CSV, or Excel (.xlsx) export — maps QTY, Mark, Profile, Name, Length, Grade, Part Weight, Heat Number</div>
           </div>
         </div>
         <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -901,14 +902,25 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
 
           <div>
             <label className="text-[11px] uppercase font-semibold tracking-wider" style={{ color: "var(--muted)" }}>BOM file</label>
-            <div style={{
-              marginTop: 4,
-              border: "2px dashed var(--border)",
-              borderRadius: 8,
-              padding: 24,
-              textAlign: "center",
-              background: "var(--bg-muted)",
-            }}>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const f = e.dataTransfer.files[0];
+                if (f) handleFileChange(f);
+              }}
+              style={{
+                marginTop: 4,
+                border: dragOver ? "2px dashed var(--primary)" : "2px dashed var(--border)",
+                borderRadius: 8,
+                padding: 24,
+                textAlign: "center",
+                background: dragOver ? "rgba(79, 70, 229, 0.04)" : "var(--bg-muted)",
+                transition: "border-color 150ms, background 150ms",
+              }}
+            >
               <FileText size={24} style={{ margin: "0 auto", color: "var(--muted)", marginBottom: 8 }} />
               <input
                 id="bom-input"
@@ -920,15 +932,32 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
               <label htmlFor="bom-input" className="btn btn-primary" style={{ cursor: "pointer" }}>
                 <Upload size={14} /> Choose file
               </label>
-              <div className="text-[11px] mt-2" style={{ color: "var(--muted)" }}>
-                Accepts <code>.csv</code>, <code>.tsv</code>, <code>.xlsx</code>, <code>.xls</code>
+              <div className="text-[11px] mt-2 flex items-center justify-center gap-1.5 flex-wrap" style={{ color: "var(--muted)" }}>
+                <span>Accepts:</span>
+                <span className="font-semibold" style={{ color: "#2563EB" }}>KISS (.kss)</span> ·
+                <span className="font-semibold" style={{ color: "#D97706" }}>CSV / TSV</span> ·
+                <span className="font-semibold" style={{ color: "#059669" }}>Excel (.xlsx, .xls)</span> ·
+                <span className="font-semibold" style={{ color: "#7C3AED" }}>EJE (.eje)</span>
               </div>
               {file && (
-                <div className="text-[12px] mt-2" style={{ color: "var(--text)" }}>
-                  Selected: <strong>{file.name}</strong> ({(file.size / 1024).toFixed(1)} KB)
-                  <span className="pill" style={{ marginLeft: 8, fontSize: 10 }}>
-                    {isExcelFile(file) ? "XLSX" : "CSV"}
-                  </span>
+                <div className="text-[12px] mt-2 flex items-center justify-center gap-2 flex-wrap" style={{ color: "var(--text)" }}>
+                  <span>Selected: <strong>{file.name}</strong> ({(file.size / 1024).toFixed(1)} KB)</span>
+                  {(() => {
+                    const badge = getFileFormatBadge(file);
+                    return (
+                      <span
+                        className="pill font-bold uppercase tracking-wider"
+                        style={{
+                          fontSize: 10,
+                          color: badge.color,
+                          background: badge.bg,
+                          borderColor: badge.color,
+                        }}
+                      >
+                        {badge.label}
+                      </span>
+                    );
+                  })()}
                 </div>
               )}
               {parsing && (
