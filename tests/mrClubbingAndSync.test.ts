@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mrClubKey, type ClubbedMrGroup } from "@/components/rfqs/NewRfqModal";
+import { mrClubKey, apportionClubbedQuantity, type ClubbedMrGroup } from "@/components/rfqs/NewRfqModal";
 
 describe("MR Cross-Project Clubbing", () => {
   it("generates consistent club key ignoring case, whitespace, and nulls", () => {
@@ -65,36 +65,39 @@ describe("MR Cross-Project Clubbing", () => {
     expect(totalQty).toBe(25);
   });
 
-  it("correctly apportions clubbed order quantity across constituent MRs", () => {
+  it("correctly apportions clubbed order quantity across constituent MRs as discrete integers", () => {
     const constituentMrs = [
       { id: "mr-1", quantity: 10 },
       { id: "mr-2", quantity: 15 },
     ];
-    const totalReq = 25;
-    const userEnteredOrderQty = 20; // 5 covered by stock
+    const userEnteredOrderQty = 20;
 
-    const lines: { material_requirement_id: string; quantity: number }[] = [];
-    let remaining = userEnteredOrderQty;
-
-    constituentMrs.forEach((mr, idx) => {
-      if (idx === constituentMrs.length - 1) {
-        lines.push({
-          material_requirement_id: mr.id,
-          quantity: Math.max(0.01, Math.round(remaining * 100) / 100),
-        });
-      } else {
-        const ratio = mr.quantity / totalReq;
-        const q = Math.max(0.01, Math.round(userEnteredOrderQty * ratio * 100) / 100);
-        remaining -= q;
-        lines.push({ material_requirement_id: mr.id, quantity: q });
-      }
-    });
+    const lines = apportionClubbedQuantity(constituentMrs, userEnteredOrderQty);
 
     expect(lines).toEqual([
       { material_requirement_id: "mr-1", quantity: 8 },
       { material_requirement_id: "mr-2", quantity: 12 },
     ]);
     expect(lines.reduce((s, l) => s + l.quantity, 0)).toBe(20);
+    for (const l of lines) {
+      expect(Number.isInteger(l.quantity)).toBe(true);
+    }
+  });
+
+  it("handles odd division while maintaining discrete whole numbers", () => {
+    const constituentMrs = [
+      { id: "mr-a", quantity: 1 },
+      { id: "mr-b", quantity: 1 },
+      { id: "mr-c", quantity: 1 },
+    ];
+    const lines = apportionClubbedQuantity(constituentMrs, 2);
+
+    const totalQty = lines.reduce((s, l) => s + l.quantity, 0);
+    expect(totalQty).toBe(2);
+    for (const l of lines) {
+      expect(Number.isInteger(l.quantity)).toBe(true);
+      expect(l.quantity).toBeGreaterThan(0);
+    }
   });
 });
 

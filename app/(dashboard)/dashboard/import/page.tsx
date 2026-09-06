@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import type { PartLite, PdfMatchResult } from "@/lib/pdf-parse";
 import {
-  ACCEPT_EXT, ACCEPT_MIME, isExcelFile, isKissFile, isEjeFile, parseSheetFile, getFileFormatBadge,
+  ACCEPT_EXT, ACCEPT_MIME, parseSheetFile, getFileFormatBadge,
   autoDetectMapping as autoDetectMappingGeneric, type MappableField,
 } from "@/lib/sheet-import";
 import { useToast } from "@/components/ui/Toast";
@@ -1408,7 +1408,11 @@ function PdfPackageTab({ projects, defaultProjectId }: { projects: Project[]; de
     setRows((prev) => prev.map((r) => {
       if (r.uid !== uid) return r;
       const next = new Set(r.excluded);
-      next.has(partId) ? next.delete(partId) : next.add(partId);
+      if (next.has(partId)) {
+        next.delete(partId);
+      } else {
+        next.add(partId);
+      }
       return { ...r, excluded: next };
     }));
   }

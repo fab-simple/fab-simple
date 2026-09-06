@@ -12,14 +12,12 @@
 // =============================================================================
 
 import { useState, useRef, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import {
   Upload, FileSpreadsheet, FileText, Loader2, CheckCircle2,
-  AlertCircle, ChevronRight, X, Sparkles, Layers,
-  Clock, Download,
+  AlertCircle, X,
 } from "lucide-react";
 import {
-  ACCEPT_EXT, ACCEPT_MIME, parseSheetFile, isExcelFile, isKissFile, isEjeFile,
+  ACCEPT_EXT, ACCEPT_MIME, parseSheetFile,
   getFileFormatBadge, autoDetectMapping as autoDetectMappingGeneric,
   type MappableField,
 } from "@/lib/sheet-import";
@@ -116,7 +114,6 @@ export function ImportTeklaModal({
   initialProjectId,
   onSuccess,
 }: ImportTeklaModalProps) {
-  const router = useRouter();
   const { toast } = useToast();
   const projects = useResourceList<Project>("projects", { per_page: 100 });
 
