@@ -23,7 +23,33 @@ describe("ResourceModal", () => {
     );
     const cancelBtn = screen.getByText("Cancel");
     fireEvent.click(cancelBtn);
-    expect(onClose).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onClose when close button is clicked", () => {
+    const onClose = vi.fn();
+    const { container } = render(
+      <ResourceModal title="Modal title" onClose={onClose} onSubmit={() => {}}>
+        <div />
+      </ResourceModal>,
+    );
+    const headerCloseBtn = container.querySelector(".card-header button");
+    expect(headerCloseBtn).not.toBeNull();
+    fireEvent.click(headerCloseBtn!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onClose when clicking backdrop overlay", () => {
+    const onClose = vi.fn();
+    const { container } = render(
+      <ResourceModal title="Modal title" onClose={onClose} onSubmit={() => {}}>
+        <div />
+      </ResourceModal>,
+    );
+    const backdrop = container.querySelector(".fixed.inset-0");
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop!);
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("calls onSubmit when form is submitted", () => {

@@ -375,7 +375,6 @@ function ImportProgressModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200"
-      onClick={isComplete || isError ? onClose : undefined}
     >
       <div
         className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col"

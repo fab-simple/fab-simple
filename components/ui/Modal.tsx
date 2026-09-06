@@ -26,7 +26,7 @@ export function Modal({ open, onClose, title, children, size = "md" }: ModalProp
   const widths = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-2xl" };
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay">
       <div className={`modal w-full ${widths[size]}`}>
         <div className="flex items-center justify-between mb-5">
           <h2 className="modal-title mb-0">{title}</h2>

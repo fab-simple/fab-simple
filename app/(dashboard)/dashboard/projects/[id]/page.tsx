@@ -27,6 +27,7 @@ import {
   ShieldAlert,
   FileCheck,
   Wrench,
+  X,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
@@ -642,10 +643,13 @@ function EditProjectModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="card w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-2xl text-slate-900" onClick={(e) => e.stopPropagation()}>
-        <div className="card-header border-b border-slate-200 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm">
+      <div className="card w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-2xl text-slate-900">
+        <div className="card-header border-b border-slate-200 p-4 flex items-center justify-between">
           <h3 className="card-title font-extrabold text-sm text-slate-950">Edit Project Details</h3>
+          <button type="button" onClick={onClose} className="p-1 rounded-md text-slate-400 hover:text-slate-600 transition-colors">
+            <X size={16} />
+          </button>
         </div>
         <form
           className="p-5 space-y-4"
