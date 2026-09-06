@@ -120,6 +120,9 @@ export interface ParsedMember {
   finish: string;
   notes: string;
   category: ShapeCategory;
+  sequence?: string;
+  drawingNo?: string;
+  drawingRev?: string;
   weightSource?: "file" | "calculated";
   unitWeightLbsPerFt?: number;
 }
@@ -253,12 +256,16 @@ export function parseLengthToInches(val: string | number): number {
   const s = (val || "").trim();
   if (!s) return 0;
 
-  // 1. Check SDS2 / Tekla FT-IN-16ths format: "20-06-08" or "20-06-00" or "20-6-8"
+  // 1. Check SDS2 / Tekla FT-IN-16ths format: "20-06-08" or "20-06-00" or "20-6-8" or "240-00-00"
   const ftIn16 = s.match(/^(\d+)\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})$/);
   if (ftIn16) {
     const feet = parseInt(ftIn16[1]!, 10);
     const inches = parseInt(ftIn16[2]!, 10);
     const sixteenths = parseInt(ftIn16[3]!, 10);
+    if (feet >= 80) {
+      // First number >= 80 is total length in inches (e.g. 240-00-00 = 240 inches), not feet!
+      return feet + inches / 12 + sixteenths / 16;
+    }
     return feet * 12 + inches + sixteenths / 16;
   }
 
@@ -273,6 +280,9 @@ export function parseLengthToInches(val: string | number): number {
     } else if (ftInFrac[5]) {
       frac = parseFloat(`0.${ftInFrac[5]}`);
     }
+    if (feet >= 80 && !s.includes("'")) {
+      return feet + (inches + frac) / 12;
+    }
     return feet * 12 + inches + frac;
   }
 
@@ -285,9 +295,12 @@ export function parseLengthToInches(val: string | number): number {
   // 4. Plain decimal number or fraction: "246.5" or "246 1/2" or "20-6"
   const ftInSimple = s.match(/^(\d+)\s*-\s*(\d+)$/);
   if (ftInSimple) {
-    // If format is "20-6" (20 ft 6 in), treat as 246 inches
     const ft = parseInt(ftInSimple[1]!, 10);
     const inch = parseInt(ftInSimple[2]!, 10);
+    if (ft >= 80) {
+      // e.g. "240-00" -> 240 inches + sixteenths/decimals
+      return ft + (inch < 16 ? inch / 16 : inch / 12);
+    }
     if (inch < 12) return ft * 12 + inch;
   }
 

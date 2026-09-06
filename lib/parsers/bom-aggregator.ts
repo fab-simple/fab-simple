@@ -258,10 +258,20 @@ export function aggregateBom(parsed: ParsedBomResult): AggregatedEstimate {
     }
     const g = groups.get(cat)!;
 
-    // Weight: use per-piece weight × qty, or estimate from length if no weight
-    const memberWeight = m.weight > 0
-      ? m.weight * m.quantity
-      : estimateWeight(m);
+    // Weight: use validated per-piece weight × qty
+    let pieceWeight = m.weight;
+    const calc = calculateAiscWeight(m.section, m.length, m.category);
+    if (pieceWeight > 0 && calc.weightLbs > 0) {
+      if (m.quantity > 1 && Math.abs(pieceWeight - calc.weightLbs * m.quantity) < Math.abs(pieceWeight - calc.weightLbs) * 0.5) {
+        pieceWeight = pieceWeight / m.quantity;
+      } else if (pieceWeight > calc.weightLbs * 2.5) {
+        pieceWeight = calc.weightLbs;
+      }
+    } else if (pieceWeight <= 0) {
+      pieceWeight = calc.weightLbs;
+    }
+
+    const memberWeight = pieceWeight * m.quantity;
 
     g.totalWeightLbs += memberWeight;
     g.pieceCount += m.quantity;

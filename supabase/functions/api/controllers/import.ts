@@ -274,8 +274,166 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
     inserted.push(data);
   }
 
+<<<<<<< Updated upstream
   // Automatically generate / update Material Requirements for this project
   const mrSync = await syncMaterialRequirements(ctx, body.project_id);
+=======
+  // -------------------------------------------------------------------------
+  // Auto-create assemblies from imported parts
+  // -------------------------------------------------------------------------
+  // Collect unique assembly_marks from ALL parts in this project (not just
+  // this import batch) to get accurate total_parts & completed_parts counts.
+  const assemblyMarks = new Set<string>();
+  for (const lookup of lookups) {
+    const asm = pickFrom(lookup, "assembly_mark");
+    if (asm) assemblyMarks.add(asm);
+  }
+
+  let assembliesCreated = 0;
+  let assembliesUpdated = 0;
+
+  for (const asm_mark of assemblyMarks) {
+    // Count parts for this assembly in the project
+    const { count: totalParts } = await ctx.sb.from("parts")
+      .select("*", { count: "exact", head: true })
+      .eq("project_id", body.project_id)
+      .eq("assembly_mark", asm_mark);
+
+    const { count: completedParts } = await ctx.sb.from("parts")
+      .select("*", { count: "exact", head: true })
+      .eq("project_id", body.project_id)
+      .eq("assembly_mark", asm_mark)
+      .in("status", ["complete", "shipped"]);
+
+    // Sum weights for this assembly
+    const { data: weightRows } = await ctx.sb.from("parts")
+      .select("weight,quantity")
+      .eq("project_id", body.project_id)
+      .eq("assembly_mark", asm_mark);
+
+    const totalWeight = (weightRows || []).reduce((sum, p) => {
+      const w = Number(p.weight) || 0;
+      const q = Number(p.quantity) || 1;
+      return sum + (w * q);
+    }, 0);
+
+    // Get the phase/sequence from one of the parts in this assembly
+    const { data: samplePart } = await ctx.sb.from("parts")
+      .select("phase,profile")
+      .eq("project_id", body.project_id)
+      .eq("assembly_mark", asm_mark)
+      .limit(1)
+      .maybeSingle();
+
+    // Check if assembly already exists
+    const { data: existingAsm } = await ctx.sb.from("assemblies")
+      .select("id")
+      .eq("company_id", ctx.user.company_id)
+      .eq("project_id", body.project_id)
+      .eq("assembly_mark", asm_mark)
+      .maybeSingle();
+
+    const total = totalParts ?? 0;
+    const completed = completedParts ?? 0;
+    const asmStatus = total > 0 && completed >= total ? "complete"
+                    : completed > 0 ? "in_progress"
+                    : "not_started";
+
+    if (existingAsm) {
+      // Update existing assembly with fresh counts
+      await ctx.sb.from("assemblies").update({
+        total_parts:     total,
+        completed_parts: completed,
+        total_weight:    Math.round(totalWeight * 100) / 100,
+        status:          asmStatus,
+      }).eq("id", existingAsm.id);
+      assembliesUpdated++;
+    } else {
+      // Create new assembly
+      const asmRow = {
+        company_id:      ctx.user.company_id,
+        project_id:      body.project_id,
+        assembly_mark:   asm_mark,
+        description:     samplePart?.profile
+                           ? `${samplePart.profile} assembly`
+                           : `Assembly ${asm_mark}`,
+        total_weight:    Math.round(totalWeight * 100) / 100,
+        total_parts:     total,
+        completed_parts: completed,
+        status:          asmStatus,
+      };
+      const { error: asmErr } = await ctx.sb.from("assemblies").insert(asmRow);
+      if (!asmErr) assembliesCreated++;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Auto-create drawings from imported parts
+  // -------------------------------------------------------------------------
+  // Drawing references come from parts that have assembly_marks.
+  // Group parts by assembly_mark prefix (letter portion) as drawing sheets.
+  // E.g. assembly marks A-101, A-102, A-103 → Drawing "A" sheet.
+  // Also pick up any explicit drawing info from the 'name' column.
+  const drawingRefs = new Map<string, { parts_count: number; title: string }>();
+
+  for (const lookup of lookups) {
+    const asm = pickFrom(lookup, "assembly_mark");
+    if (!asm) continue;
+
+    // Extract drawing number: use the assembly prefix letter(s) + first digits
+    // E.g. "A-204" → drawing "A-200 Series", "B-108" → "B-100 Series"
+    const match = asm.match(/^([A-Z]+)-?(\d)/i);
+    if (match) {
+      const drawingNum = `${match[1].toUpperCase()}-SERIES`;
+      const existing = drawingRefs.get(drawingNum);
+      const profile = pickFrom(lookup, "profile") || "";
+      const name = pickFrom(lookup, "name") || "";
+      const desc = name || profile || asm;
+
+      if (existing) {
+        existing.parts_count++;
+      } else {
+        drawingRefs.set(drawingNum, {
+          parts_count: 1,
+          title: `${desc} — ${asm} series shop drawings`,
+        });
+      }
+    }
+  }
+
+  let drawingsCreated = 0;
+
+  for (const [drawingNumber, info] of drawingRefs) {
+    // Check if drawing already exists
+    const { data: existingDwg } = await ctx.sb.from("drawings")
+      .select("id")
+      .eq("company_id", ctx.user.company_id)
+      .eq("project_id", body.project_id)
+      .eq("drawing_number", drawingNumber)
+      .maybeSingle();
+
+    if (existingDwg) {
+      // Update parts count
+      await ctx.sb.from("drawings").update({
+        parts_count: info.parts_count,
+      }).eq("id", existingDwg.id);
+    } else {
+      const dwgRow = {
+        company_id:      ctx.user.company_id,
+        project_id:      body.project_id,
+        drawing_number:  drawingNumber,
+        revision:        "A",
+        title:           info.title,
+        type:            "shop",
+        status:          "in_progress",
+        current_revision: true,
+        parts_count:     info.parts_count,
+      };
+      const { error: dwgErr } = await ctx.sb.from("drawings").insert(dwgRow);
+      if (!dwgErr) drawingsCreated++;
+    }
+  }
+>>>>>>> Stashed changes
 
   await writeAudit(ctx, {
     action: "import",
@@ -285,12 +443,22 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
       inserted: inserted.length,
       skipped: skipped.length,
       errors: errors.length,
+<<<<<<< Updated upstream
       mr_created: mrSync.created,
       mr_updated: mrSync.updated,
     },
   });
   await writeActivity(ctx, {
     action: `imported ${inserted.length} parts, updated ${updated.length} from CSV · ${mrSync.created} MRs created, ${mrSync.updated} updated`,
+=======
+      assemblies_created: assembliesCreated,
+      assemblies_updated: assembliesUpdated,
+      drawings_created: drawingsCreated,
+    },
+  });
+  await writeActivity(ctx, {
+    action: `imported ${inserted.length} parts, updated ${updated.length}, created ${assembliesCreated} assemblies & ${drawingsCreated} drawings`,
+>>>>>>> Stashed changes
     entity_type: "projects",
     entity_id: body.project_id,
     entity_label: project.name as string,
@@ -300,8 +468,14 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
       updated: updated.length,
       skipped: skipped.length,
       errors: errors.length,
+<<<<<<< Updated upstream
       mr_created: mrSync.created,
       mr_updated: mrSync.updated,
+=======
+      assemblies_created: assembliesCreated,
+      assemblies_updated: assembliesUpdated,
+      drawings_created: drawingsCreated,
+>>>>>>> Stashed changes
     },
   });
 
@@ -311,9 +485,16 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
       updated: updated.length,
       skipped: skipped.length,
       errors: errors.length,
+<<<<<<< Updated upstream
       mr_created: mrSync.created,
       mr_updated: mrSync.updated,
       units,
+=======
+      units,
+      assemblies_created: assembliesCreated,
+      assemblies_updated: assembliesUpdated,
+      drawings_created: drawingsCreated,
+>>>>>>> Stashed changes
     },
     skipped,
     errors,

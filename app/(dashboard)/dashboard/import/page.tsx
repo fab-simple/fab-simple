@@ -121,6 +121,7 @@ function TabSwitcher({ value, onChange }: { value: TabId; onChange: (v: TabId) =
 
 interface ImportResult {
   summary: {
+<<<<<<< Updated upstream
     inserted: number;
     updated: number;
     skipped: number;
@@ -128,6 +129,10 @@ interface ImportResult {
     units: string;
     mr_created?: number;
     mr_updated?: number;
+=======
+    inserted: number; updated: number; skipped: number; errors: number; units: string;
+    assemblies_created?: number; assemblies_updated?: number; drawings_created?: number;
+>>>>>>> Stashed changes
   };
   skipped: Array<{ row: number; part_mark?: string; reason: string }>;
   errors: Array<{ row: number; reason: string }>;
@@ -430,6 +435,7 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
               <Tally label="Skipped" value={result.summary.skipped} icon={<AlertCircle size={14} style={{ color: "#D97706" }} />} />
               <Tally label="Errors" value={result.summary.errors} icon={<AlertCircle size={14} style={{ color: "#DC2626" }} />} />
             </div>
+<<<<<<< Updated upstream
 
             {((result.summary.mr_created ?? 0) > 0 || (result.summary.mr_updated ?? 0) > 0) && (
               <div
@@ -458,6 +464,15 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
                 </Link>
               </div>
             )}
+=======
+            {(result.summary.assemblies_created || result.summary.drawings_created) ? (
+              <div className="grid-3" style={{ gap: 12, marginBottom: 16 }}>
+                <Tally label="Assemblies Created" value={result.summary.assemblies_created ?? 0} icon={<Database size={14} style={{ color: "#7C3AED" }} />} />
+                <Tally label="Assemblies Updated" value={result.summary.assemblies_updated ?? 0} icon={<Link2 size={14} style={{ color: "#0D9488" }} />} />
+                <Tally label="Drawings Created"   value={result.summary.drawings_created ?? 0}   icon={<FileText size={14} style={{ color: "#2563EB" }} />} />
+              </div>
+            ) : null}
+>>>>>>> Stashed changes
             {result.mapping && (result.mapping.matched_fields.length > 0 || result.mapping.unmapped_headers.length > 0) && (
               <div style={{
                 background: "var(--bg-muted)", borderRadius: 6, padding: "10px 12px",

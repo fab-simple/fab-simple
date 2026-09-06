@@ -189,6 +189,8 @@ export function parseKissFile(text: string, filename: string): ParsedBomResult {
             finish,
             notes: `${drawingNo ? `Dwg: ${drawingNo}` : ""}${drawingRev ? ` Rev ${drawingRev}` : ""}${notes ? ` — ${notes}` : ""}`.trim(),
             category,
+            drawingNo: drawingNo || undefined,
+            drawingRev: drawingRev || undefined,
           };
           currentLabors = [];
           break;
@@ -305,13 +307,17 @@ function finalizeMember(
   if (!member.weight || member.weight <= 0) {
     member.weight = calc.weightLbs;
     member.weightSource = "calculated";
-  } else if (member.quantity > 1 && calc.weightLbs > 0) {
+  } else if (calc.weightLbs > 0) {
     // Check if the weight in the file was total line weight rather than per-piece weight
     const diffPerPiece = Math.abs(member.weight - calc.weightLbs);
     const diffTotalLine = Math.abs(member.weight - (calc.weightLbs * member.quantity));
-    if (diffTotalLine < diffPerPiece * 0.5) {
+    if (member.quantity > 1 && diffTotalLine < diffPerPiece * 0.5) {
       // File weight was total line weight — convert to per-piece weight
       member.weight = Math.round((member.weight / member.quantity) * 10) / 10;
+    } else if (member.weight > calc.weightLbs * 2.5) {
+      // File weight was inflated or invalid — fallback to AISC calculated weight
+      member.weight = calc.weightLbs;
+      member.weightSource = "calculated";
     }
   }
 
@@ -329,7 +335,18 @@ function finalizeMember(
     });
   }
 
-  result.members.push(member);
+  // Deduplicate exact duplicate member rows (e.g. assembly header line identical to main member detail line)
+  const isDuplicate = result.members.some(
+    (m) =>
+      m.assemblyMark === member.assemblyMark &&
+      m.pieceMark === member.pieceMark &&
+      m.section === member.section &&
+      Math.abs(m.length - member.length) < 0.1 &&
+      m.quantity === member.quantity,
+  );
+  if (!isDuplicate) {
+    result.members.push(member);
+  }
 }
 
 /**
