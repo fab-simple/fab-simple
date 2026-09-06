@@ -2,14 +2,14 @@
 // imperial/metric units. Returns summary + skipped + errors arrays.
 //
 // Supported sheet columns (and their aliases):
-//   QTY / Quantity  → quantity
-//   Mark / Part Mark → part_mark
-//   Profile / Section → profile
-//   Name            → name  (structural member label, e.g. "W-BEAM", "COLUMN")
-//   Length          → length (stored verbatim as text — no unit parsing/conversion)
-//   Grade / Material → grade
-//   Part Weight / Weight → weight (per-piece weight, stored in lb)
-//   Heat Number / Heat No → heat_number
+//   QTY / Quantity           → quantity
+//   Mark / Part Mark         → part_mark
+//   Profile Size / Profile / Section → profile  (Tekla: "Profile Size" = e.g. W12X26)
+//   Profile name / Name      → name    (Tekla: "Profile name" = e.g. "W-BEAM", "COLUMN")
+//   Length                   → length (stored verbatim as text — no unit parsing/conversion)
+//   Grade / Material         → grade
+//   Part Weight / Weight     → weight (per-piece weight, stored in lb)
+//   Heat Number / Heat No    → heat_number
 
 import type { Ctx } from "../lib/types.ts";
 import { ok, err } from "../lib/response.ts";
@@ -43,8 +43,8 @@ interface ImportBody {
 const COL_ALIASES: Record<string, string[]> = {
   quantity:      ["qty", "quantity", "count", "pcs", "pieces", "no_of_pieces", "no of pieces"],
   part_mark:     ["mark", "part mark", "part_mark", "partmark", "piecemark", "piece mark", "part id", "partid", "part_pos", "member_mark", "member mark"],
-  profile:       ["profile", "section", "shape", "size", "profile_name", "section_size", "profilename"],
-  name:          ["name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"],
+  profile:       ["profile size", "profile", "section", "shape", "size", "profile_name", "section_size", "profilename", "profilesize"],
+  name:          ["profile name", "name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"],
   length:        ["length", "len", "length_mm", "length_in", "length_ft", "cut_length", "cut length"],
   grade:         ["grade", "material", "material grade", "material_grade", "spec", "matl"],
   // "Part Weight" (per-piece weight) is highest priority. "Ext. Weight" /
@@ -274,21 +274,47 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
     inserted.push(data);
   }
 
+  // Automatically generate / update Material Requirements for this project
+  const mrSync = await syncMaterialRequirements(ctx, body.project_id);
+
   await writeAudit(ctx, {
     action: "import",
     table_name: "parts",
-    new_values: { project_id: body.project_id, inserted: inserted.length, skipped: skipped.length, errors: errors.length },
+    new_values: {
+      project_id: body.project_id,
+      inserted: inserted.length,
+      skipped: skipped.length,
+      errors: errors.length,
+      mr_created: mrSync.created,
+      mr_updated: mrSync.updated,
+    },
   });
   await writeActivity(ctx, {
-    action: `imported ${inserted.length} parts, updated ${updated.length} from CSV`,
+    action: `imported ${inserted.length} parts, updated ${updated.length} from CSV · ${mrSync.created} MRs created, ${mrSync.updated} updated`,
     entity_type: "projects",
     entity_id: body.project_id,
     entity_label: project.name as string,
-    metadata: { units, inserted: inserted.length, updated: updated.length, skipped: skipped.length, errors: errors.length },
+    metadata: {
+      units,
+      inserted: inserted.length,
+      updated: updated.length,
+      skipped: skipped.length,
+      errors: errors.length,
+      mr_created: mrSync.created,
+      mr_updated: mrSync.updated,
+    },
   });
 
   return ok({
-    summary: { inserted: inserted.length, updated: updated.length, skipped: skipped.length, errors: errors.length, units },
+    summary: {
+      inserted: inserted.length,
+      updated: updated.length,
+      skipped: skipped.length,
+      errors: errors.length,
+      mr_created: mrSync.created,
+      mr_updated: mrSync.updated,
+      units,
+    },
     skipped,
     errors,
     mapping: {
@@ -297,3 +323,162 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
     },
   });
 }
+
+/**
+ * Automatically syncs Material Requirements after parts are imported or modified for a project.
+ * Groups all project parts by (profile, name, grade, length), checks existing
+ * active RFQs / awarded MRs, and creates new open MRs for any incremental demand.
+ */
+export async function syncMaterialRequirements(ctx: Ctx, projectId: string): Promise<{ created: number; updated: number }> {
+  try {
+    const { data: allParts, error: partsErr } = await ctx.sbAdmin
+      .from("parts")
+      .select("profile, name, grade, length, quantity, part_mark")
+      .eq("company_id", ctx.user.company_id)
+      .eq("project_id", projectId);
+
+    if (partsErr || !allParts) {
+      console.error("Failed to fetch parts for MR sync:", partsErr);
+      return { created: 0, updated: 0 };
+    }
+
+    interface GroupData {
+      profile: string;
+      name: string | null;
+      grade: string | null;
+      length: string | null;
+      totalQty: number;
+      marksSet: Set<string>;
+    }
+
+    const groups = new Map<string, GroupData>();
+    for (const p of allParts) {
+      const profile = String(p.profile ?? "").trim();
+      const qty = Number(p.quantity) || 0;
+      if (!profile || qty <= 0) continue;
+
+      const name = p.name ? String(p.name).trim() : "";
+      const grade = p.grade ? String(p.grade).trim() : "";
+      const length = p.length !== null && p.length !== undefined ? String(p.length).trim() : "";
+      const mark = p.part_mark ? String(p.part_mark).trim() : "";
+
+      const key = [
+        profile.toLowerCase(),
+        name.toLowerCase(),
+        grade.toLowerCase(),
+        length.toLowerCase(),
+      ].join("\x01");
+
+      const existing = groups.get(key);
+      if (existing) {
+        existing.totalQty += qty;
+        if (mark) existing.marksSet.add(mark);
+      } else {
+        groups.set(key, {
+          profile,
+          name: name || null,
+          grade: grade || null,
+          length: length || null,
+          totalQty: qty,
+          marksSet: new Set(mark ? [mark] : []),
+        });
+      }
+    }
+
+    const { data: existingMrs, error: mrErr } = await ctx.sbAdmin
+      .from("material_requirements")
+      .select("id, profile, name, grade, length, quantity, status, notes")
+      .eq("company_id", ctx.user.company_id)
+      .eq("project_id", projectId);
+
+    if (mrErr || !existingMrs) {
+      console.error("Failed to fetch existing MRs for sync:", mrErr);
+      return { created: 0, updated: 0 };
+    }
+
+    let createdCount = 0;
+    let updatedCount = 0;
+
+    for (const group of groups.values()) {
+      const matchingMrs = existingMrs.filter((m) => {
+        const matchProfile = String(m.profile ?? "").trim().toLowerCase() === group.profile.toLowerCase();
+        const matchName = String(m.name ?? "").trim().toLowerCase() === (group.name ?? "").toLowerCase();
+        const matchGrade = String(m.grade ?? "").trim().toLowerCase() === (group.grade ?? "").toLowerCase();
+        const matchLength = String(m.length ?? "").trim().toLowerCase() === (group.length ?? "").toLowerCase();
+        return matchProfile && matchName && matchGrade && matchLength;
+      });
+
+      // Sum quantity already covered in active RFQs, awarded quotes, or fulfilled orders
+      const coveredQty = matchingMrs
+        .filter((m) => ["rfq_created", "awarded", "fulfilled"].includes(m.status))
+        .reduce((sum, m) => sum + Number(m.quantity), 0);
+
+      // Look for an existing MR that is still in 'open' status
+      const openMr = matchingMrs.find((m) => m.status === "open");
+
+      // Unmet incremental demand
+      const unmetDemand = Math.max(0, group.totalQty - coveredQty);
+
+      let notes: string | undefined = undefined;
+      if (group.marksSet.size > 0) {
+        const fullMarks = Array.from(group.marksSet).join(", ");
+        notes = fullMarks.length > 490 ? `${fullMarks.slice(0, 470)}… (${group.marksSet.size} marks)` : fullMarks;
+      }
+
+      if (unmetDemand > 0) {
+        if (openMr) {
+          if (Number(openMr.quantity) !== unmetDemand || openMr.notes !== (notes ?? null)) {
+            await ctx.sbAdmin
+              .from("material_requirements")
+              .update({
+                quantity: unmetDemand,
+                notes: notes ?? null,
+              })
+              .eq("id", openMr.id);
+            updatedCount++;
+          }
+        } else {
+          const { data: seq, error: seqErr } = await ctx.sbAdmin.rpc("next_sequence_number", {
+            p_company_id: ctx.user.company_id,
+            p_table_name: "material_requirements",
+            p_prefix: "MR",
+            p_width: 4,
+          });
+
+          if (seqErr) {
+            console.error("Failed to generate MR sequence number:", seqErr);
+            continue;
+          }
+
+          const { error: insErr } = await ctx.sbAdmin.from("material_requirements").insert({
+            company_id: ctx.user.company_id,
+            project_id: projectId,
+            mr_number: seq,
+            profile: group.profile,
+            name: group.name,
+            grade: group.grade,
+            quantity: unmetDemand,
+            length: group.length,
+            notes: notes ?? null,
+            status: "open",
+          });
+
+          if (insErr) {
+            console.error("Failed to insert material requirement:", insErr);
+            continue;
+          }
+
+          createdCount++;
+        }
+      } else if (openMr && unmetDemand === 0) {
+        await ctx.sbAdmin.from("material_requirements").delete().eq("id", openMr.id);
+      }
+    }
+
+    return { created: createdCount, updated: updatedCount };
+  } catch (err) {
+    console.error("Unhandled error in syncMaterialRequirements:", err);
+    return { created: 0, updated: 0 };
+  }
+}
+

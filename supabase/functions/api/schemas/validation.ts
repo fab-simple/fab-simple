@@ -38,6 +38,7 @@ export const Schemas = {
     status: z.enum(["not_started", "ordered", "in_progress", "complete", "shipped", "on_hold"]).optional(),
     phase: z.string().max(20).optional(),
     heat_number: z.string().max(60).optional(),
+    material_lot_id: uuid.optional().nullable(),
     drawing_id: uuid.optional(),
     assigned_user_id: uuid.optional(),
     notes: z.string().max(2000).optional(),
@@ -259,6 +260,7 @@ export const Schemas = {
   purchase_orders: z.object({
     project_id: uuid.optional(),
     vendor: z.string().min(1).max(200),
+    vendor_id: uuid.optional(),
     items: z.array(z.unknown()).default([]),
     total_amount: numeric.nonnegative().default(0),
     qty_ordered: numeric.optional(),
@@ -269,12 +271,20 @@ export const Schemas = {
     expected_date: dateStr.optional(),
     received_date: dateStr.optional(),
     notes: z.string().max(2000).optional(),
+    // Vendor confirmation (Module 5) — set by whoever logs the vendor's
+    // response to the PO; not required at PO creation time.
+    confirmation_status: z.enum(["pending", "confirmed", "delayed", "rejected"]).optional(),
+    confirmed_qty: numeric.optional(),
+    confirmed_date: dateStr.optional(),
+    mill_name: z.string().max(120).optional(),
+    rolling_schedule: z.string().max(200).optional(),
   }),
 
   inventory: z.object({
     profile: z.string().min(1).max(80),
+    name: z.string().max(120).optional(),
     grade: z.string().max(40).optional(),
-    length: numeric.optional(),
+    length: z.string().max(60).optional(),
     quantity: numeric.nonnegative(),
     location: z.string().max(60).optional(),
     reorder_point: numeric.nonnegative().default(0),
@@ -308,6 +318,120 @@ export const Schemas = {
     role: z.string().max(60).optional(),
     email: z.string().email().optional(),
     phone: z.string().max(30).optional(),
+    notes: z.string().max(2000).optional(),
+  }),
+
+  // -------------------------------------------------------------------
+  // Procurement & Material Traceability — Phase 1
+  // Source: docs/procurement-material-traceability-spec.md §6
+  // -------------------------------------------------------------------
+
+  vendors: z.object({
+    name: z.string().min(1).max(200),
+    contact_name: z.string().max(120).optional(),
+    email: z.string().email().optional(),
+    phone: z.string().max(30).optional(),
+    address: z.string().max(400).optional(),
+    payment_terms: z.string().max(200).optional(),
+    status: z.enum(["active", "inactive", "blacklisted"]).default("active"),
+    preferred: z.boolean().default(false),
+    notes: z.string().max(2000).optional(),
+  }),
+
+  inbound_shipments: z.object({
+    po_id: uuid,
+    truck_number: z.string().max(60).optional(),
+    carrier: z.string().max(120).optional(),
+    bill_of_lading: z.string().max(120).optional(),
+    status: z.enum(["scheduled", "shipped", "in_transit", "arrived", "received"]).default("scheduled"),
+    scheduled_date: dateStr.optional(),
+    shipped_date: dateStr.optional(),
+    arrived_date: dateStr.optional(),
+  }),
+
+  // project_id is optional — a DB trigger (fn_receivings_before_insert)
+  // derives it from po_id when the caller omits it, so the Global Project
+  // Context can't be spoofed by a client-supplied mismatch. Same trigger
+  // computes qty_remaining_on_po/qty_backordered/qty_over_delivered
+  // server-side from the PO's qty_ordered, so they aren't client inputs.
+  receivings: z.object({
+    project_id: uuid.optional(),
+    po_id: uuid,
+    inbound_shipment_id: uuid.optional(),
+    vendor_id: uuid.optional(),
+    received_date: dateStr.optional(),
+    qty_received: numeric.positive(),
+    exceptions: z.string().max(2000).optional(),
+  }),
+
+  // project_id optional — derived from receiving_id by
+  // fn_bundles_set_project_id when omitted.
+  bundles: z.object({
+    project_id: uuid.optional(),
+    receiving_id: uuid,
+    quantity: numeric.positive(),
+    storage_location: z.string().max(120).optional(),
+  }),
+
+  // Direct writes to material_lots cover location/status corrections; the
+  // primary creation path is the fn_assign_heat_to_bundle RPC (see
+  // controllers/heatAssignment.ts), not this generic insert route.
+  material_lots: z.object({
+    bundle_id: uuid.optional(),
+    heat_number_id: uuid,
+    profile: z.string().min(1).max(80),
+    grade: z.string().min(1).max(40),
+    quantity: numeric.nonnegative(),
+    original_quantity: numeric.nonnegative(),
+    length: numeric.optional(),
+    location: z.string().max(120).optional(),
+    status: z.enum(["available", "reserved", "released", "consumed", "scrapped"]).optional(),
+  }),
+
+  mtr_documents: z.object({
+    heat_number_id: uuid,
+    file_attachment_id: uuid.optional(),
+    yield_strength: numeric.optional(),
+    tensile_strength: numeric.optional(),
+    chemistry: z.record(z.string(), z.number()).optional(),
+    mill_name: z.string().max(120).optional(),
+    ocr_status: z.enum(["pending", "extracted", "manual_review", "verified"]).optional(),
+    extracted_by: z.string().max(120).optional(),
+  }),
+
+  // Phase 2 — Sourcing Workflow (§15). Standalone quantity/grade/profile
+  // record, no linkage to `parts` (§15.1 D10).
+  material_requirements: z.object({
+    project_id: uuid,
+    profile: z.string().min(1).max(80),
+    // Structural member descriptor (e.g. "COLUMN", "CRANE_BEAM") — same role
+    // as parts.name. A primary classification field, not incidental notes.
+    name: z.string().max(120).optional(),
+    grade: z.string().max(40).optional(),
+    quantity: numeric.positive(),
+    // Free-form text (e.g. 26'-9 9/16") — stored verbatim, not parsed. Same
+    // reasoning as parts.length.
+    length: z.string().max(40).optional(),
+    weight: numeric.optional(),
+    required_date: dateStr.optional(),
+    status: z.enum(["open", "rfq_created", "awarded", "fulfilled", "cancelled"]).optional(),
+    notes: z.string().max(2000).optional(),
+  }),
+
+  // rfqs/vendor_quotes are insert-blocked (compound creation goes through
+  // controllers/rfq.ts's RPC-backed endpoints) — this schema only backs the
+  // generic UPDATE path (e.g. the "mark as sent" status flip).
+  rfqs: z.object({
+    delivery_requirement: z.string().max(500).optional(),
+    notes: z.string().max(2000).optional(),
+    status: z.enum(["draft", "sent", "quotes_received", "awarded", "cancelled"]).optional(),
+  }),
+
+  vendor_quotes: z.object({
+    status: z.enum(["pending", "submitted", "awarded", "rejected", "expired"]).optional(),
+    lead_time_days: intish.nonnegative().optional(),
+    freight_cost: numeric.nonnegative().optional(),
+    validity_date: dateStr.optional(),
     notes: z.string().max(2000).optional(),
   }),
 } as const;

@@ -28,6 +28,14 @@ import { getPublicPart } from "./controllers/publicPart.ts";
 import { resolveEPlanPiece, logEPlanPrint } from "./controllers/ePlan.ts";
 import { overrideSafetyGate, recordFieldBoltInspection, logErectionDelay } from "./controllers/erectionOps.ts";
 import { previewPoFromParts, createPoFromParts } from "./controllers/purchaseOrder.ts";
+import { assignHeatToBundle, recommendLots } from "./controllers/heatAssignment.ts";
+import { extractMtrDocument } from "./controllers/mtrExtraction.ts";
+import { reserveLot, releaseLotReservation } from "./controllers/lotReservation.ts";
+import { releaseInventoryReservation, fulfillMrFromStock } from "./controllers/inventoryReservation.ts";
+import { createRfq, createVendorQuote, awardVendorQuote, deleteVendorQuote } from "./controllers/rfq.ts";
+import { importMaterialRequirements } from "./controllers/materialRequirementImport.ts";
+import { issueMaterial, voidMaterialIssue, getPartTraceability } from "./controllers/materialIssue.ts";
+import { receiveWithHeatSplits } from "./controllers/receiveHeatSplit.ts";
 
 const TABLE_RE = /^\/api\/?([a-z_]+)(?:\/([0-9a-f-]{36}))?\/?$/i;
 
@@ -132,6 +140,44 @@ Deno.serve(async (req) => {
     if (path === "/purchase-orders/from-parts" && method === "POST") return createPoFromParts(ctx);
     const archMatch = path.match(/^\/archive-project\/([0-9a-f-]{36})$/i);
     if (archMatch && method === "POST") return archiveProject(ctx, archMatch[1]);
+
+    // Procurement & Material Traceability (declared before generic CRUD so
+    // these hyphenated sub-paths aren't misread as a table/id).
+    if (path === "/material-lots/recommend" && method === "GET") return recommendLots(ctx);
+    const assignHeatMatch = path.match(/^\/bundles\/([0-9a-f-]{36})\/assign-heat$/i);
+    if (assignHeatMatch && method === "POST") return assignHeatToBundle(ctx, assignHeatMatch[1]);
+    const extractMtrMatch = path.match(/^\/mtr-documents\/([0-9a-f-]{36})\/extract$/i);
+    if (extractMtrMatch && method === "POST") return extractMtrDocument(ctx, extractMtrMatch[1]);
+    const reserveLotMatch = path.match(/^\/material-lots\/([0-9a-f-]{36})\/reserve$/i);
+    if (reserveLotMatch && method === "POST") return reserveLot(ctx, reserveLotMatch[1]);
+    const releaseResMatch = path.match(/^\/lot-reservations\/([0-9a-f-]{36})\/release$/i);
+    if (releaseResMatch && method === "POST") return releaseLotReservation(ctx, releaseResMatch[1]);
+    const releaseInvResMatch = path.match(/^\/inventory-reservations\/([0-9a-f-]{36})\/release$/i);
+    if (releaseInvResMatch && method === "POST") return releaseInventoryReservation(ctx, releaseInvResMatch[1]);
+    // Fulfill a Material Requirement from existing bulk stock (no RFQ needed).
+    // Declared before generic CRUD so this path isn't parsed as /{table}/{id}.
+    if (path === "/inventory-reservations/fulfill-from-stock" && method === "POST") return fulfillMrFromStock(ctx);
+
+    // Sourcing Workflow (Phase 2, §15) — compound creates go through
+    // RPC-backed endpoints, not the generic /rfqs, /vendor_quotes POST route.
+    if (path === "/rfqs" && method === "POST") return createRfq(ctx);
+    if (path === "/vendor-quotes" && method === "POST") return createVendorQuote(ctx);
+    const delQuoteMatch = path.match(/^\/vendor-quotes\/([0-9a-f-]{36})$/i);
+    if (delQuoteMatch && method === "DELETE") return deleteVendorQuote(ctx, delQuoteMatch[1]);
+    const awardMatch = path.match(/^\/vendor-quotes\/([0-9a-f-]{36})\/award$/i);
+    if (awardMatch && method === "POST") return awardVendorQuote(ctx, awardMatch[1]);
+    if (path === "/material-requirements/import" && method === "POST") return importMaterialRequirements(ctx);
+
+    // Material Lifecycle E2E (Branch: feature/material-lifecycle-e2e)
+    // Issue material to a part (hard lock) and void a mis-issue
+    const issueMtlMatch = path.match(/^\/parts\/([0-9a-f-]{36})\/issue-material$/i);
+    if (issueMtlMatch && method === "POST") return issueMaterial(ctx, issueMtlMatch[1]);
+    const voidIssueMatch = path.match(/^\/material-issues\/([0-9a-f-]{36})\/void$/i);
+    if (voidIssueMatch && method === "POST") return voidMaterialIssue(ctx, voidIssueMatch[1]);
+    const traceMatch = path.match(/^\/parts\/([0-9a-f-]{36})\/traceability$/i);
+    if (traceMatch && method === "GET") return getPartTraceability(ctx, traceMatch[1]);
+    // Atomic receive + heat-split creation
+    if (path === "/receivings/with-heat-splits" && method === "POST") return receiveWithHeatSplits(ctx);
 
     // Files
     if (path === "/files/sign-upload" && method === "POST") return signUpload(ctx);

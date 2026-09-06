@@ -11,6 +11,7 @@ import { tableConfig, canRead, canInsert, canUpdate, canDelete } from "../lib/pe
 import { getInsertSchema, getUpdateSchema } from "../schemas/validation.ts";
 import { sanitize } from "../lib/sanitize.ts";
 import { writeAudit, writeActivity } from "../services/audit.ts";
+import { syncMaterialRequirements } from "./import.ts";
 
 // Hard cap on a single list response. Customers with bigger windows must
 // paginate (page / per_page). At ~200 KB per row × 200 rows we're under the
@@ -211,6 +212,15 @@ export async function create(ctx: Ctx, table: string): Promise<Response> {
     });
   }
 
+  // If a part was created, automatically sync Material Requirements for the project
+  if (table === "parts" && data.project_id) {
+    try {
+      await syncMaterialRequirements(ctx, data.project_id as string);
+    } catch (mrErr) {
+      console.error("Failed to sync MR on single part create:", mrErr);
+    }
+  }
+
   return ok(data);
 }
 
@@ -265,6 +275,17 @@ export async function update(ctx: Ctx, table: string, id: string): Promise<Respo
       entity_label: label ?? null,
     });
   }
+
+  // If a part was updated, sync Material Requirements for the project
+  const targetProjectId = (data.project_id || oldRow.project_id) as string | undefined;
+  if (table === "parts" && targetProjectId) {
+    try {
+      await syncMaterialRequirements(ctx, targetProjectId);
+    } catch (mrErr) {
+      console.error("Failed to sync MR on single part update:", mrErr);
+    }
+  }
+
   return ok(data);
 }
 
@@ -287,5 +308,15 @@ export async function remove(ctx: Ctx, table: string, id: string): Promise<Respo
       entity_id: id,
     });
   }
+
+  // If a part was deleted, sync Material Requirements for the project
+  if (table === "parts" && oldRow.project_id) {
+    try {
+      await syncMaterialRequirements(ctx, oldRow.project_id as string);
+    } catch (mrErr) {
+      console.error("Failed to sync MR on single part delete:", mrErr);
+    }
+  }
+
   return ok({ deleted: true, id });
 }

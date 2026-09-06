@@ -14,6 +14,7 @@
 // doesn't pay the ~500 KB pdf.js worker cost on first paint.
 
 import * as pdfjsLib from "pdfjs-dist";
+import { rowsFromMatrix } from "@/lib/sheet-import";
 
 // pdfjs needs a worker. We point it at the bundled worker that matches the
 // installed version so we don't have to ship a /public copy on every
@@ -143,4 +144,96 @@ export async function analysePdf(file: File, parts: PartLite[]): Promise<PdfMatc
       error: e instanceof Error ? e.message : "Failed to parse PDF",
     };
   }
+}
+
+// ===========================================================================
+// PDF table reconstruction — vendor quote letters carry their material/price
+// table as freely-positioned text (no structured table object in the PDF),
+// so pdf.js only gives us each word plus its (x, y) position. We rebuild a
+// grid from that: cluster words into lines by y, then cluster every line's
+// word x-positions *across the whole document* into a shared set of column
+// bins (rather than per-line) so the same visual column lands in the same
+// matrix index on every row — which is what rowsFromMatrix needs to treat
+// row 0 as a header and read the rest as records.
+// ===========================================================================
+
+interface PositionedItem { str: string; x: number; y: number; height: number; }
+
+async function extractPositionedItems(file: File): Promise<PositionedItem[][]> {
+  const buf = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: buf });
+  const pdf = await loadingTask.promise;
+  const pages: PositionedItem[][] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const items: PositionedItem[] = [];
+    for (const raw of content.items) {
+      if (!("str" in raw) || !raw.str.trim()) continue;
+      const item = raw as { str: string; transform: number[]; height: number };
+      items.push({ str: item.str, x: item.transform[4], y: item.transform[5], height: item.height || 10 });
+    }
+    pages.push(items);
+  }
+  return pages;
+}
+
+interface Row { y: number; items: PositionedItem[]; }
+
+function clusterRows(items: PositionedItem[]): Row[] {
+  const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
+  const rows: Row[] = [];
+  for (const item of sorted) {
+    const last = rows[rows.length - 1];
+    if (last && Math.abs(item.y - last.y) <= Math.max(item.height, 8) * 0.6) {
+      last.items.push(item);
+    } else {
+      rows.push({ y: item.y, items: [item] });
+    }
+  }
+  for (const row of rows) row.items.sort((a, b) => a.x - b.x);
+  return rows;
+}
+
+// Gap-based 1D clustering of every word's left edge across all rows, so a
+// column that's slightly ragged (currency symbols, varying digit counts)
+// still resolves to one bin instead of splintering into several.
+function clusterColumnCenters(rows: Row[], gapPt = 10): number[] {
+  const xs = rows.flatMap((r) => r.items.map((it) => it.x)).sort((a, b) => a - b);
+  const centers: number[] = [];
+  let cluster: number[] = [];
+  for (const x of xs) {
+    if (cluster.length > 0 && x - cluster[cluster.length - 1] > gapPt) {
+      centers.push(cluster.reduce((s, v) => s + v, 0) / cluster.length);
+      cluster = [];
+    }
+    cluster.push(x);
+  }
+  if (cluster.length > 0) centers.push(cluster.reduce((s, v) => s + v, 0) / cluster.length);
+  return centers;
+}
+
+function rowsToMatrix(rows: Row[], columnCenters: number[]): string[][] {
+  return rows.map((row) => {
+    const cells = new Array(columnCenters.length).fill("");
+    for (const item of row.items) {
+      let bestIdx = 0, bestDist = Infinity;
+      for (let i = 0; i < columnCenters.length; i++) {
+        const d = Math.abs(item.x - columnCenters[i]);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+      }
+      cells[bestIdx] = cells[bestIdx] ? `${cells[bestIdx]} ${item.str}` : item.str;
+    }
+    return cells.map((c) => c.trim());
+  });
+}
+
+/** Reconstructs a table (as CSV/XLSX-style header-keyed rows) from a PDF's positioned text — for vendor quote letters that lay material/price data out in columns without an extractable structured table. */
+export async function parsePdfTableRows(file: File): Promise<Record<string, string>[]> {
+  const pages = await extractPositionedItems(file);
+  const rows = pages.flatMap((items) => clusterRows(items));
+  if (rows.length === 0) return [];
+  const columnCenters = clusterColumnCenters(rows);
+  const matrix = rowsToMatrix(rows, columnCenters);
+  return rowsFromMatrix(matrix);
 }

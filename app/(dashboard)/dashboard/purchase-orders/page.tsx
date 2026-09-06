@@ -1,20 +1,24 @@
 "use client";
 
 import { useState, useRef, useCallback, useMemo } from "react";
+import Link from "next/link";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ResourceModal, Field } from "@/components/ui/ResourceModal";
-import { useResourceList, useCreate } from "@/hooks/useResource";
-import { Plus, Upload, FileSpreadsheet, X, ChevronLeft, ChevronRight, Download, Trash2, Eye, Search, ArrowUpDown } from "lucide-react";
+import { useResourceList, useCreate, useUpdate } from "@/hooks/useResource";
+import { Plus, Upload, FileSpreadsheet, X, ChevronLeft, ChevronRight, Download, Trash2, Eye, Search, ArrowUpDown, Send, Loader2 } from "lucide-react";
 import * as XLSX from "xlsx";
 
+interface PoItem { profile?: string; grade?: string | null; qty?: number; unit_price?: number; }
 interface PO {
   id: string; po_number: string; vendor: string; total_amount: number;
   status: string; issued_date: string | null; expected_date: string | null;
   qty_ordered: number | null; qty_received: number; project_id: string | null;
+  rfq_id: string | null; items?: PoItem[] | null; notes?: string | null;
 }
 interface Project { id: string; name: string; }
+interface RfqRef { id: string; rfq_number: string; }
 
 const STATUSES = ["draft", "issued", "partial", "received", "closed"];
 
@@ -35,8 +39,13 @@ interface ParsedWorkbook {
 export default function PurchaseOrdersPage() {
   const list = useResourceList<PO>("purchase_orders", { order_by: "created_at", dir: "desc" });
   const projects = useResourceList<Project>("projects", { limit: "100" });
+  // Only fetched to resolve the "via RFQ-xxxx" badge (§15.15) — most POs have
+  // no rfq_id and this stays empty/unused for them.
+  const rfqs = useResourceList<RfqRef>("rfqs", { limit: "500" });
+  const rfqLookup = new Map((rfqs.data ?? []).map((r) => [r.id, r.rfq_number]));
   const create = useCreate<PO>("purchase_orders");
   const [showNew, setShowNew] = useState(false);
+  const [detailPo, setDetailPo] = useState<PO | null>(null);
 
   /* ── Excel viewer state ─────────────────────────────────────────────── */
   const [workbooks, setWorkbooks] = useState<ParsedWorkbook[]>([]);
@@ -189,7 +198,18 @@ export default function PurchaseOrdersPage() {
 
   /* ── PO table columns ───────────────────────────────────────────────── */
   const cols: Column<PO>[] = [
-    { key: "num", label: "PO #", mono: true, render: (r) => <strong>{r.po_number}</strong> },
+    {
+      key: "num", label: "PO #", mono: true, render: (r) => (
+        <span className="flex items-center gap-1.5">
+          <strong>{r.po_number}</strong>
+          {r.rfq_id && rfqLookup.has(r.rfq_id) && (
+            <Link href={`/dashboard/rfqs/${r.rfq_id}`} className="pill" style={{ padding: "1px 6px", fontSize: 10 }} onClick={(e) => e.stopPropagation()}>
+              via {rfqLookup.get(r.rfq_id)}
+            </Link>
+          )}
+        </span>
+      ),
+    },
     { key: "vendor", label: "Vendor", render: (r) => r.vendor },
     { key: "amount", label: "Amount", align: "right", mono: true, render: (r) => `$${Number(r.total_amount).toLocaleString()}` },
     { key: "issued", label: "Issued", render: (r) => r.issued_date ? new Date(r.issued_date).toLocaleDateString() : "—" },
@@ -477,7 +497,9 @@ export default function PurchaseOrdersPage() {
 
       {/* ── Existing PO Table ──────────────────────────────────────────── */}
       <DataTable data={list.data} columns={cols} loading={list.isLoading} error={list.error}
-        empty={{ title: "No purchase orders yet" }} rowKey={(r) => r.id} />
+        empty={{ title: "No purchase orders yet" }} rowKey={(r) => r.id}
+        onRowClick={(r) => setDetailPo(r)}
+      />
 
       {showNew && (
         <NewModal projects={projects.data ?? []} onClose={() => setShowNew(false)}
@@ -485,6 +507,8 @@ export default function PurchaseOrdersPage() {
           submitting={create.isPending} error={create.error?.message ?? null}
         />
       )}
+
+      {detailPo && <PoDetailModal po={detailPo} onClose={() => setDetailPo(null)} />}
     </PageWrapper>
   );
 }
@@ -540,5 +564,106 @@ function NewModal({ projects, onClose, onSubmit, submitting, error }: {
         <textarea className="input" rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} style={{ height: "auto", padding: "8px 12px", resize: "vertical" }} />
       </Field>
     </ResourceModal>
+  );
+}
+
+// Review-before-issue is the missing step for a "draft" PO (spec D3 deliberately
+// keeps po_status to draft/issued/partial/received/closed — no separate
+// approval states — so "review & approve" here just means: look at what's
+// about to be ordered, then move it from draft to issued). Once issued, the
+// Receiving page (app/(dashboard)/dashboard/receiving/page.tsx) owns the rest
+// of the lifecycle (partial/received), so this modal doesn't touch those.
+function PoDetailModal({ po, onClose }: { po: PO; onClose: () => void }) {
+  const updatePo = useUpdate<PO>("purchase_orders");
+  const items = Array.isArray(po.items) ? po.items : [];
+
+  function issue() {
+    updatePo.mutate(
+      { id: po.id, body: { status: "issued", issued_date: po.issued_date ?? new Date().toISOString().slice(0, 10) } },
+      { onSuccess: onClose },
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.5)" }} onClick={onClose}>
+      <div className="card" style={{ width: 640, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div className="card-header" style={{ position: "sticky", top: 0, zIndex: 5, background: "var(--bg-card)" }}>
+          <div>
+            <div className="card-title flex items-center gap-2">
+              <span className="font-mono">{po.po_number}</span>
+              <StatusPill status={po.status} />
+            </div>
+            <div className="card-sub">{po.vendor}</div>
+          </div>
+          <button type="button" onClick={onClose} className="btn btn-sm" style={{ padding: 6, height: 28, width: 28, justifyContent: "center" }}>
+            <X size={14} />
+          </button>
+        </div>
+        <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {po.status === "draft" && (
+            <div className="p-3 rounded-lg border flex items-center gap-3" style={{ background: "rgba(217,119,6,0.08)", borderColor: "rgba(217,119,6,0.3)" }}>
+              <span className="text-[12px]" style={{ color: "var(--text)", flex: 1 }}>
+                This PO hasn&apos;t been reviewed or sent to the vendor yet. Issuing it locks in the order and makes it visible on Receiving.
+              </span>
+              <button className="btn btn-sm btn-primary" disabled={updatePo.isPending} onClick={issue}>
+                {updatePo.isPending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                Issue PO
+              </button>
+            </div>
+          )}
+          {updatePo.error && <div className="pill pill-red" style={{ padding: "8px 12px", fontSize: 12 }}>{updatePo.error.message}</div>}
+
+          <div className="grid-3" style={{ gap: 10 }}>
+            <div className="info-cell">
+              <div className="text-[11px]" style={{ color: "var(--muted)" }}>Amount</div>
+              <div className="text-[13px] font-mono">${Number(po.total_amount).toLocaleString()}</div>
+            </div>
+            <div className="info-cell">
+              <div className="text-[11px]" style={{ color: "var(--muted)" }}>Qty (rcv/ord)</div>
+              <div className="text-[13px] font-mono">{po.qty_received ?? 0} / {po.qty_ordered ?? 0}</div>
+            </div>
+            <div className="info-cell">
+              <div className="text-[11px]" style={{ color: "var(--muted)" }}>Expected</div>
+              <div className="text-[13px]">{po.expected_date ? new Date(po.expected_date).toLocaleDateString() : "—"}</div>
+            </div>
+          </div>
+
+          {items.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase font-semibold tracking-wider mb-1.5" style={{ color: "var(--muted)" }}>Items</div>
+              <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+                <table className="w-full text-[12px]" style={{ borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                      <th className="text-left p-2">Profile</th>
+                      <th className="text-left p-2">Grade</th>
+                      <th className="text-right p-2">Qty</th>
+                      <th className="text-right p-2">Unit price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((it, i) => (
+                      <tr key={i} style={{ borderBottom: i < items.length - 1 ? "1px solid var(--border)" : undefined }}>
+                        <td className="p-2">{it.profile ?? "—"}</td>
+                        <td className="p-2">{it.grade ?? "—"}</td>
+                        <td className="text-right p-2 font-mono">{it.qty ?? "—"}</td>
+                        <td className="text-right p-2 font-mono">{it.unit_price != null ? `$${Number(it.unit_price).toFixed(2)}` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {po.notes && (
+            <div>
+              <div className="text-[11px] uppercase font-semibold tracking-wider mb-1.5" style={{ color: "var(--muted)" }}>Notes</div>
+              <div className="text-[12px]" style={{ color: "var(--text)" }}>{po.notes}</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

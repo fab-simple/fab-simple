@@ -238,13 +238,21 @@ export interface BulkUpdateResult {
   patch_applied: Record<string, unknown>;
 }
 
-/** One aggregated material line on a PO built from parts (profile + grade). */
+/**
+ * One aggregated material line on a PO built from parts (profile + grade).
+ * `unit_price`/`project_id`/`material_requirement_id` are additive fields
+ * populated only for POs created via the Sourcing Workflow award path
+ * (fn_award_vendor_quote) — every other PO simply omits them.
+ */
 export interface PoLineItem {
   profile: string;
   grade: string | null;
   qty: number;
   piece_count: number;
   total_weight_lb: number;
+  unit_price?: number;
+  project_id?: string | null;
+  material_requirement_id?: string | null;
 }
 
 /** Read-only preview of the PO that would be created from a project's not_started parts. */
@@ -273,6 +281,218 @@ export interface CreatePoFromPartsResult {
     total_pieces: number;
     total_weight_lb: number;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Procurement & Material Traceability — Phase 1
+// ---------------------------------------------------------------------------
+
+export interface MaterialLot {
+  id: string;
+  company_id: string;
+  bundle_id: string | null;
+  heat_number_id: string;
+  lot_number: string;
+  profile: string;
+  grade: string;
+  quantity: number;
+  original_quantity: number;
+  length: number | null;
+  location: string | null;
+  status: "available" | "reserved" | "released" | "consumed" | "scrapped";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssignHeatBody {
+  heat_number_id: string;
+  profile: string;
+  grade: string;
+  length?: number;
+  location?: string;
+}
+
+export interface AssignHeatResult {
+  material_lot: MaterialLot;
+}
+
+// A project's partial, releasable claim against a lot — never ownership.
+// See docs/procurement-material-traceability-spec.md §16.
+export interface LotReservation {
+  id: string;
+  company_id: string;
+  material_lot_id: string;
+  project_id: string;
+  quantity: number;
+  status: "active" | "released" | "consumed";
+  reserved_by: string | null;
+  reserved_at: string;
+  released_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReserveLotBody {
+  project_id: string;
+  quantity: number;
+  notes?: string;
+}
+
+export interface ReserveLotResult {
+  reservation: LotReservation;
+}
+
+export interface ReleaseReservationResult {
+  reservation: LotReservation;
+}
+
+export interface ExtractedMtrFields {
+  heat_number: string | null;
+  yield_strength: number | null;
+  tensile_strength: number | null;
+  chemistry: Record<string, number> | null;
+  mill_name: string | null;
+}
+
+export interface ExtractMtrResult {
+  mtr_document: Record<string, unknown> & { id: string; ocr_status: string };
+  extracted: ExtractedMtrFields;
+}
+
+// ---------------------------------------------------------------------------
+// Procurement — Sourcing Workflow (Phase 2)
+// ---------------------------------------------------------------------------
+
+export interface MaterialRequirement {
+  id: string;
+  company_id: string;
+  project_id: string;
+  mr_number: string;
+  profile: string;
+  // Structural member descriptor (e.g. "COLUMN", "CRANE_BEAM") — same role
+  // as parts.name. A primary classification field, not incidental notes.
+  name: string | null;
+  grade: string | null;
+  quantity: number;
+  // Free-form text, not numeric — KISS/EJE/Tekla/SDS2-style sheets export
+  // length in mixed feet-inches-fraction formats (e.g. 26'-9 9/16"), stored
+  // verbatim rather than parsed/converted. Same reasoning as parts.length.
+  length: string | null;
+  weight: number | null;
+  required_date: string | null;
+  status: "open" | "rfq_created" | "awarded" | "fulfilled" | "cancelled";
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Deliberately no project_id — an RFQ can bundle Material Requirements from
+// several projects at once (spec §15.1 D14). Project attribution lives on
+// each RfqLine via its source MR.
+export interface Rfq {
+  id: string;
+  company_id: string;
+  rfq_number: string;
+  status: "draft" | "sent" | "quotes_received" | "awarded" | "cancelled";
+  delivery_requirement: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RfqLine {
+  id: string;
+  company_id: string;
+  rfq_id: string;
+  material_requirement_id: string;
+  quantity: number;
+  created_at: string;
+}
+
+export interface RfqVendor {
+  id: string;
+  company_id: string;
+  rfq_id: string;
+  vendor_id: string;
+  created_at: string;
+}
+
+export interface VendorQuote {
+  id: string;
+  company_id: string;
+  rfq_id: string;
+  vendor_id: string;
+  status: "pending" | "submitted" | "awarded" | "rejected" | "expired";
+  lead_time_days: number | null;
+  freight_cost: number | null;
+  validity_date: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VendorQuoteLine {
+  id: string;
+  company_id: string;
+  vendor_quote_id: string;
+  rfq_line_id: string;
+  unit_price: number;
+  mill_name: string | null;
+  rolling_schedule: string | null;
+  created_at: string;
+}
+
+export interface CreateRfqBody {
+  delivery_requirement?: string;
+  notes?: string;
+  lines: Array<{ material_requirement_id: string; quantity: number }>;
+  vendor_ids: string[];
+}
+
+export interface CreateRfqResult {
+  rfq: Rfq;
+}
+
+export interface CreateVendorQuoteBody {
+  rfq_id: string;
+  vendor_id: string;
+  lead_time_days?: number;
+  freight_cost?: number;
+  validity_date?: string;
+  notes?: string;
+  lines: Array<{ rfq_line_id: string; unit_price: number; mill_name?: string; rolling_schedule?: string }>;
+}
+
+export interface CreateVendorQuoteResult {
+  vendor_quote: VendorQuote;
+}
+
+export interface AwardVendorQuoteResult {
+  purchase_order: Record<string, unknown> & { id: string; po_number: string };
+}
+
+export interface ImportMaterialRequirementsRow {
+  profile: string;
+  name?: string;
+  grade?: string;
+  quantity: number;
+  length?: string;
+  notes?: string;
+}
+
+export interface ImportMaterialRequirementsBody {
+  project_id: string;
+  rows: ImportMaterialRequirementsRow[];
+}
+
+export interface ImportMaterialRequirementsResult {
+  summary: { inserted: number; errors: number };
+  inserted: MaterialRequirement[];
+  errors: Array<{ row: number; reason: string }>;
 }
 
 export const FabAPI = {
@@ -420,6 +640,135 @@ export const FabAPI = {
    */
   createPoFromParts(body: CreatePoFromPartsBody) {
     return call<CreatePoFromPartsResult>("/purchase-orders/from-parts", "POST", { body });
+  },
+
+  /**
+   * Assign a heat number to a bundle. Creates the material_lot server-side
+   * (bundle -> heat -> lot, one atomic RPC) and returns it.
+   */
+  assignHeatToBundle(bundleId: string, body: AssignHeatBody) {
+    return call<AssignHeatResult>(`/bundles/${bundleId}/assign-heat`, "POST", { body });
+  },
+  /**
+   * Best available lots for a profile/grade, closest-length-first then
+   * oldest. Read-only — safe to call as a picker opens. Company-wide —
+   * material lots have no project of their own (§16).
+   */
+  recommendLots(query: { profile: string; grade: string; min_length?: number }) {
+    return call<MaterialLot[]>("/material-lots/recommend", "GET", { query });
+  },
+  /**
+   * Claim a quantity of a lot for a project. Partial and releasable — never
+   * removes the material from the shared company-wide pool, just marks some
+   * of it spoken-for. Fails with 409 if the requested quantity exceeds what's
+   * currently unreserved on the lot.
+   */
+  reserveLot(lotId: string, body: ReserveLotBody) {
+    return call<ReserveLotResult>(`/material-lots/${lotId}/reserve`, "POST", { body });
+  },
+  /** Release a reservation, returning its quantity to the shared pool. */
+  releaseLotReservation(reservationId: string) {
+    return call<ReleaseReservationResult>(`/lot-reservations/${reservationId}/release`, "POST");
+  },
+  /**
+   * Manually release an active bulk-inventory reservation back to the
+   * available pool. Normally auto-released when the RFQ is awarded or
+   * cancelled — use this only for exceptional manual overrides.
+   */
+  releaseInventoryReservation(reservationId: string) {
+    return call<{ reservation: InventoryReservation }>(`/inventory-reservations/${reservationId}/release`, "POST");
+  },
+  /**
+   * Mark a Material Requirement as fulfilled from existing bulk inventory stock
+   * without raising an RFQ. Calls the dedicated endpoint which:
+   *   1. Verifies available stock is ≥ requested quantity (409 if not)
+   *   2. Writes the inventory_reservation via service-role (same as fn_create_rfq)
+   *   3. Updates the MR status to "fulfilled"
+   *
+   * Do NOT use the generic POST /inventory_reservations — that is intentionally
+   * blocked (insertable: [] in permissions.ts) because it skips the availability
+   * check and RLS requires the reservation to come through an RPC or this endpoint.
+   */
+  fulfillMrFromStock(body: {
+    material_requirement_id: string;
+    inventory_id: string;
+    quantity: number;
+    project_id: string;
+  }) {
+    return call<{ reservation: InventoryReservation }>("/inventory-reservations/fulfill-from-stock", "POST", { body });
+  },
+  /**
+   * Trigger OCR extraction on an MTR document that already has a file
+   * attached. Advisory only — never sets ocr_status to 'verified'; a QC
+   * user must review and verify separately.
+   */
+  extractMtrDocument(id: string) {
+    return call<ExtractMtrResult>(`/mtr-documents/${id}/extract`, "POST");
+  },
+
+  /**
+   * Compound create: RFQ header + rfq_lines (from selected Material
+   * Requirements, possibly cross-project) + rfq_vendors (selected vendors)
+   * in one atomic call.
+   */
+  createRfq(body: CreateRfqBody) {
+    return call<CreateRfqResult>("/rfqs", "POST", { body });
+  },
+  /** Compound create: vendor quote header + its per-line pricing. */
+  createVendorQuote(body: CreateVendorQuoteBody) {
+    return call<CreateVendorQuoteResult>("/vendor-quotes", "POST", { body });
+  },
+  /**
+   * Award a vendor quote — rejects sibling quotes on the same RFQ, marks the
+   * RFQ/Material Requirements awarded, and auto-creates a fully pre-filled
+   * draft PO from the winning quote's lines.
+   */
+  awardVendorQuote(id: string) {
+    return call<AwardVendorQuoteResult>(`/vendor-quotes/${id}/award`, "POST");
+  },
+  /**
+   * Bulk-import Material Requirements from a KISS/EJE/Tekla/SDS2-style sheet.
+   * Rows are already parsed, column-mapped, and aggregated by
+   * (profile, grade, length) client-side — the server just validates and
+   * inserts, auto-generating an mr_number for each.
+   */
+  importMaterialRequirements(body: ImportMaterialRequirementsBody) {
+    return call<ImportMaterialRequirementsResult>("/material-requirements/import", "POST", { body });
+  },
+
+  // ─── Material Lifecycle E2E ───────────────────────────────────────────────
+  /**
+   * Issue (hard-lock) a specific material lot against a part.
+   * Atomically: creates a material_issues row, decrements lot.quantity,
+   * and transitions the matching lot_reservation to 'consumed'.
+   * Fails with 409 if the lot is quarantined or insufficient quantity.
+   */
+  issueMaterial(partId: string, body: IssueMaterialBody) {
+    return call<IssueMaterialResult>(`/parts/${partId}/issue-material`, "POST", { body });
+  },
+  /**
+   * Void a mis-issue. Sets voided=true + void_reason on the material_issues row,
+   * returns the quantity to the lot, and resets the part's material_lot_id.
+   * Only owner/pm may void.
+   */
+  voidMaterialIssue(issueId: string, body: VoidMaterialIssueBody) {
+    return call<VoidMaterialIssueResult>(`/material-issues/${issueId}/void`, "POST", { body });
+  },
+  /**
+   * Full reverse traceability chain for a part: part → material_issue →
+   * lot → heat → bundle → receiving → PO → vendor → mill cert.
+   * Backed by v_part_traceability view.
+   */
+  getPartTraceability(partId: string) {
+    return call<PartTraceabilityResult>(`/parts/${partId}/traceability`, "GET");
+  },
+  /**
+   * Atomic receive + heat-split creation. Creates the receivings row AND
+   * one bundle+lot per heat split in a single DB transaction.
+   * Zero splits → same as POST /receivings (no lots created inline).
+   */
+  receiveWithHeatSplits(body: ReceiveWithSplitsBody) {
+    return call<ReceiveWithSplitsResult>("/receivings/with-heat-splits", "POST", { body });
   },
 
   // Specials
@@ -570,4 +919,135 @@ export interface DashboardData {
   open_rfis: Array<{ id: string; rfi_number: string; question: string; status: string }>;
   recent_parts: Array<{ id: string; part_mark: string; profile: string; status: string; project_id: string | null; project_name: string | null }>;
   production_by_day: Array<{ date: string; parts_completed: number }>;
+}
+
+// ─── Material Lifecycle E2E — Types ─────────────────────────────────────────
+
+export interface MaterialIssue {
+  id: string;
+  company_id: string;
+  material_lot_id: string;
+  part_id: string;
+  heat_number: string;
+  quantity: number;
+  issued_by: string | null;
+  issued_at: string;
+  voided: boolean;
+  void_reason: string | null;
+  voided_by: string | null;
+  voided_at: string | null;
+  created_at: string;
+}
+
+export interface IssueMaterialBody {
+  lot_id: string;
+  quantity: number;
+  notes?: string;
+}
+
+export interface IssueMaterialResult {
+  issue: MaterialIssue;
+  lot_number: string;
+  heat_number: string;
+}
+
+export interface VoidMaterialIssueBody {
+  void_reason: string;
+}
+
+export interface VoidMaterialIssueResult {
+  issue: MaterialIssue;
+}
+
+export interface HeatSplit {
+  heat_number_id: string;
+  profile: string;
+  grade: string;
+  quantity: number;
+  length?: number;
+  location?: string;
+}
+
+export interface ReceiveWithSplitsBody {
+  po_id: string;
+  shipment_id?: string;
+  qty_received: number;
+  exceptions?: string;
+  splits: HeatSplit[];
+}
+
+export interface ReceiveWithSplitsResult {
+  receiving: Record<string, unknown>;
+  lots_created: Array<{
+    id: string;
+    lot_number: string;
+    profile: string;
+    grade: string;
+    quantity: number;
+    location: string | null;
+    status: string;
+    heat_number_id: string;
+  }>;
+  splits_count: number;
+}
+
+/** One row from v_part_traceability */
+export interface TraceabilityChainRow {
+  part_id: string;
+  part_mark: string | null;
+  part_name: string | null;
+  profile: string | null;
+  project_id: string;
+  project_name: string;
+  project_number: string;
+  issue_id: string;
+  heat_number: string;
+  qty_consumed: number;
+  issued_at: string;
+  voided: boolean;
+  lot_id: string;
+  lot_number: string;
+  lot_profile: string;
+  lot_grade: string | null;
+  bin_location: string | null;
+  heat_number_id: string;
+  heat_availability_status: string;
+  mtr_status: string;
+  bundle_id: string | null;
+  bundle_number: string | null;
+  receiving_id: string | null;
+  receiving_number: string | null;
+  received_date: string | null;
+  po_id: string | null;
+  po_number: string | null;
+  vendor_id: string | null;
+  vendor_name: string | null;
+  mtr_doc_id: string | null;
+  mill_name: string | null;
+  mtr_ocr_status: string | null;
+  mill_cert_url: string | null;
+}
+
+export interface PartTraceabilityResult {
+  part_id: string;
+  chain: TraceabilityChainRow[];
+}
+
+// ─── Bulk Inventory Reservation — Types ────────────────────────────────────
+
+export interface InventoryReservation {
+  id: string;
+  company_id: string;
+  inventory_id: string;
+  rfq_id: string | null;
+  project_id: string | null;
+  quantity: number;
+  /** 'active' | 'released' | 'consumed' */
+  status: string;
+  reserved_by: string | null;
+  reserved_at: string;
+  released_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
 }

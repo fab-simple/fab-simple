@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/Toast";
 import { PageWrapper } from "@/components/ui/PageWrapper";
 import { useResourceList } from "@/hooks/useResource";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI, uploadFile } from "@/lib/api";
+import Link from "next/link";
 import {
   Upload, FileText, Loader2, CheckCircle2, AlertCircle, Info,
   FileSpreadsheet, Files, X, Sparkles, Database, Link2, ChevronRight,
+  PackageCheck,
 } from "lucide-react";
 import type { PartLite, PdfMatchResult } from "@/lib/pdf-parse";
 import {
@@ -116,13 +120,23 @@ function TabSwitcher({ value, onChange }: { value: TabId; onChange: (v: TabId) =
 // ===========================================================================
 
 interface ImportResult {
-  summary: { inserted: number; updated: number; skipped: number; errors: number; units: string };
+  summary: {
+    inserted: number;
+    updated: number;
+    skipped: number;
+    errors: number;
+    units: string;
+    mr_created?: number;
+    mr_updated?: number;
+  };
   skipped: Array<{ row: number; part_mark?: string; reason: string }>;
   errors: Array<{ row: number; reason: string }>;
   mapping?: { matched_fields: string[]; unmapped_headers: string[] };
 }
 
 function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultProjectId: string }) {
+  const router = useRouter();
+  const { toast } = useToast();
   const [projectId, setProjectId] = useState<string>(defaultProjectId);
   const [file, setFile] = useState<File | null>(null);
   const [units, setUnits] = useState<"auto" | "imperial" | "metric">("auto");
@@ -184,7 +198,20 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
         return out;
       });
       const res = await FabAPI.importCsv({ project_id: projectId, rows: mappedRows, units });
-      setResult(res as ImportResult);
+      const r = res as ImportResult;
+      setResult(r);
+      // Toast + redirect on success
+      const { inserted, updated } = r.summary;
+      const parts = inserted + updated;
+      toast(
+        parts > 0
+          ? `✓ Import complete — ${inserted} part${inserted === 1 ? "" : "s"} added${updated > 0 ? `, ${updated} updated` : ""}`
+          : "Import complete — no new parts were added.",
+        parts > 0 ? "success" : "info",
+      );
+      if (parts > 0) {
+        setTimeout(() => router.push("/dashboard/parts"), 1500);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
     } finally {
@@ -399,10 +426,38 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
           <div className="card-body">
             <div className="grid-4" style={{ gap: 12, marginBottom: 16 }}>
               <Tally label="Inserted" value={result.summary.inserted} icon={<CheckCircle2 size={14} style={{ color: "#16A34A" }} />} />
-              <Tally label="Updated"  value={result.summary.updated}  icon={<Info size={14} style={{ color: "#2563EB" }} />} />
-              <Tally label="Skipped"  value={result.summary.skipped}  icon={<AlertCircle size={14} style={{ color: "#D97706" }} />} />
-              <Tally label="Errors"   value={result.summary.errors}   icon={<AlertCircle size={14} style={{ color: "#DC2626" }} />} />
+              <Tally label="Updated" value={result.summary.updated} icon={<Info size={14} style={{ color: "#2563EB" }} />} />
+              <Tally label="Skipped" value={result.summary.skipped} icon={<AlertCircle size={14} style={{ color: "#D97706" }} />} />
+              <Tally label="Errors" value={result.summary.errors} icon={<AlertCircle size={14} style={{ color: "#DC2626" }} />} />
             </div>
+
+            {((result.summary.mr_created ?? 0) > 0 || (result.summary.mr_updated ?? 0) > 0) && (
+              <div
+                className="flex items-center justify-between gap-3 p-3 rounded-lg border mb-4 text-[12.5px]"
+                style={{
+                  background: "rgba(79,70,229,0.06)",
+                  borderColor: "rgba(79,70,229,0.25)",
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <PackageCheck size={16} style={{ color: "var(--primary)", flexShrink: 0 }} />
+                  <span>
+                    Material Requirements automatically synced:{" "}
+                    <strong>{result.summary.mr_created ?? 0} created</strong>
+                    {(result.summary.mr_updated ?? 0) > 0 && (
+                      <span>, <strong>{result.summary.mr_updated} updated</strong></span>
+                    )}
+                    .
+                  </span>
+                </div>
+                <Link
+                  href="/dashboard/material-requirements"
+                  className="btn btn-sm btn-primary flex items-center gap-1 text-[11px]"
+                >
+                  View Requirements
+                </Link>
+              </div>
+            )}
             {result.mapping && (result.mapping.matched_fields.length > 0 || result.mapping.unmapped_headers.length > 0) && (
               <div style={{
                 background: "var(--bg-muted)", borderRadius: 6, padding: "10px 12px",
@@ -489,9 +544,9 @@ function Tally({ label, value, icon }: { label: string; value: number; icon: Rea
 
 type Classification = "shop" | "ga" | "part_sheets";
 const CLASSIFICATIONS: { id: Classification; label: string; hint: string }[] = [
-  { id: "ga",          label: "E-Plans (GA)",   hint: "Erection plans / general arrangement layouts" },
-  { id: "shop",        label: "Shop Drawings",  hint: "Per-assembly fabrication drawings" },
-  { id: "part_sheets", label: "Part Sheets",    hint: "Single-part cut sheets / CNC programs" },
+  { id: "ga", label: "E-Plans (GA)", hint: "Erection plans / general arrangement layouts" },
+  { id: "shop", label: "Shop Drawings", hint: "Per-assembly fabrication drawings" },
+  { id: "part_sheets", label: "Part Sheets", hint: "Single-part cut sheets / CNC programs" },
 ];
 
 interface PdfRow extends PdfMatchResult {
@@ -535,7 +590,7 @@ function PdfPackageTab({ projects, defaultProjectId }: { projects: Project[]; de
       // Page through every part in the project — no cap. Terminates when the
       // server reports no more rows (has_more:false) or hands back an empty
       // page, so the loop is still bounded by the actual row count.
-      for (;;) {
+      for (; ;) {
         const res = await FabAPI.listPaged<PartLite>("parts", {
           project_id: projectId,
           per_page: PER_PAGE,
@@ -718,7 +773,7 @@ function PdfPackageTab({ projects, defaultProjectId }: { projects: Project[]; de
   }
 
   const totalReady = rows.filter((r) => r.status === "ready").length;
-  const totalDone  = rows.filter((r) => r.status === "done").length;
+  const totalDone = rows.filter((r) => r.status === "done").length;
   const totalLinks = rows.reduce((n, r) => n + (r.uploadedTo ?? 0), 0);
 
   return (
@@ -1050,11 +1105,11 @@ function PdfRowList({
 
 function PdfStatusPill({ row }: { row: PdfRow }) {
   const map = {
-    ready:     { bg: "rgba(79,70,229,0.10)", color: "var(--primary)", label: "Ready" },
-    analysing: { bg: "var(--bg-muted)",      color: "var(--muted)",   label: "Scanning…" },
+    ready: { bg: "rgba(79,70,229,0.10)", color: "var(--primary)", label: "Ready" },
+    analysing: { bg: "var(--bg-muted)", color: "var(--muted)", label: "Scanning…" },
     uploading: { bg: "rgba(79,70,229,0.10)", color: "var(--primary)", label: "Uploading…" },
-    done:      { bg: "#DCFCE7",              color: "#166534",        label: "Synced" },
-    error:     { bg: "#FEE2E2",              color: "#991B1B",        label: "Error" },
+    done: { bg: "#DCFCE7", color: "#166534", label: "Synced" },
+    error: { bg: "#FEE2E2", color: "#991B1B", label: "Error" },
   } as const;
   const s = map[row.status];
   return (

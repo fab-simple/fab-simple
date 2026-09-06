@@ -72,6 +72,23 @@ export function statusToClass(status: string): string {
     "under_review": "pill-warn",
     "withdrawn": "pill-danger",
     "awarded_setup": "pill-warn",
+    "awarded": "pill-awarded",
+    // Procurement & Material Traceability — Phase 1
+    Available: "pill-done",
+    Verified: "pill-done",
+    Extracted: "pill-warn",
+    Consumed: "pill-teal",
+    Scrapped: "pill-danger",
+    Confirmed: "pill-done",
+    Delayed: "pill-warn",
+    Rejected: "pill-danger",
+    In_transit: "pill-blue",
+    Arrived: "pill-teal",
+    Blacklisted: "pill-danger",
+    Inactive: "pill-ns",
+    Preferred: "pill-done",
+    Assigned: "pill-done",
+    Reserved: "pill-blue",
   };
   return map[status] || map[status.toLowerCase()] || map[status.charAt(0).toUpperCase() + status.slice(1).toLowerCase()] || "pill-ns";
 }

@@ -10,6 +10,28 @@ import {
   type PoFromPartsPreview,
   type CreatePoFromPartsBody,
   type CreatePoFromPartsResult,
+  type MaterialLot,
+  type AssignHeatBody,
+  type AssignHeatResult,
+  type ExtractMtrResult,
+  type ReserveLotBody,
+  type ReserveLotResult,
+  type ReleaseReservationResult,
+  type CreateRfqBody,
+  type CreateRfqResult,
+  type CreateVendorQuoteBody,
+  type CreateVendorQuoteResult,
+  type AwardVendorQuoteResult,
+  type ImportMaterialRequirementsBody,
+  type ImportMaterialRequirementsResult,
+  type IssueMaterialBody,
+  type IssueMaterialResult,
+  type VoidMaterialIssueBody,
+  type VoidMaterialIssueResult,
+  type ReceiveWithSplitsBody,
+  type ReceiveWithSplitsResult,
+  type PartTraceabilityResult,
+  type InventoryReservation,
 } from "@/lib/api";
 
 export const FAB_MODE = process.env.NEXT_PUBLIC_FAB_MODE ?? "demo";
@@ -169,6 +191,9 @@ export function useCreate<T = unknown>(table: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [table] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      if (table === "parts") {
+        qc.invalidateQueries({ queryKey: ["material_requirements"] });
+      }
     },
   });
 }
@@ -180,6 +205,9 @@ export function useUpdate<T = unknown>(table: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [table] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      if (table === "parts") {
+        qc.invalidateQueries({ queryKey: ["material_requirements"] });
+      }
     },
   });
 }
@@ -212,12 +240,291 @@ export function useCreatePoFromParts() {
   });
 }
 
+/**
+ * Assign a heat to a bundle, creating the material_lot server-side.
+ * Invalidates bundles, heat_numbers, and material_lots on success.
+ */
+export function useAssignHeatToBundle() {
+  const qc = useQueryClient();
+  return useMutation<AssignHeatResult, FabApiError, { bundleId: string; body: AssignHeatBody }>({
+    mutationFn: ({ bundleId, body }) => FabAPI.assignHeatToBundle(bundleId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bundles"] });
+      qc.invalidateQueries({ queryKey: ["heat_numbers"] });
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+    },
+  });
+}
+
+/**
+ * Best-available-lot lookup for production allocation. Only fires when
+ * `enabled` and both `profile`/`grade` are present (e.g. a cut-list picker
+ * open for a specific line item). Company-wide — material lots have no
+ * project of their own (§16).
+ */
+export function useRecommendLots(
+  query: { profile: string; grade: string; min_length?: number } | null,
+  enabled: boolean,
+) {
+  return useQuery<MaterialLot[], FabApiError>({
+    queryKey: ["material_lots", "recommend", query],
+    queryFn: () => FabAPI.recommendLots(query!),
+    enabled: FAB_MODE === "live" && enabled && !!query?.profile && !!query?.grade,
+  });
+}
+
+/**
+ * Claim a quantity of a lot for a project (partial, releasable — never
+ * exclusive ownership). Invalidates lot_reservations and material_lots
+ * (the Inventory page's "available to reserve" figure depends on both).
+ */
+export function useReserveLot() {
+  const qc = useQueryClient();
+  return useMutation<ReserveLotResult, FabApiError, { lotId: string; body: ReserveLotBody }>({
+    mutationFn: ({ lotId, body }) => FabAPI.reserveLot(lotId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lot_reservations"] });
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+    },
+  });
+}
+
+/** Release a reservation, returning its quantity to the shared pool. */
+export function useReleaseLotReservation() {
+  const qc = useQueryClient();
+  return useMutation<ReleaseReservationResult, FabApiError, string>({
+    mutationFn: (reservationId) => FabAPI.releaseLotReservation(reservationId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lot_reservations"] });
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+    },
+  });
+}
+
+/**
+ * Manually release an active bulk-inventory reservation back to the available
+ * pool. Normally auto-released by the DB when an RFQ is awarded or cancelled.
+ * Use only for exceptional manual overrides.
+ */
+export function useReleaseInventoryReservation() {
+  const qc = useQueryClient();
+  return useMutation<{ reservation: InventoryReservation }, FabApiError, string>({
+    mutationFn: (reservationId) => FabAPI.releaseInventoryReservation(reservationId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["inventory_reservations"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+    },
+  });
+}
+
+/**
+ * Trigger OCR extraction on an MTR document. Invalidates mtr_documents and
+ * heat_numbers (quarantine status may follow once a human verifies).
+ */
+export function useExtractMtrDocument() {
+  const qc = useQueryClient();
+  return useMutation<ExtractMtrResult, FabApiError, string>({
+    mutationFn: (id) => FabAPI.extractMtrDocument(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mtr_documents"] });
+      qc.invalidateQueries({ queryKey: ["heat_numbers"] });
+    },
+  });
+}
+
+/**
+ * Compound-create an RFQ (header + lines + vendors) in one atomic call.
+ * Invalidates rfqs and material_requirements (their status flips to
+ * 'rfq_created' server-side once the first line lands).
+ */
+export function useCreateRfq() {
+  const qc = useQueryClient();
+  return useMutation<CreateRfqResult, FabApiError, CreateRfqBody>({
+    mutationFn: (body) => FabAPI.createRfq(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rfqs"] });
+      qc.invalidateQueries({ queryKey: ["material_requirements"] });
+      // Inventory reservations are created server-side inside fn_create_rfq;
+      // invalidate so the Inventory page reflects the new reserved quantities.
+      qc.invalidateQueries({ queryKey: ["inventory_reservations"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+    },
+  });
+}
+
+/** Compound-create a vendor quote (header + priced lines). Invalidates vendor_quotes and rfqs (status may flip to 'quotes_received'). */
+export function useCreateVendorQuote() {
+  const qc = useQueryClient();
+  return useMutation<CreateVendorQuoteResult, FabApiError, CreateVendorQuoteBody>({
+    mutationFn: (body) => FabAPI.createVendorQuote(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendor_quotes"] });
+      qc.invalidateQueries({ queryKey: ["rfqs"] });
+    },
+  });
+}
+
+/**
+ * Award a vendor quote, auto-creating a draft PO. Invalidates vendor_quotes,
+ * rfqs, material_requirements, and purchase_orders — all four change
+ * server-side in fn_award_vendor_quote's single transaction.
+ */
+export function useAwardVendorQuote() {
+  const qc = useQueryClient();
+  return useMutation<AwardVendorQuoteResult, FabApiError, string>({
+    mutationFn: (id) => FabAPI.awardVendorQuote(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendor_quotes"] });
+      qc.invalidateQueries({ queryKey: ["rfqs"] });
+      qc.invalidateQueries({ queryKey: ["material_requirements"] });
+      qc.invalidateQueries({ queryKey: ["purchase_orders"] });
+      // Inventory reservations are consumed server-side inside fn_award_vendor_quote.
+      qc.invalidateQueries({ queryKey: ["inventory_reservations"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+    },
+  });
+}
+
+/**
+ * Bulk-import Material Requirements from a KISS/EJE/Tekla/SDS2-style sheet.
+ * Rows are already parsed, mapped, and aggregated client-side (see
+ * app/(dashboard)/dashboard/material-requirements/page.tsx). Invalidates
+ * material_requirements so the list reflects the new rows immediately.
+ */
+export function useImportMaterialRequirements() {
+  const qc = useQueryClient();
+  return useMutation<ImportMaterialRequirementsResult, FabApiError, ImportMaterialRequirementsBody>({
+    mutationFn: (body) => FabAPI.importMaterialRequirements(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["material_requirements"] });
+    },
+  });
+}
+
 export function useRemove(table: string) {
   const qc = useQueryClient();
   return useMutation<{ deleted: boolean; id: string }, FabApiError, string>({
     mutationFn: (id) => FabAPI.remove(table, id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [table] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      if (table === "parts") {
+        qc.invalidateQueries({ queryKey: ["material_requirements"] });
+      }
+    },
+  });
+}
+
+// ─── Material Lifecycle E2E Hooks ────────────────────────────────────────────
+
+/**
+ * Issue material (hard lock) — consumes a specific lot qty against a part.
+ * Invalidates: material_lots (qty changes), lot_reservations (status
+ * transitions), material_issues list, and the issuing part row.
+ */
+export function useIssueMaterial() {
+  const qc = useQueryClient();
+  return useMutation<
+    IssueMaterialResult,
+    FabApiError,
+    { partId: string; body: IssueMaterialBody }
+  >({
+    mutationFn: ({ partId, body }) => FabAPI.issueMaterial(partId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+      qc.invalidateQueries({ queryKey: ["lot_reservations"] });
+      qc.invalidateQueries({ queryKey: ["material_issues"] });
+      qc.invalidateQueries({ queryKey: ["parts"] });
+    },
+  });
+}
+
+/**
+ * Void a mis-issue. Returns the qty to the lot and resets the part.
+ * Invalidates: same set as useIssueMaterial.
+ */
+export function useVoidMaterialIssue() {
+  const qc = useQueryClient();
+  return useMutation<
+    VoidMaterialIssueResult,
+    FabApiError,
+    { issueId: string; body: VoidMaterialIssueBody }
+  >({
+    mutationFn: ({ issueId, body }) => FabAPI.voidMaterialIssue(issueId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+      qc.invalidateQueries({ queryKey: ["lot_reservations"] });
+      qc.invalidateQueries({ queryKey: ["material_issues"] });
+      qc.invalidateQueries({ queryKey: ["parts"] });
+    },
+  });
+}
+
+/**
+ * Atomic receive-with-heat-splits. Creates the receivings row + N bundles
+ * + N lots in one DB transaction. Invalidates purchase_orders (status
+ * may flip partial/received), receivings, bundles, and material_lots.
+ */
+export function useReceiveWithHeatSplits() {
+  const qc = useQueryClient();
+  return useMutation<ReceiveWithSplitsResult, FabApiError, ReceiveWithSplitsBody>({
+    mutationFn: (body) => FabAPI.receiveWithHeatSplits(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["purchase_orders"] });
+      qc.invalidateQueries({ queryKey: ["receivings"] });
+      qc.invalidateQueries({ queryKey: ["bundles"] });
+      qc.invalidateQueries({ queryKey: ["material_lots"] });
+    },
+  });
+}
+
+/**
+ * Traceability chain for a single part — cached for 5 minutes (it's
+ * read-only and changes only when an issue/void happens, which already
+ * invalidates the cache via useIssueMaterial / useVoidMaterialIssue).
+ */
+export function usePartTraceability(partId: string | null) {
+  return useQuery<PartTraceabilityResult, FabApiError>({
+    queryKey: ["part_traceability", partId],
+    queryFn: () => FabAPI.getPartTraceability(partId!),
+    enabled: FAB_MODE === "live" && !!partId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Fulfill a Material Requirement from existing bulk inventory stock.
+ * Calls POST /inventory-reservations/fulfill-from-stock which atomically:
+ *   1. Checks available stock (guards against over-reserving)
+ *   2. Creates the inventory_reservation via service-role (same as fn_create_rfq)
+ *   3. Updates the MR status to "fulfilled"
+ *
+ * The previous approach tried to POST /inventory_reservations directly, which
+ * is intentionally blocked (insertable: [] in permissions.ts) — this is the
+ * correct dedicated endpoint.
+ *
+ * Invalidates: material_requirements, inventory_reservations, inventory,
+ * and the dashboard so every downstream widget reflects the change.
+ */
+export function useFulfillMrFromInventory() {
+  const qc = useQueryClient();
+  return useMutation<void, FabApiError, {
+    mrId: string;
+    inventoryId: string;
+    quantity: number;
+    projectId: string;
+  }>({
+    mutationFn: ({ mrId, inventoryId, quantity, projectId }) =>
+      FabAPI.fulfillMrFromStock({
+        material_requirement_id: mrId,
+        inventory_id: inventoryId,
+        quantity,
+        project_id: projectId,
+      }).then(() => undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["material_requirements"] });
+      qc.invalidateQueries({ queryKey: ["inventory_reservations"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
