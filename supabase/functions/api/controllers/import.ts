@@ -600,8 +600,9 @@ export async function syncMaterialRequirements(ctx: Ctx, projectId: string): Pro
       return { created: 0, updated: 0 };
     }
 
-    let createdCount = 0;
-    let updatedCount = 0;
+    const toDelete: string[] = [];
+    const toUpdate: { id: string; patch: { quantity: number; notes: string | null } }[] = [];
+    const toInsert: { group: GroupData; unmetDemand: number; notes: string | null }[] = [];
 
     for (const group of groups.values()) {
       const matchingMrs = existingMrs.filter((m) => {
@@ -623,7 +624,7 @@ export async function syncMaterialRequirements(ctx: Ctx, projectId: string): Pro
       // Unmet incremental demand
       const unmetDemand = Math.max(0, group.totalQty - coveredQty);
 
-      let notes: string | undefined = undefined;
+      let notes: string | null = null;
       if (group.marksSet.size > 0) {
         const fullMarks = Array.from(group.marksSet).join(", ");
         notes = fullMarks.length > 490 ? `${fullMarks.slice(0, 470)}… (${group.marksSet.size} marks)` : fullMarks;
@@ -631,51 +632,95 @@ export async function syncMaterialRequirements(ctx: Ctx, projectId: string): Pro
 
       if (unmetDemand > 0) {
         if (openMr) {
-          if (Number(openMr.quantity) !== unmetDemand || openMr.notes !== (notes ?? null)) {
-            await ctx.sbAdmin
-              .from("material_requirements")
-              .update({
-                quantity: unmetDemand,
-                notes: notes ?? null,
-              })
-              .eq("id", openMr.id);
-            updatedCount++;
+          if (Number(openMr.quantity) !== unmetDemand || openMr.notes !== notes) {
+            toUpdate.push({
+              id: openMr.id,
+              patch: { quantity: unmetDemand, notes },
+            });
           }
         } else {
-          const { data: seq, error: seqErr } = await ctx.sbAdmin.rpc("next_sequence_number", {
-            p_company_id: ctx.user.company_id,
-            p_table_name: "material_requirements",
-            p_prefix: "MR",
-            p_width: 4,
-          });
-
-          if (seqErr) {
-            console.error("Failed to generate MR sequence number:", seqErr);
-            continue;
-          }
-
-          const { error: insErr } = await ctx.sbAdmin.from("material_requirements").insert({
-            company_id: ctx.user.company_id,
-            project_id: projectId,
-            mr_number: seq,
-            profile: group.profile,
-            name: group.name,
-            grade: group.grade,
-            quantity: unmetDemand,
-            length: group.length,
-            notes: notes ?? null,
-            status: "open",
-          });
-
-          if (insErr) {
-            console.error("Failed to insert material requirement:", insErr);
-            continue;
-          }
-
-          createdCount++;
+          toInsert.push({ group, unmetDemand, notes });
         }
       } else if (openMr && unmetDemand === 0) {
-        await ctx.sbAdmin.from("material_requirements").delete().eq("id", openMr.id);
+        toDelete.push(openMr.id);
+      }
+    }
+
+    // 1. Batch DELETE open MRs that are no longer needed (unmetDemand dropped to 0)
+    if (toDelete.length > 0) {
+      const { error: delErr } = await ctx.sbAdmin.from("material_requirements").delete().in("id", toDelete);
+      if (delErr) console.error("Failed to delete stale MRs:", delErr);
+    }
+
+    // 2. Parallel chunked UPDATE for existing open MRs
+    let updatedCount = 0;
+    for (let i = 0; i < toUpdate.length; i += UPDATE_CHUNK) {
+      const chunk = toUpdate.slice(i, i + UPDATE_CHUNK);
+      const results = await Promise.all(
+        chunk.map(({ id, patch }) =>
+          ctx.sbAdmin.from("material_requirements").update(patch).eq("id", id)
+        )
+      );
+      for (const res of results) {
+        if (!res.error) updatedCount++;
+        else console.error("Error updating material requirement:", res.error);
+      }
+    }
+
+    // 3. Batch sequence generation & INSERT for new MRs
+    let createdCount = 0;
+    if (toInsert.length > 0) {
+      const seqResults: (string | null)[] = [];
+      const SEQ_CONCURRENCY = 25;
+      for (let i = 0; i < toInsert.length; i += SEQ_CONCURRENCY) {
+        const chunk = toInsert.slice(i, i + SEQ_CONCURRENCY);
+        const chunkRes = await Promise.all(
+          chunk.map(() =>
+            ctx.sbAdmin.rpc("next_sequence_number", {
+              p_company_id: ctx.user.company_id,
+              p_table_name: "material_requirements",
+              p_prefix: "MR",
+              p_width: 4,
+            })
+          )
+        );
+        for (const r of chunkRes) {
+          if (r.data && typeof r.data === "string") {
+            seqResults.push(r.data);
+          } else {
+            console.error("Failed to generate MR sequence number:", r.error);
+            seqResults.push(null);
+          }
+        }
+      }
+
+      const insertRows: Record<string, unknown>[] = [];
+      for (let i = 0; i < toInsert.length; i++) {
+        const seq = seqResults[i];
+        if (!seq) continue;
+        const item = toInsert[i]!;
+        insertRows.push({
+          company_id: ctx.user.company_id,
+          project_id: projectId,
+          mr_number: seq,
+          profile: item.group.profile,
+          name: item.group.name,
+          grade: item.group.grade,
+          quantity: item.unmetDemand,
+          length: item.group.length,
+          notes: item.notes,
+          status: "open",
+        });
+      }
+
+      for (let i = 0; i < insertRows.length; i += INSERT_CHUNK) {
+        const chunk = insertRows.slice(i, i + INSERT_CHUNK);
+        const { error: insErr } = await ctx.sbAdmin.from("material_requirements").insert(chunk);
+        if (insErr) {
+          console.error("Failed to batch insert material requirements:", insErr);
+        } else {
+          createdCount += chunk.length;
+        }
       }
     }
 
