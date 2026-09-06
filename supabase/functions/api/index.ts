@@ -32,7 +32,7 @@ import { assignHeatToBundle, recommendLots } from "./controllers/heatAssignment.
 import { extractMtrDocument } from "./controllers/mtrExtraction.ts";
 import { reserveLot, releaseLotReservation } from "./controllers/lotReservation.ts";
 import { releaseInventoryReservation, fulfillMrFromStock } from "./controllers/inventoryReservation.ts";
-import { createRfq, createVendorQuote, awardVendorQuote } from "./controllers/rfq.ts";
+import { createRfq, createVendorQuote, awardVendorQuote, deleteVendorQuote } from "./controllers/rfq.ts";
 import { importMaterialRequirements } from "./controllers/materialRequirementImport.ts";
 import { issueMaterial, voidMaterialIssue, getPartTraceability } from "./controllers/materialIssue.ts";
 import { receiveWithHeatSplits } from "./controllers/receiveHeatSplit.ts";
@@ -162,6 +162,8 @@ Deno.serve(async (req) => {
     // RPC-backed endpoints, not the generic /rfqs, /vendor_quotes POST route.
     if (path === "/rfqs" && method === "POST") return createRfq(ctx);
     if (path === "/vendor-quotes" && method === "POST") return createVendorQuote(ctx);
+    const delQuoteMatch = path.match(/^\/vendor-quotes\/([0-9a-f-]{36})$/i);
+    if (delQuoteMatch && method === "DELETE") return deleteVendorQuote(ctx, delQuoteMatch[1]);
     const awardMatch = path.match(/^\/vendor-quotes\/([0-9a-f-]{36})\/award$/i);
     if (awardMatch && method === "POST") return awardVendorQuote(ctx, awardMatch[1]);
     if (path === "/material-requirements/import" && method === "POST") return importMaterialRequirements(ctx);

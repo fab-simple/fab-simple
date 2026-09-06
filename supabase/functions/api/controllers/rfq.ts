@@ -38,6 +38,7 @@ const CreateVendorQuoteSchema = z.object({
   freight_cost: z.coerce.number().nonnegative().optional(),
   validity_date: dateStr.optional(),
   notes: z.string().max(2000).optional(),
+  original_file_path: z.string().optional(),
   lines: z.array(z.object({
     rfq_line_id: z.string().uuid(),
     unit_price: z.coerce.number().nonnegative(),
@@ -148,6 +149,7 @@ export async function createVendorQuote(ctx: Ctx): Promise<Response> {
     p_notes: body.notes ?? null,
     p_lines: body.lines,
     p_created_by: ctx.user.id,
+    p_original_file_path: body.original_file_path ?? null,
   });
   if (rpcErr) return err(rpcErr.message, 400, "rpc_error");
 
@@ -191,4 +193,32 @@ export async function awardVendorQuote(ctx: Ctx, quoteId: string): Promise<Respo
   });
 
   return ok({ purchase_order: po });
+}
+
+/** DELETE /vendor-quotes/:id */
+export async function deleteVendorQuote(ctx: Ctx, quoteId: string): Promise<Response> {
+  if (!ALLOWED_ROLES.includes(ctx.user.role)) return err("Forbidden", 403, "forbidden");
+
+  const { data: quote, error: qErr } = await ctx.sb
+    .from("vendor_quotes").select("id, status, original_file_path").eq("id", quoteId).maybeSingle();
+  if (qErr) return err(qErr.message, 400, "db_error");
+  if (!quote) return err("Vendor quote not found", 404, "not_found");
+
+  if (quote.original_file_path) {
+    const { error: sErr } = await ctx.sbAdmin.storage
+      .from("vendor_quotes").remove([quote.original_file_path]);
+    if (sErr) console.warn("Failed to delete vendor quote file from S3:", sErr.message);
+  }
+
+  const { error: dErr } = await ctx.sb.from("vendor_quotes").delete().eq("id", quoteId);
+  if (dErr) return err(dErr.message, 400, "db_error");
+
+  await writeAudit(ctx, { action: "delete", table_name: "vendor_quotes", record_id: quoteId, old_values: quote });
+  await writeActivity(ctx, {
+    action: "deleted a vendor quote",
+    entity_type: "vendor_quotes",
+    entity_id: quoteId,
+  });
+
+  return ok({ deleted: true, id: quoteId });
 }
