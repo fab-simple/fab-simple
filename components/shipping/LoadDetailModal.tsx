@@ -52,7 +52,7 @@ export function LoadDetailModal({
     0
   );
   const totalWeight = totalAssembliesWeight + totalAccessoriesWeight;
-  const totalPieces = (load.items || []).reduce((acc, it) => acc + it.qty_on_load, 0);
+  const totalPieces = load.total_pieces ?? (load.items || []).reduce((acc, it) => acc + (it.qty_on_load ?? it.quantity ?? 1), 0);
 
   const handlePrintPdf = () => {
     generateShippingBolPdf(load);
@@ -407,7 +407,7 @@ export function LoadDetailModal({
                     </div>
                   </div>
                   <span className="text-slate-400 font-mono text-[10px]">
-                    {new Date(log.timestamp).toLocaleString()}
+                    {log.timestamp ? new Date(log.timestamp).toLocaleString() : (log.created_at ? new Date(log.created_at).toLocaleString() : '—')}
                   </span>
                 </div>
               ))}

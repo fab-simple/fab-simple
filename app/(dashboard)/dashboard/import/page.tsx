@@ -184,12 +184,9 @@ interface ImportResult {
     units: string;
     mr_created?: number;
     mr_updated?: number;
-<<<<<<< Updated upstream
-=======
     assemblies_created?: number;
     assemblies_updated?: number;
     drawings_created?: number;
->>>>>>> Stashed changes
   };
   skipped: Array<{ row: number; part_mark?: string; reason: string }>;
   errors: Array<{ row: number; reason: string }>;
@@ -450,8 +447,8 @@ function ImportProgressModal({
                   background: isError
                     ? "#DC2626"
                     : isComplete && !hasIssues
-                    ? "#16A34A"
-                    : "linear-gradient(90deg, #4F46E5 0%, #06B6D4 100%)",
+                      ? "#16A34A"
+                      : "linear-gradient(90deg, #4F46E5 0%, #06B6D4 100%)",
                   boxShadow: isError
                     ? "0 0 10px rgba(220, 38, 38, 0.5)"
                     : "0 0 10px rgba(6, 182, 212, 0.5)",
@@ -479,18 +476,18 @@ function ImportProgressModal({
                       status === "active"
                         ? "white"
                         : status === "complete"
-                        ? "rgba(240, 253, 244, 0.7)"
-                        : status === "error"
-                        ? "rgba(254, 242, 242, 0.8)"
-                        : "rgba(255, 255, 255, 0.4)",
+                          ? "rgba(240, 253, 244, 0.7)"
+                          : status === "error"
+                            ? "rgba(254, 242, 242, 0.8)"
+                            : "rgba(255, 255, 255, 0.4)",
                     borderColor:
                       status === "active"
                         ? "#6366F1"
                         : status === "complete"
-                        ? "#BBF7D0"
-                        : status === "error"
-                        ? "#FECACA"
-                        : "#E2E8F0",
+                          ? "#BBF7D0"
+                          : status === "error"
+                            ? "#FECACA"
+                            : "#E2E8F0",
                     boxShadow: status === "active" ? "0 4px 12px rgba(99, 102, 241, 0.08)" : "none",
                   }}
                 >
@@ -502,18 +499,18 @@ function ImportProgressModal({
                           status === "active"
                             ? "#EEF2FF"
                             : status === "complete"
-                            ? "#DCFCE7"
-                            : status === "error"
-                            ? "#FEE2E2"
-                            : "#F1F5F9",
+                              ? "#DCFCE7"
+                              : status === "error"
+                                ? "#FEE2E2"
+                                : "#F1F5F9",
                         color:
                           status === "active"
                             ? "#4F46E5"
                             : status === "complete"
-                            ? "#16A34A"
-                            : status === "error"
-                            ? "#DC2626"
-                            : "#94A3B8",
+                              ? "#16A34A"
+                              : status === "error"
+                                ? "#DC2626"
+                                : "#94A3B8",
                       }}
                     >
                       {status === "complete" ? (
@@ -535,10 +532,10 @@ function ImportProgressModal({
                             status === "active"
                               ? "#1E1B4B"
                               : status === "complete"
-                              ? "#14532D"
-                              : status === "error"
-                              ? "#991B1B"
-                              : "#64748B",
+                                ? "#14532D"
+                                : status === "error"
+                                  ? "#991B1B"
+                                  : "#64748B",
                         }}
                       >
                         {idx + 1}. {s.label}
@@ -1148,16 +1145,13 @@ function BomTab({ projects, defaultProjectId }: { projects: Project[]; defaultPr
               <Tally label="Skipped" value={result.summary.skipped} icon={<AlertCircle size={14} style={{ color: "#D97706" }} />} />
               <Tally label="Errors" value={result.summary.errors} icon={<AlertCircle size={14} style={{ color: "#DC2626" }} />} />
             </div>
-<<<<<<< Updated upstream
-=======
             {(result.summary.assemblies_created || result.summary.drawings_created) ? (
               <div className="grid-3" style={{ gap: 12, marginBottom: 16 }}>
                 <Tally label="Assemblies Created" value={result.summary.assemblies_created ?? 0} icon={<Database size={14} style={{ color: "#7C3AED" }} />} />
                 <Tally label="Assemblies Updated" value={result.summary.assemblies_updated ?? 0} icon={<Link2 size={14} style={{ color: "#0D9488" }} />} />
-                <Tally label="Drawings Created"   value={result.summary.drawings_created ?? 0}   icon={<FileText size={14} style={{ color: "#2563EB" }} />} />
+                <Tally label="Drawings Created" value={result.summary.drawings_created ?? 0} icon={<FileText size={14} style={{ color: "#2563EB" }} />} />
               </div>
             ) : null}
->>>>>>> Stashed changes
 
             {((result.summary.mr_created ?? 0) > 0 || (result.summary.mr_updated ?? 0) > 0) && (
               <div

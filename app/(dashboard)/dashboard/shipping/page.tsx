@@ -64,12 +64,12 @@ export default function ShippingPage() {
       if (searchTerm) {
         const query = searchTerm.toLowerCase();
         return (
-          load.ticket_number.toLowerCase().includes(query) ||
-          load.project_name.toLowerCase().includes(query) ||
+          (load.ticket_number && load.ticket_number.toLowerCase().includes(query)) ||
+          (load.project_name && load.project_name.toLowerCase().includes(query)) ||
           (load.carrier_name && load.carrier_name.toLowerCase().includes(query)) ||
           (load.driver_name && load.driver_name.toLowerCase().includes(query)) ||
           (load.destination_name && load.destination_name.toLowerCase().includes(query)) ||
-          (load.items || []).some((it) => it.mark.toLowerCase().includes(query))
+          (load.items || []).some((it) => (it.mark || it.assembly_mark || '').toLowerCase().includes(query))
         );
       }
 
@@ -167,7 +167,7 @@ export default function ShippingPage() {
       align: 'right',
       mono: true,
       render: (r) => {
-        const pcs = (r.items || []).reduce((acc, it) => acc + it.qty_on_load, 0);
+        const pcs = r.total_pieces ?? (r.items || []).reduce((acc, it) => acc + (it.qty_on_load ?? it.quantity ?? 1), 0);
         return <span className="font-bold text-white">{pcs} pcs</span>;
       },
     },

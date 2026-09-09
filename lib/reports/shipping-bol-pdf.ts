@@ -74,18 +74,21 @@ export function generateShippingBolPdf(
   if (isFullLoad) {
     const fullLoad = load as ShippingLoad;
     itemsRows = (fullLoad.items || []).map((it) => {
-      totalPcs += it.qty_on_load;
-      totalWtLbs += Number(it.total_weight_lbs);
+      const q = it.qty_on_load ?? it.quantity ?? 1;
+      const unitWt = Number(it.unit_weight_lbs ?? it.weight_lbs ?? 0);
+      const totalWt = Number(it.total_weight_lbs ?? (unitWt * q));
+      totalPcs += q;
+      totalWtLbs += totalWt;
       return [
-        it.mark,
-        String(it.qty_on_load),
-        it.main_material,
-        it.length_ft_in,
+        it.mark || it.assembly_mark || '—',
+        String(q),
+        it.main_material || it.profile || '—',
+        it.length_ft_in || '—',
         it.sequence || '—',
         it.finish || 'PRIMER',
         it.drawing_no || '—',
-        Number(it.unit_weight_lbs).toLocaleString(),
-        Number(it.total_weight_lbs).toLocaleString(),
+        unitWt.toLocaleString(),
+        totalWt.toLocaleString(),
       ];
     });
 
@@ -93,9 +96,9 @@ export function generateShippingBolPdf(
       const wt = Number(ai.weight_lbs || 0);
       totalWtLbs += wt;
       return [
-        ai.category,
-        ai.description,
-        `${ai.qty} ${ai.unit}`,
+        ai.category || 'MISC',
+        ai.description || '—',
+        `${ai.qty ?? ai.quantity ?? 1} ${ai.unit || 'EA'}`,
         wt > 0 ? `${wt.toLocaleString()} lbs` : '—',
         ai.notes || '—',
       ];
@@ -131,7 +134,7 @@ export function generateShippingBolPdf(
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
-  doc.text(branding.company_name.toUpperCase(), margin + 14, y + 22);
+  doc.text((branding?.company_name || branding?.customer_name || 'FABSIMPLE').toUpperCase(), margin + 14, y + 22);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
@@ -143,41 +146,38 @@ export function generateShippingBolPdf(
   doc.rect(margin + contentWidth - 160, y, 160, 52, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.text('BILL OF LADING', margin + contentWidth - 80, y + 20, { align: 'center' });
-  doc.setFontSize(11);
-  doc.setTextColor(59, 130, 246); // Accent Blue
-  doc.text(`# ${ticketNumber}`, margin + contentWidth - 80, y + 36, { align: 'center' });
+  doc.setFontSize(9);
+  doc.text('BILL OF LADING / TICKET', margin + contentWidth - 150, y + 18);
+  doc.setFontSize(14);
+  doc.setFont('courier', 'bold');
+  doc.text(ticketNumber, margin + contentWidth - 150, y + 36);
 
-  y += 60;
+  y += 62;
 
-  // 2. Info Cards Grid (Job / Shipping / Carrier Details)
-  doc.setLineWidth(0.75);
-  doc.setDrawColor(226, 232, 240);
-  doc.setFillColor(248, 250, 252);
-
+  // 2. Info Cards (3 Columns)
   const colWidth = (contentWidth - 12) / 3;
 
-  // Box 1: Job & Customer Info
+  // Box 1: Project & Job
+  doc.setDrawColor(226, 232, 240);
+  doc.setFillColor(255, 255, 255);
   doc.rect(margin, y, colWidth, 90, 'FD');
   doc.setFillColor(241, 245, 249);
   doc.rect(margin, y, colWidth, 18, 'F');
   doc.setTextColor(30, 41, 59);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
-  doc.text('PROJECT / JOB DETAILS', margin + 8, y + 12);
+  doc.text('PROJECT DETAILS', margin + 8, y + 12);
 
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(projectName.substring(0, 26), margin + 8, y + 30);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(71, 85, 105);
-  doc.text(`Job No: ${jobNumber}`, margin + 8, y + 32);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text(`Project: ${projectName.substring(0, 26)}`, margin + 8, y + 45);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(71, 85, 105);
-  doc.text(`Ship Date: ${shipDate}`, margin + 8, y + 58);
-  doc.text(`Status: ${load.status.replace(/_/g, ' ')}`, margin + 8, y + 71);
+  doc.text(`Job #: ${jobNumber}`, margin + 8, y + 43);
+  doc.text(`Ship Date: ${shipDate}`, margin + 8, y + 56);
+  doc.text(`Status: ${load.status}`, margin + 8, y + 69);
 
   // Box 2: Origin & Destination
   const box2X = margin + colWidth + 6;
@@ -192,10 +192,10 @@ export function generateShippingBolPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(15, 23, 42);
-  doc.text(`FROM: ${originName.substring(0, 24)}`, box2X + 8, y + 30);
+  doc.text(`FROM: ${(originName || 'Apex Fabrication Plant').substring(0, 24)}`, box2X + 8, y + 30);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  doc.text(`TO: ${destName.substring(0, 24)}`, box2X + 8, y + 45);
+  doc.text(`TO: ${(destName || 'Jobsite').substring(0, 24)}`, box2X + 8, y + 45);
   if (destAddr) doc.text(`Addr: ${destAddr.substring(0, 26)}`, box2X + 8, y + 58);
   if (destContact) doc.text(`Attn: ${destContact} ${destPhone}`, box2X + 8, y + 71);
 
@@ -236,8 +236,8 @@ export function generateShippingBolPdf(
     headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold', halign: 'left' },
     alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: {
-      0: { fontStyle: 'bold', width: 55 },
-      1: { halign: 'center', width: 35 },
+      0: { fontStyle: 'bold', cellWidth: 55 },
+      1: { halign: 'center', cellWidth: 35 },
       2: { fontStyle: 'bold' },
       4: { halign: 'center' },
       7: { halign: 'right' },

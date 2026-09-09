@@ -172,15 +172,18 @@ export function LoadBuilderModal({
     const existing = selectedItems.find((i) => i.mark === asm.mark);
     if (existing) {
       setSelectedItems(
-        selectedItems.map((i) =>
-          i.mark === asm.mark
-            ? {
-                ...i,
-                qty_on_load: i.qty_on_load + 1,
-                total_weight_lbs: (i.qty_on_load + 1) * i.unit_weight_lbs,
-              }
-            : i
-        )
+        selectedItems.map((i) => {
+          if (i.mark === asm.mark) {
+            const nextQty = (i.qty_on_load ?? 0) + 1;
+            const unitWt = i.unit_weight_lbs ?? asm.unit_weight_lbs;
+            return {
+              ...i,
+              qty_on_load: nextQty,
+              total_weight_lbs: nextQty * unitWt,
+            };
+          }
+          return i;
+        })
       );
     } else {
       setSelectedItems([
@@ -211,15 +214,17 @@ export function LoadBuilderModal({
       return;
     }
     setSelectedItems(
-      selectedItems.map((i) =>
-        i.id === id
-          ? {
-              ...i,
-              qty_on_load: qty,
-              total_weight_lbs: qty * i.unit_weight_lbs,
-            }
-          : i
-      )
+      selectedItems.map((i) => {
+        if (i.id === id) {
+          const unitWt = i.unit_weight_lbs ?? (i.total_weight_lbs && i.qty_on_load ? i.total_weight_lbs / i.qty_on_load : 0);
+          return {
+            ...i,
+            qty_on_load: qty,
+            total_weight_lbs: qty * unitWt,
+          };
+        }
+        return i;
+      })
     );
   };
 
@@ -327,11 +332,10 @@ export function LoadBuilderModal({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setStep('SETUP')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition ${
-                step === 'SETUP'
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition ${step === 'SETUP'
                   ? 'bg-blue-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
+                }`}
             >
               <span className="w-4 h-4 rounded-full bg-black/30 flex items-center justify-center text-[10px]">
                 1
@@ -343,11 +347,10 @@ export function LoadBuilderModal({
 
             <button
               onClick={() => setStep('ASSEMBLIES')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition ${
-                step === 'ASSEMBLIES'
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition ${step === 'ASSEMBLIES'
                   ? 'bg-blue-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
+                }`}
             >
               <span className="w-4 h-4 rounded-full bg-black/30 flex items-center justify-center text-[10px]">
                 2
@@ -359,11 +362,10 @@ export function LoadBuilderModal({
 
             <button
               onClick={() => setStep('ACCESSORIES')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition ${
-                step === 'ACCESSORIES'
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition ${step === 'ACCESSORIES'
                   ? 'bg-blue-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
+                }`}
             >
               <span className="w-4 h-4 rounded-full bg-black/30 flex items-center justify-center text-[10px]">
                 3
@@ -375,11 +377,10 @@ export function LoadBuilderModal({
 
             <button
               onClick={() => setStep('REVIEW')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition ${
-                step === 'REVIEW'
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition ${step === 'REVIEW'
                   ? 'bg-blue-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
+                }`}
             >
               <span className="w-4 h-4 rounded-full bg-black/30 flex items-center justify-center text-[10px]">
                 4
@@ -393,13 +394,11 @@ export function LoadBuilderModal({
             <Scale className="w-4 h-4 text-slate-400" />
             <span className="text-slate-400">Total Weight:</span>
             <span
-              className={`font-bold ${
-                totals.isOverweight ? 'text-red-400 animate-pulse' : 'text-emerald-400'
-              }`}
+              className={`font-bold ${(totals.isOverweight ?? totals.is_overweight) ? 'text-red-400 animate-pulse' : 'text-emerald-400'}`}
             >
-              {totals.totalWeightLbs.toLocaleString()} / {maxWeight.toLocaleString()} lbs
+              {(totals.totalWeightLbs ?? totals.net_weight_lbs ?? 0).toLocaleString()} / {maxWeight.toLocaleString()} lbs
             </span>
-            <span className="text-slate-500">({totals.weightPercentage.toFixed(0)}%)</span>
+            <span className="text-slate-500">({(totals.weightPercentage ?? totals.utilization_pct ?? 0).toFixed(0)}%)</span>
           </div>
         </div>
 
@@ -570,11 +569,10 @@ export function LoadBuilderModal({
                       <div
                         key={asm.id}
                         onClick={() => handleAddAssembly(asm)}
-                        className={`p-3 rounded-xl border cursor-pointer transition flex items-center justify-between ${
-                          isAdded
+                        className={`p-3 rounded-xl border cursor-pointer transition flex items-center justify-between ${isAdded
                             ? 'bg-blue-500/10 border-blue-500/40 text-blue-300'
                             : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
-                        }`}
+                          }`}
                       >
                         <div>
                           <div className="flex items-center gap-2">
@@ -638,10 +636,10 @@ export function LoadBuilderModal({
                               />
                             </td>
                             <td className="p-3 text-right font-mono">
-                              {item.unit_weight_lbs.toLocaleString()} lbs
+                              {(item.unit_weight_lbs ?? item.weight_lbs ?? 0).toLocaleString()} lbs
                             </td>
                             <td className="p-3 text-right font-mono font-bold text-emerald-400">
-                              {item.total_weight_lbs.toLocaleString()} lbs
+                              {(item.total_weight_lbs ?? 0).toLocaleString()} lbs
                             </td>
                             <td className="p-3 text-center">
                               <button
@@ -826,13 +824,13 @@ export function LoadBuilderModal({
                   </h4>
                   <div className="flex justify-between py-1 border-b border-slate-900">
                     <span className="text-slate-500">Total Assemblies:</span>
-                    <span className="font-bold text-white">{totals.totalPieces} Pcs</span>
+                    <span className="font-bold text-white">{(totals.totalPieces ?? totals.total_pieces ?? 0)} Pcs</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-900">
                     <span className="text-slate-500">Net Loaded Weight:</span>
                     <span className="font-bold font-mono text-emerald-400">
-                      {totals.totalWeightLbs.toLocaleString()} lbs (
-                      {(totals.totalWeightLbs / 2000).toFixed(2)} tons)
+                      {(totals.totalWeightLbs ?? totals.net_weight_lbs ?? 0).toLocaleString()} lbs (
+                      {(((totals.totalWeightLbs ?? totals.net_weight_lbs ?? 0)) / 2000).toFixed(2)} tons)
                     </span>
                   </div>
                   <div className="flex justify-between py-1">

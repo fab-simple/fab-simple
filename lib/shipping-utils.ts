@@ -17,26 +17,41 @@ import type {
 // ─── Load Totals ────────────────────────────────────────────────────────────
 
 export function calculateLoadTotals(
-  items: Array<{ weight_lbs: number; quantity: number }>,
-  additionalItems: Array<{ weight_lbs: number; quantity: number }>,
+  items: Array<any>,
+  additionalItems: Array<any>,
   trailerCapacityLbs: number
 ): LoadTotals {
-  const steelWeight = items.reduce((sum, it) => sum + it.weight_lbs * it.quantity, 0);
-  const additionalWeight = additionalItems.reduce((sum, it) => sum + it.weight_lbs * it.quantity, 0);
+  const steelWeight = (items || []).reduce((sum, it) => {
+    if (it.total_weight_lbs != null && !isNaN(Number(it.total_weight_lbs))) {
+      return sum + Number(it.total_weight_lbs);
+    }
+    const w = Number(it.weight_lbs ?? it.unit_weight_lbs ?? 0);
+    const q = Number(it.quantity ?? it.qty_on_load ?? 1);
+    return sum + w * q;
+  }, 0);
+  const additionalWeight = (additionalItems || []).reduce((sum, it) => {
+    const w = Number(it.weight_lbs ?? 0);
+    const q = Number(it.quantity ?? it.qty ?? 1);
+    return sum + w * q;
+  }, 0);
   const netWeight = steelWeight + additionalWeight;
   const remaining = trailerCapacityLbs - netWeight;
   const utilization = trailerCapacityLbs > 0 ? (netWeight / trailerCapacityLbs) * 100 : 0;
-  const totalPieces = items.reduce((sum, it) => sum + it.quantity, 0);
+  const totalPieces = (items || []).reduce((sum, it) => sum + Number(it.quantity ?? it.qty_on_load ?? 1), 0);
 
   return {
     total_pieces: totalPieces,
+    totalPieces: totalPieces,
     steel_weight_lbs: steelWeight,
     additional_weight_lbs: additionalWeight,
     net_weight_lbs: netWeight,
+    totalWeightLbs: netWeight,
     trailer_capacity_lbs: trailerCapacityLbs,
     remaining_capacity_lbs: Math.max(0, remaining),
     utilization_pct: Math.round(utilization * 10) / 10,
+    weightPercentage: Math.round(utilization * 10) / 10,
     is_overweight: netWeight > trailerCapacityLbs,
+    isOverweight: netWeight > trailerCapacityLbs,
     is_warning: utilization >= 90 && utilization <= 100,
   };
 }
@@ -76,12 +91,13 @@ export function calculateShippingSummary(loads: ShippingLoad[] = []) {
     totalWeightLbs += weight;
     totalPieces += pieces;
 
-    if (load.status === "staged" || load.status === "loaded" || load.status === "assigned" || load.status === "draft") {
+    const status = String(load.status || "").toLowerCase();
+    if (["staged", "loaded", "assigned", "draft", "building", "ready_to_ship"].includes(status)) {
       readyCount += 1;
       readyWeightLbs += weight;
-    } else if (load.status === "shipped" || load.status === "in_transit") {
+    } else if (["shipped", "in_transit"].includes(status)) {
       shippedCount += 1;
-    } else if (load.status === "received" || load.status === "delivered") {
+    } else if (["received", "delivered", "partial_delivered"].includes(status)) {
       deliveredCount += 1;
     }
   }
@@ -132,18 +148,18 @@ export function getLoadCompleteness(
   requiredItems: Array<{ assembly_mark: string; quantity: number; weight_lbs: number }>,
   loadItems: ShippingLoadItem[]
 ): LoadCompleteness {
-  const assignedItems = loadItems.filter((i) => ["assigned", "loaded", "shipped", "received"].includes(i.status));
-  const loadedItems = loadItems.filter((i) => ["loaded", "shipped", "received"].includes(i.status));
+  const assignedItems = loadItems.filter((i) => ["assigned", "loaded", "shipped", "received"].includes(i.status || ""));
+  const loadedItems = loadItems.filter((i) => ["loaded", "shipped", "received"].includes(i.status || ""));
 
-  const piecesRequired = requiredItems.reduce((s, i) => s + i.quantity, 0);
-  const piecesAssigned = assignedItems.reduce((s, i) => s + i.quantity, 0);
-  const piecesLoaded = loadedItems.reduce((s, i) => s + i.quantity, 0);
+  const piecesRequired = requiredItems.reduce((s, i) => s + (i.quantity || 0), 0);
+  const piecesAssigned = assignedItems.reduce((s, i) => s + (i.quantity || i.qty_on_load || 0), 0);
+  const piecesLoaded = loadedItems.reduce((s, i) => s + (i.quantity || i.qty_on_load || 0), 0);
 
-  const weightRequired = requiredItems.reduce((s, i) => s + i.weight_lbs, 0);
-  const weightAssigned = assignedItems.reduce((s, i) => s + i.weight_lbs, 0);
-  const weightLoaded = loadedItems.reduce((s, i) => s + i.weight_lbs, 0);
+  const weightRequired = requiredItems.reduce((s, i) => s + (i.weight_lbs || 0), 0);
+  const weightAssigned = assignedItems.reduce((s, i) => s + (i.weight_lbs || i.total_weight_lbs || 0), 0);
+  const weightLoaded = loadedItems.reduce((s, i) => s + (i.weight_lbs || i.total_weight_lbs || 0), 0);
 
-  const assignedMarks = new Set(assignedItems.map((i) => i.assembly_mark));
+  const assignedMarks = new Set(assignedItems.map((i) => i.assembly_mark || i.mark || ""));
   const missingMarks = requiredItems
     .filter((i) => !assignedMarks.has(i.assembly_mark))
     .map((i) => i.assembly_mark);
@@ -173,16 +189,16 @@ export function getErectionPackageStatus(
   const sequences = new Set(items.map((i) => i.sequence).filter(Boolean));
   const workPackages = new Set(items.map((i) => i.work_package).filter(Boolean));
 
-  const totalPieces = items.reduce((s, i) => s + i.quantity, 0);
+  const totalPieces = items.reduce((s, i) => s + (i.quantity || i.qty_on_load || 0), 0);
   const shippedPieces = items.filter((i) =>
-    ["shipped", "received"].includes(i.status)
-  ).reduce((s, i) => s + i.quantity, 0);
+    ["shipped", "received"].includes(i.status || "")
+  ).reduce((s, i) => s + (i.quantity || i.qty_on_load || 0), 0);
 
   const completionPct = totalPieces > 0 ? Math.round((shippedPieces / totalPieces) * 100) : 0;
 
-  const missingMarks = items
-    .filter((i) => !["shipped", "received", "loaded"].includes(i.status))
-    .map((i) => i.assembly_mark);
+  const missingMarks: string[] = items
+    .filter((i) => !["shipped", "received", "loaded"].includes(i.status || ""))
+    .map((i) => i.assembly_mark || i.mark || "");
 
   return {
     package_id: null,
@@ -201,13 +217,13 @@ export function getErectionPackageStatus(
 // ─── Ticket Number Generation ───────────────────────────────────────────────
 
 export function generateTicketNumber(
-  existingTickets: string[],
+  existingTickets: string[] = [],
   projectPrefix?: string
 ): string {
   const prefix = projectPrefix ? `${projectPrefix.toUpperCase().slice(0, 3)}-` : "L-";
   let maxNum = 0;
 
-  existingTickets.forEach((t) => {
+  existingTickets?.forEach((t) => {
     const match = t.match(new RegExp(`^${prefix.replace("-", "\\-")}(\\d+)$`));
     if (match) {
       const n = parseInt(match[1], 10);
@@ -244,11 +260,11 @@ export function computeShippingKPIs(loads: ShippingLoad[]): ShippingDashboardKPI
   );
   const readyToShip = loads.filter((l) => l.status === "loaded" || l.status === "assigned");
 
-  const totalTons = shippedLoads.reduce((s, l) => s + l.net_weight_lbs, 0) / 2000;
-  const totalPieces = shippedLoads.reduce((s, l) => s + l.total_pieces, 0);
+  const totalTons = shippedLoads.reduce((s, l) => s + (l.net_weight_lbs || l.total_weight_lbs || 0), 0) / 2000;
+  const totalPieces = shippedLoads.reduce((s, l) => s + (l.total_pieces || 0), 0);
   const avgUtil =
     loads.length > 0
-      ? loads.reduce((s, l) => s + l.utilization_pct, 0) / loads.length
+      ? loads.reduce((s, l) => s + (l.utilization_pct || 0), 0) / loads.length
       : 0;
 
   return {

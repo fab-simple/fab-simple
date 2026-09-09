@@ -11,7 +11,16 @@ export type ShipLoadStatus =
   | "received"
   | "on_hold"
   | "partial"
-  | "cancelled";
+  | "cancelled"
+  | "staged"
+  | "in_transit"
+  | "delivered"
+  | "BUILDING"
+  | "STAGED"
+  | "READY_TO_SHIP"
+  | "SHIPPED"
+  | "DELIVERED"
+  | "PARTIAL_DELIVERED";
 
 export type ShipItemStatus =
   | "available"
@@ -19,7 +28,12 @@ export type ShipItemStatus =
   | "loaded"
   | "shipped"
   | "received"
-  | "on_hold";
+  | "on_hold"
+  | "BUILDING"
+  | "STAGED"
+  | "READY_TO_SHIP"
+  | "SHIPPED"
+  | "DELIVERED";
 
 export type ReceiptStatus = "complete" | "partial" | "shortage" | "damaged";
 
@@ -27,99 +41,150 @@ export type ReceiptStatus = "complete" | "partial" | "shortage" | "damaged";
 
 export interface ShippingLoad {
   id: string;
-  project_id: string;
+  project_id?: string;
   ticket_number: string;
-  load_number: string;
-  destination: string;
-  destination_address: string | null;
-  origin: string | null;
-  carrier_id: string | null;
-  carrier_name: string | null;
-  truck_number: string | null;
-  trailer_id: string | null;
-  trailer_number: string | null;
-  trailer_capacity_lbs: number | null;
-  driver_name: string | null;
-  planned_ship_date: string;
-  actual_ship_date: string | null;
-  actual_arrival_date: string | null;
+  load_number?: string;
+  destination?: string;
+  destination_name?: string | null;
+  destination_address?: string | null;
+  destination_contact?: string | null;
+  destination_phone?: string | null;
+  origin?: string | null;
+  origin_name?: string | null;
+  origin_address?: string | null;
+  carrier_id?: string | null;
+  carrier_name?: string | null;
+  truck_number?: string | null;
+  trailer_id?: string | null;
+  trailer_number?: string | null;
+  trailer_type?: string | null;
+  trailer_capacity_lbs?: number | null;
+  max_weight_lbs?: number | null;
+  gross_weight_lbs?: number | null;
+  tare_weight_lbs?: number | null;
+  driver_name?: string | null;
+  driver_phone?: string | null;
+  dot_number?: string | null;
+  planned_ship_date?: string;
+  actual_ship_date?: string | null;
+  actual_arrival_date?: string | null;
+  shipped_at?: string | null;
+  delivered_at?: string | null;
+  signed_by?: string | null;
+  signed_at?: string | null;
+  signature_url?: string | null;
   status: ShipLoadStatus;
-  total_pieces: number;
-  total_weight_lbs: number;
-  additional_weight_lbs: number;
-  net_weight_lbs: number;
-  utilization_pct: number;
-  sequence: string | null;
-  area: string | null;
-  zone: string | null;
-  work_package: string | null;
-  notes: string | null;
-  created_by: string | null;
+  total_pieces?: number;
+  total_weight_lbs?: number;
+  additional_weight_lbs?: number;
+  net_weight_lbs?: number;
+  utilization_pct?: number;
+  sequence?: string | null;
+  area?: string | null;
+  zone?: string | null;
+  work_package?: string | null;
+  notes?: string | null;
+  bol_notes?: string | null;
+  internal_notes?: string | null;
+  created_by?: string | null;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
   // Joined fields
   project_name?: string;
   project_number?: string;
+  job_number?: string;
   customer_name?: string;
   gc_name?: string;
   site_contact?: string;
   site_phone?: string;
   erector_name?: string;
+  items?: ShippingLoadItem[];
+  additional_items?: ShippingAdditionalItem[];
 }
 
 export interface ShippingLoadItem {
   id: string;
   load_id: string;
-  piece_id: string | null;
-  assembly_id: string | null;
-  assembly_mark: string;
-  piece_mark: string | null;
-  description: string;
-  profile: string | null;
-  quantity: number;
-  weight_lbs: number;
-  sequence: string | null;
-  area: string | null;
-  zone: string | null;
-  grid: string | null;
-  level: string | null;
-  work_package: string | null;
-  status: ShipItemStatus;
-  loaded_at: string | null;
-  loaded_by: string | null;
+  piece_id?: string | null;
+  assembly_id?: string | null;
+  assembly_mark?: string;
+  mark?: string;
+  piece_mark?: string | null;
+  description?: string;
+  profile?: string | null;
+  main_material?: string;
+  length_ft_in?: string;
+  finish?: string;
+  drawing_no?: string;
+  bay_location?: string;
+  qc_inspected?: boolean;
+  quantity?: number;
+  qty_on_load?: number;
+  unit_weight_lbs?: number;
+  weight_lbs?: number;
+  total_weight_lbs?: number;
+  sequence?: string | null;
+  area?: string | null;
+  zone?: string | null;
+  grid?: string | null;
+  level?: string | null;
+  work_package?: string | null;
+  status?: ShipItemStatus;
+  loaded_at?: string | null;
+  loaded_by?: string | null;
 }
 
 export interface ShippingAdditionalItem {
   id: string;
   load_id: string;
   description: string;
-  quantity: number;
+  quantity?: number;
+  qty?: number;
+  unit?: string;
   weight_lbs: number;
-  created_at: string;
+  category?: "BOLTS" | "TOUCHUP_PAINT" | "DUNNAGE" | "ANCHOR_RODS" | "HARDWARE" | string;
+  notes?: string;
+  created_at?: string;
 }
 
 export interface ShippingReceipt {
   id: string;
   load_id: string;
-  received_by: string | null;
-  received_by_name: string | null;
+  ticket_number?: string;
+  received_by?: string | null;
+  received_by_name?: string | null;
   received_at: string;
-  status: ReceiptStatus;
-  pieces_expected: number;
-  pieces_received: number;
-  missing_marks: string[];
-  damaged_marks: string[];
-  comments: string | null;
-  created_at: string;
+  status?: ReceiptStatus;
+  condition?: string;
+  damage_reported?: boolean;
+  signature_url?: string | null;
+  pieces_expected?: number;
+  pieces_received?: number;
+  missing_marks?: string[];
+  damaged_marks?: string[];
+  comments?: string | null;
+  notes?: string | null;
+  created_at?: string;
 }
 
 export interface ShippingAuditEntry {
   id: string;
   load_id: string;
   action: string;
-  detail: string | null;
+  detail?: string | null;
   user_name: string | null;
   created_at: string;
+}
+
+export interface ShippingAuditLog {
+  id: string;
+  load_id: string;
+  action: string;
+  timestamp?: string;
+  created_at?: string;
+  user_name: string;
+  details?: string;
+  detail?: string | null;
 }
 
 // ─── Reference Tables ───────────────────────────────────────────────────────
@@ -127,28 +192,43 @@ export interface ShippingAuditEntry {
 export interface Carrier {
   id: string;
   name: string;
-  contact_name: string | null;
+  contact_name?: string | null;
   phone: string | null;
   email: string | null;
+  address?: string | null;
   dot_number: string | null;
-  active: boolean;
+  active?: boolean;
+  is_active?: boolean;
 }
+
+export type ShippingCarrier = Carrier;
 
 export interface Trailer {
   id: string;
   trailer_number: string;
-  type: string;
-  capacity_lbs: number;
-  length_ft: number | null;
-  active: boolean;
+  type?: string;
+  trailer_type?: string;
+  capacity_lbs?: number;
+  max_weight_lbs?: number;
+  length_ft?: number | null;
+  deck_length_ft?: number | null;
+  active?: boolean;
+  is_active?: boolean;
 }
+
+export type ShippingTrailer = Trailer;
 
 export interface CustomerBranding {
   id: string;
-  customer_name: string;
+  customer_name?: string;
+  company_name?: string;
+  tagline?: string;
+  website?: string;
+  primary_color?: string;
+  secondary_color?: string;
   logo_url: string | null;
   address: string | null;
-  contact_name: string | null;
+  contact_name?: string | null;
   phone: string | null;
   email: string | null;
 }
@@ -192,13 +272,17 @@ export interface ErectionPackageStatus {
 
 export interface LoadTotals {
   total_pieces: number;
+  totalPieces?: number;
   steel_weight_lbs: number;
   additional_weight_lbs: number;
   net_weight_lbs: number;
+  totalWeightLbs?: number;
   trailer_capacity_lbs: number;
   remaining_capacity_lbs: number;
   utilization_pct: number;
+  weightPercentage?: number;
   is_overweight: boolean;
+  isOverweight?: boolean;
   is_warning: boolean; // > 90%
 }
 
