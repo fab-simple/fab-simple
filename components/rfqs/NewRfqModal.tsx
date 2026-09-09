@@ -60,6 +60,41 @@ function invKey(profile: string, length: string | null | undefined): string {
   return [(profile ?? "").trim().toLowerCase(), (length ?? "").trim().toLowerCase()].join("::");
 }
 
+/**
+ * Apportions a discrete whole-number entered quantity across constituent MRs.
+ * Ensures each created line has a positive integer quantity and the total sum
+ * matches the user's entered discrete quantity.
+ */
+export function apportionClubbedQuantity(
+  constituentMrs: { id: string; quantity: number }[],
+  totalEnteredQty: number,
+): { material_requirement_id: string; quantity: number }[] {
+  const enteredQty = Math.round(totalEnteredQty);
+  if (enteredQty <= 0 || constituentMrs.length === 0) return [];
+
+  const totalReq = constituentMrs.reduce((acc, m) => acc + (Number(m.quantity) || 0), 0);
+  let remaining = enteredQty;
+  const lines: { material_requirement_id: string; quantity: number }[] = [];
+
+  constituentMrs.forEach((mr, idx) => {
+    if (idx === constituentMrs.length - 1) {
+      const q = Math.max(0, remaining);
+      if (q > 0) {
+        lines.push({ material_requirement_id: mr.id, quantity: q });
+      }
+    } else {
+      const ratio = totalReq > 0 ? mr.quantity / totalReq : 1 / constituentMrs.length;
+      const q = Math.min(remaining, Math.max(0, Math.round(enteredQty * ratio)));
+      remaining -= q;
+      if (q > 0) {
+        lines.push({ material_requirement_id: mr.id, quantity: q });
+      }
+    }
+  });
+
+  return lines;
+}
+
 export interface ClubbedMrGroup {
   key: string;
   profile: string;
@@ -153,9 +188,9 @@ export function NewRfqModal({
     const result: ClubbedMrGroup[] = [];
     for (const [key, groupMrs] of map.entries()) {
       const first = groupMrs[0];
-      const totalQty = groupMrs.reduce((acc, m) => acc + Number(m.quantity || 0), 0);
+      const totalQty = Math.round(groupMrs.reduce((acc, m) => acc + Number(m.quantity || 0), 0));
       const iKey = invKey(first.profile, first.length);
-      const availableStock = inventoryLookup.get(iKey)?.available ?? 0;
+      const availableStock = Math.round(inventoryLookup.get(iKey)?.available ?? 0);
       const stockCovered = Math.min(totalQty, availableStock);
       const defaultNet = Math.max(0, totalQty - stockCovered);
       const firstName = groupMrs.find((m) => m.name?.trim())?.name ?? null;
@@ -205,7 +240,7 @@ export function NewRfqModal({
         if (isTargeted) {
           newSelected.add(group.key);
         }
-        newQtys[group.key] = String(group.defaultNetQuantity);
+        newQtys[group.key] = String(Math.round(group.defaultNetQuantity));
       }
 
       setSelectedGroupKeys(newSelected);
@@ -272,7 +307,7 @@ export function NewRfqModal({
       setGroupQuantities((prev) => {
         const next = { ...prev };
         for (const g of clubbedGroups) {
-          if (!(g.key in next)) next[g.key] = String(g.defaultNetQuantity);
+          if (!(g.key in next)) next[g.key] = String(Math.round(g.defaultNetQuantity));
         }
         return next;
       });
@@ -290,7 +325,17 @@ export function NewRfqModal({
   }, [selectedGroupKeys, clubbedGroups]);
 
   const fulfillQueueCount = fulfillQueue.size;
-  const rfqInvalid = (selectedGroupKeys.size === 0 && fulfillQueueCount === 0) || (selectedGroupKeys.size > 0 && selectedVendors.size === 0);
+  const hasValidQuantity = useMemo(() => {
+    return Array.from(selectedGroupKeys).some((k) => {
+      const qty = parseInt(groupQuantities[k] || "0", 10);
+      return !isNaN(qty) && qty > 0;
+    });
+  }, [selectedGroupKeys, groupQuantities]);
+
+  const rfqInvalid =
+    (selectedGroupKeys.size === 0 && fulfillQueueCount === 0) ||
+    (selectedGroupKeys.size > 0 && selectedVendors.size === 0) ||
+    (selectedGroupKeys.size > 0 && !hasValidQuantity);
   const submitting = createRfq.isPending;
 
   function handleSubmit(e: React.FormEvent) {
@@ -304,23 +349,11 @@ export function NewRfqModal({
       const group = clubbedGroups.find((g) => g.key === groupKey);
       if (!group) continue;
 
-      const enteredQty = parseFloat(groupQuantities[groupKey] || "0");
+      const enteredQty = parseInt(groupQuantities[groupKey] || "0", 10);
       if (isNaN(enteredQty) || enteredQty <= 0) continue;
 
-      const totalReq = group.totalQuantity;
-      let remaining = enteredQty;
-
-      group.mrs.forEach((mr, idx) => {
-        if (idx === group.mrs.length - 1) {
-          const q = Math.max(0.01, Math.round(remaining * 100) / 100);
-          linesToCreate.push({ material_requirement_id: mr.id, quantity: q });
-        } else {
-          const ratio = totalReq > 0 ? mr.quantity / totalReq : 1 / group.mrs.length;
-          const q = Math.max(0.01, Math.round(enteredQty * ratio * 100) / 100);
-          remaining -= q;
-          linesToCreate.push({ material_requirement_id: mr.id, quantity: q });
-        }
-      });
+      const lines = apportionClubbedQuantity(group.mrs, enteredQty);
+      linesToCreate.push(...lines);
     }
 
     createRfq.mutate(
@@ -531,14 +564,23 @@ export function NewRfqModal({
                         <input
                           className="input font-mono"
                           type="number"
-                          min="0.01"
-                          step="0.01"
+                          min="1"
+                          step="1"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          placeholder="0"
                           style={{ width: 84, height: 26, fontSize: 11, textAlign: "right" }}
                           value={groupQuantities[group.key] ?? ""}
                           onClick={(e) => e.stopPropagation()}
-                          onChange={(e) =>
-                            setGroupQuantities((prev) => ({ ...prev, [group.key]: e.target.value }))
-                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "." || e.key === "," || e.key === "e" || e.key === "E" || e.key === "-" || e.key === "+") {
+                              e.preventDefault();
+                            }
+                          }}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, "");
+                            setGroupQuantities((prev) => ({ ...prev, [group.key]: val }));
+                          }}
                         />
                         <span className="text-[10px]" style={{ color: "var(--muted)" }}>
                           of {group.totalQuantity} req.
@@ -666,9 +708,10 @@ function linesToCreateCount(
   let count = 0;
   for (const k of selectedGroupKeys) {
     const g = clubbedGroups.find((x) => x.key === k);
-    const qty = parseFloat(groupQuantities[k] || "0");
+    const qty = parseInt(groupQuantities[k] || "0", 10);
     if (g && !isNaN(qty) && qty > 0) {
-      count += g.mrs.length;
+      const lines = apportionClubbedQuantity(g.mrs, qty);
+      count += lines.length;
     }
   }
   return count;

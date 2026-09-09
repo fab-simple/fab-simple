@@ -47,7 +47,6 @@ export function CopilotPanel() {
     <>
       <div
         className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40"
-        onClick={() => dispatch(closeCopilot())}
       />
       <aside
         className="fixed right-0 top-0 bottom-0 z-50 flex flex-col"

@@ -93,10 +93,8 @@ export function BomEstimateImport({ onClose, onImport }: BomEstimateImportProps)
         display: "flex", alignItems: "center", justifyContent: "center",
         background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
       }}
-      onClick={onClose}
     >
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
           background: "var(--bg-card)", border: "1px solid var(--border)",
           borderRadius: 12, width: 780, maxHeight: "85vh", overflow: "auto",

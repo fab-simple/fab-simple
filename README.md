@@ -71,7 +71,7 @@ npx supabase start            # boots Postgres, Auth, Storage, Edge runtime
 npx supabase db reset         # applies migrations + demo seed
 ```
 
-The first `start` pulls Docker images and takes a couple of minutes. Subsequent starts are fast.
+The first `start` pulls Docker images and takes a couple of minutes. Subsequent starts are fast
 
 ### 2. Wire env vars
 

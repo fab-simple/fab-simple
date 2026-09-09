@@ -585,8 +585,8 @@ function PoDetailModal({ po, onClose }: { po: PO; onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.5)" }} onClick={onClose}>
-      <div className="card" style={{ width: 640, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.5)" }}>
+      <div className="card" style={{ width: 640, maxHeight: "90vh", overflowY: "auto" }}>
         <div className="card-header" style={{ position: "sticky", top: 0, zIndex: 5, background: "var(--bg-card)" }}>
           <div>
             <div className="card-title flex items-center gap-2">

@@ -201,8 +201,8 @@ function MtrPanel({ heat, onClose }: { heat: Heat; onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.5)" }} onClick={onClose}>
-      <div className="card" style={{ width: 560, maxHeight: "88vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.5)" }}>
+      <div className="card" style={{ width: 560, maxHeight: "88vh", overflowY: "auto" }}>
         <div className="card-header" style={{ position: "sticky", top: 0, background: "var(--bg-card)", zIndex: 5 }}>
           <div>
             <div className="card-title">MTR documents</div>
