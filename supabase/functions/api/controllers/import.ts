@@ -41,19 +41,19 @@ interface ImportBody {
 //   • "Heat Number" is the exact column label from the target sheet.
 // ---------------------------------------------------------------------------
 const COL_ALIASES: Record<string, string[]> = {
-  quantity:      ["qty", "quantity", "count", "pcs", "pieces", "no_of_pieces", "no of pieces"],
-  part_mark:     ["mark", "part mark", "part_mark", "partmark", "piecemark", "piece mark", "part id", "partid", "part_pos", "member_mark", "member mark"],
-  profile:       ["profile size", "profile", "section", "shape", "size", "profile_name", "section_size", "profilename", "profilesize"],
-  name:          ["profile name", "name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"],
-  length:        ["length", "len", "length_mm", "length_in", "length_ft", "cut_length", "cut length"],
-  grade:         ["grade", "material", "material grade", "material_grade", "spec", "matl"],
+  quantity: ["qty", "quantity", "count", "pcs", "pieces", "no_of_pieces", "no of pieces"],
+  part_mark: ["mark", "part mark", "part_mark", "partmark", "piecemark", "piece mark", "part id", "partid", "part_pos", "member_mark", "member mark"],
+  profile: ["profile size", "profile", "section", "shape", "size", "profile_name", "section_size", "profilename", "profilesize"],
+  name: ["profile name", "name", "member_name", "member name", "member type", "membertype", "description", "desc", "type"],
+  length: ["length", "len", "length_mm", "length_in", "length_ft", "cut_length", "cut length"],
+  grade: ["grade", "material", "material grade", "material_grade", "spec", "matl"],
   // "Part Weight" (per-piece weight) is highest priority. "Ext. Weight" /
   // "Extended Weight" are total-line weights and intentionally listed after so
   // they act only as a fallback when the sheet has no per-piece weight column.
-  weight:        ["part weight", "part_weight", "partweight", "weight", "wt", "weight_lbs", "weight_lb", "weight_kg", "weight_ea", "unit_weight", "unit weight", "unitweight", "ext_weight", "ext weight", "extended_weight", "extended weight", "total_weight"],
-  heat_number:   ["heat number", "heat_number", "heat no", "heat_no", "heat", "heatno", "heat#"],
+  weight: ["part weight", "part_weight", "partweight", "weight", "wt", "weight_lbs", "weight_lb", "weight_kg", "weight_ea", "unit_weight", "unit weight", "unitweight", "ext_weight", "ext weight", "extended_weight", "extended weight", "total_weight"],
+  heat_number: ["heat number", "heat_number", "heat no", "heat_no", "heat", "heatno", "heat#"],
   assembly_mark: ["assembly_mark", "assemblymark", "assembly mark", "assembly", "asm", "assembly_pos", "main_part", "main part"],
-  phase:         ["phase", "lot", "sequence", "seq", "lot_number", "lotnumber"],
+  phase: ["phase", "lot", "sequence", "seq", "lot_number", "lotnumber"],
 };
 
 // Strips everything that isn't a-z0-9 and lower-cases — so "Part Weight",
@@ -63,7 +63,7 @@ function normaliseHeader(h: string): string {
 }
 
 // Build a header → value map for a row keyed by the normalised header.
-// Done once per row so picking N fields stays O(N) rather than O(N × headers).
+// Done once per row so picking N fields stays O(1) rather than O(N × headers).
 function buildLookup(row: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(row)) {
@@ -106,14 +106,14 @@ function parseLengthRaw(raw: string): ParsedLength | null {
   if (!s) return null;
 
   // 17'-9"  |  17'9"  |  17' 9"  |  17'-9  (feet + inches, decimal ok)
-  const ftIn = s.match(/^(\d+(?:\.\d+)?)'[-\s]*(\d+(?:\.\d+)?)"?$/);
+  const ftIn = s.match(/^(\d+(?:\.\d+)?)'[-\s]*(\d+(?:\.\d+?)?)"?$/);
   if (ftIn) {
     const in_ = Number(ftIn[1]) * 12 + Number(ftIn[2]);
     return in_ > 0 ? { inches: in_, wasFeetInches: true } : null;
   }
 
   // 17'  (feet only)
-  const ftOnly = s.match(/^(\d+(?:\.\d+)?)'$/);
+  const ftOnly = s.match(/^(\d+(?:\.\d+?)?)'$/);
   if (ftOnly) {
     const in_ = Number(ftOnly[1]) * 12;
     return in_ > 0 ? { inches: in_, wasFeetInches: true } : null;
@@ -130,6 +130,36 @@ function parseLengthRaw(raw: string): ParsedLength | null {
   const num = Number(s);
   if (!isFinite(num)) return null;
   return { inches: num, wasFeetInches: false };
+}
+
+// ---------------------------------------------------------------------------
+// Batch-size constants
+// ---------------------------------------------------------------------------
+// Supabase/PostgREST can handle large payloads but we chunk conservatively
+// to stay well under the default 1 MB body limit and Postgres param limits.
+const INSERT_CHUNK = 500; // rows per INSERT batch
+const UPDATE_CHUNK = 50;  // parallel UPDATE concurrency per Promise.all batch
+const PAGE_SIZE = 1000;   // PostgREST max rows per page
+
+// Helper to paginate through all rows matching a query, bypassing PostgREST's default 1,000-row limit.
+async function fetchAllRows<T>(
+  fetcher: (rangeFrom: number, rangeTo: number) => Promise<{ data: T[] | null; error: unknown }>,
+  pageSize = PAGE_SIZE,
+): Promise<T[]> {
+  const all: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await fetcher(from, from + pageSize - 1);
+    if (error) {
+      console.error("fetchAllRows error:", error);
+      break;
+    }
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
 }
 
 export async function importCsv(ctx: Ctx): Promise<Response> {
@@ -159,7 +189,7 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
   const matchedFields = new Set<string>();
   const unmappedHeaders = new Set<string>();
   if (body.rows.length > 0) {
-    for (const rawHeader of Object.keys(body.rows[0])) {
+    for (const rawHeader of Object.keys(body.rows[0]!)) {
       const norm = normaliseHeader(rawHeader);
       if (!norm) continue;
       if (allNormalisedAliases.has(norm)) {
@@ -185,7 +215,7 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
     const sampleRaw = lookups.map((l) => pickFrom(l, "length")).find(Boolean) ?? "";
     const sampleParsed = sampleRaw ? parseLengthRaw(sampleRaw) : null;
     if (sampleParsed?.wasFeetInches) {
-      units = "imperial"; // feet-inches strings are inherently imperial
+      units = "imperial";
     } else if (sampleParsed && sampleParsed.inches > 0) {
       units = sampleParsed.inches > 50 ? "metric" : "imperial";
     } else {
@@ -194,33 +224,84 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
   }
   const kgToLb = (v: number) => v * 2.20462;
 
-  const inserted: Record<string, unknown>[] = [];
-  const updated:  Record<string, unknown>[] = [];
-  const skipped: { row: number; part_mark?: string; reason: string }[] = [];
-  const errors:  { row: number; reason: string }[] = [];
-
-  for (let i = 0; i < body.rows.length; i++) {
-    const lookup = lookups[i];
-    const part_mark = pickFrom(lookup, "part_mark");
-    if (!part_mark) { errors.push({ row: i, reason: "missing part mark (Mark / Part Mark column not found or empty)" }); continue; }
-
-    // Stored verbatim as text — no unit parsing/conversion, matches whatever
-    // the sheet (or the user's column mapping) provided.
-    const length = pickFrom(lookup, "length") ?? null;
-
-    const weightRaw = Number(pickFrom(lookup, "weight"));
-    const weight = isFinite(weightRaw) && weightRaw > 0 ? (units === "metric" ? kgToLb(weightRaw) : weightRaw) : null;
-
-    const { data: existing } = await ctx.sb.from("parts")
-      .select("id,status,profile")
+  // -------------------------------------------------------------------------
+  // QUERY 1 — Load ALL existing parts for this project with pagination.
+  // PostgREST limits results to 1,000 rows by default; fetchAllRows pages
+  // through all records so projects with >1,000 parts are fully loaded.
+  // Keyed by part_mark so subsequent lookup is O(1) per incoming row.
+  // -------------------------------------------------------------------------
+  const existingParts = await fetchAllRows<{
+    id: string;
+    part_mark: string;
+    status: string;
+    profile: string;
+    quantity: number;
+  }>((from, to) =>
+    ctx.sb.from("parts")
+      .select("id, part_mark, status, profile, quantity")
+      .eq("company_id", ctx.user.company_id)
       .eq("project_id", body.project_id)
-      .eq("part_mark", part_mark)
-      .maybeSingle();
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
+
+  const existingMap = new Map<string, { id: string; status: string; profile: string; quantity: number }>(
+    existingParts.map((p) => [
+      String(p.part_mark).trim(),
+      {
+        id: String(p.id),
+        status: String(p.status ?? ""),
+        profile: String(p.profile ?? ""),
+        quantity: Number(p.quantity ?? 1),
+      },
+    ]),
+  );
+
+  // -------------------------------------------------------------------------
+  // Classify all rows in-memory — zero DB round-trips in this loop.
+  // Tracks pending inserts and updates in maps keyed by part_mark / part id.
+  // If the same part_mark appears across multiple rows in the uploaded file:
+  //   1. Quantities are merged (summed).
+  //   2. Metadata (assembly, profile, name, grade, length, weight, phase, heat)
+  //      is enriched with any non-empty values.
+  //   3. A notice is logged in `skipped` so users know rows were merged.
+  // This completely prevents PostgreSQL duplicate key violations on
+  // `parts_company_mark_idx` (unique on company_id, project_id, part_mark).
+  // -------------------------------------------------------------------------
+  const pendingInsertMap = new Map<string, Record<string, unknown>>();
+  const pendingUpdateMap = new Map<string, { id: string; part_mark: string; patch: Record<string, unknown> }>();
+  const skipped: { row: number; part_mark?: string; reason: string }[] = [];
+  const errors: { row: number; reason: string }[] = [];
+
+  for (let i = 0; i < lookups.length; i++) {
+    const lookup = lookups[i]!;
+    const rawMark = pickFrom(lookup, "part_mark");
+    const part_mark = rawMark?.trim();
+    if (!part_mark) {
+      errors.push({ row: i, reason: "missing part mark (Mark / Part Mark column not found or empty)" });
+      continue;
+    }
+
+    // Stored verbatim as text — no unit parsing/conversion.
+    const length = pickFrom(lookup, "length") ?? null;
+    const weightRaw = Number(pickFrom(lookup, "weight"));
+    const weight = isFinite(weightRaw) && weightRaw > 0
+      ? (units === "metric" ? kgToLb(weightRaw) : weightRaw)
+      : null;
+    const rawQty = Number(pickFrom(lookup, "quantity") ?? "1");
+    const incomingQty = isFinite(rawQty) && rawQty > 0 ? rawQty : 1;
+    const incomingProfile = pickFrom(lookup, "profile") ?? null;
+    const incomingName = pickFrom(lookup, "name") ?? null;
+    const incomingGrade = pickFrom(lookup, "grade") ?? null;
+    const incomingPhase = pickFrom(lookup, "phase") ?? null;
+    const incomingHeat = pickFrom(lookup, "heat_number") ?? null;
+    const incomingAsm = pickFrom(lookup, "assembly_mark") ?? null;
+
+    const existing = existingMap.get(part_mark);
 
     if (existing) {
-      const progressed    = ["in_progress", "complete", "shipped"].includes((existing.status as string));
-      const incomingProfile = pickFrom(lookup, "profile");
-      const profileChanged  = incomingProfile && (existing.profile as string) !== incomingProfile;
+      const progressed = ["in_progress", "complete", "shipped"].includes(existing.status);
+      const profileChanged = incomingProfile && existing.profile !== incomingProfile;
 
       // Block geometry changes on parts already in production.
       // Profile is the single field that drives CNC and cutting — changing it
@@ -230,158 +311,223 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
         continue;
       }
 
-      // Re-import updates ALL fields. Profile + length + weight are refreshed
-      // for idle parts (not_started / on_hold). Metadata (name, grade, heat,
-      // phase) is always refreshed regardless of status.
-      const patch: Record<string, unknown> = {
-        name:         pickFrom(lookup, "name")          ?? null,
-        grade:        pickFrom(lookup, "grade")         ?? null,
-        heat_number:  pickFrom(lookup, "heat_number")   ?? null,
-        phase:        pickFrom(lookup, "phase")         ?? null,
-        quantity:     Number(pickFrom(lookup, "quantity") ?? "1"),
-      };
-      if (!progressed) {
-        // Only update geometry for idle parts.
-        if (incomingProfile)  patch.profile = incomingProfile;
-        if (length !== null)  patch.length  = length;
-        if (weight !== null)  patch.weight  = weight;
+      const existingUpdate = pendingUpdateMap.get(existing.id);
+      if (existingUpdate) {
+        // Seen earlier in this same import file — merge quantity and metadata
+        existingUpdate.patch.quantity = (Number(existingUpdate.patch.quantity) || 0) + incomingQty;
+        if (!existingUpdate.patch.name && incomingName) existingUpdate.patch.name = incomingName;
+        if (!existingUpdate.patch.grade && incomingGrade) existingUpdate.patch.grade = incomingGrade;
+        if (!existingUpdate.patch.heat_number && incomingHeat) existingUpdate.patch.heat_number = incomingHeat;
+        if (!existingUpdate.patch.phase && incomingPhase) existingUpdate.patch.phase = incomingPhase;
+        if (!progressed) {
+          if (incomingProfile) existingUpdate.patch.profile = incomingProfile;
+          if (length !== null) existingUpdate.patch.length = length;
+          if (weight !== null) existingUpdate.patch.weight = weight;
+        }
+        skipped.push({
+          row: i,
+          part_mark,
+          reason: `duplicate part mark in file — merged quantity (+${incomingQty}) with earlier row`,
+        });
+      } else {
+        // First occurrence in this file for an existing part.
+        const patch: Record<string, unknown> = {
+          name: incomingName,
+          grade: incomingGrade,
+          heat_number: incomingHeat,
+          phase: incomingPhase,
+          quantity: incomingQty,
+        };
+        if (!progressed) {
+          if (incomingProfile) patch.profile = incomingProfile;
+          if (length !== null) patch.length = length;
+          if (weight !== null) patch.weight = weight;
+        }
+        pendingUpdateMap.set(existing.id, { id: existing.id, part_mark, patch });
       }
+    } else {
+      const existingPending = pendingInsertMap.get(part_mark);
+      if (existingPending) {
+        // Seen earlier in this same import file for a new part — merge quantity and metadata
+        existingPending.quantity = (Number(existingPending.quantity) || 0) + incomingQty;
+        if (!existingPending.assembly_mark && incomingAsm) existingPending.assembly_mark = incomingAsm;
+        if ((!existingPending.profile || existingPending.profile === "UNKNOWN") && incomingProfile) {
+          existingPending.profile = incomingProfile;
+        }
+        if (!existingPending.name && incomingName) existingPending.name = incomingName;
+        if (!existingPending.grade && incomingGrade) existingPending.grade = incomingGrade;
+        if (existingPending.length == null && length !== null) existingPending.length = length;
+        if (existingPending.weight == null && weight !== null) existingPending.weight = weight;
+        if (!existingPending.phase && incomingPhase) existingPending.phase = incomingPhase;
+        if (!existingPending.heat_number && incomingHeat) existingPending.heat_number = incomingHeat;
 
-      const { data: updatedRow } = await ctx.sb.from("parts")
-        .update(patch).eq("id", existing.id).select().single();
-      if (updatedRow) updated.push(updatedRow);
-      continue;
+        skipped.push({
+          row: i,
+          part_mark,
+          reason: `duplicate part mark in file — merged quantity (+${incomingQty}) with earlier row`,
+        });
+      } else {
+        pendingInsertMap.set(part_mark, {
+          company_id: ctx.user.company_id,
+          project_id: body.project_id,
+          part_mark,
+          assembly_mark: incomingAsm,
+          profile: incomingProfile ?? "UNKNOWN",
+          name: incomingName,
+          grade: incomingGrade,
+          length,
+          weight,
+          quantity: incomingQty,
+          phase: incomingPhase,
+          heat_number: incomingHeat,
+          status: "not_started",
+        });
+      }
     }
-
-    // New part — insert with all fields.
-    const row = {
-      company_id:    ctx.user.company_id,
-      project_id:    body.project_id,
-      part_mark,
-      assembly_mark: pickFrom(lookup, "assembly_mark") ?? null,
-      profile:       pickFrom(lookup, "profile")       ?? "UNKNOWN",
-      name:          pickFrom(lookup, "name")          ?? null,
-      grade:         pickFrom(lookup, "grade")         ?? null,
-      length,
-      weight,
-      quantity:      Number(pickFrom(lookup, "quantity") ?? "1"),
-      phase:         pickFrom(lookup, "phase")         ?? null,
-      heat_number:   pickFrom(lookup, "heat_number")   ?? null,
-      status:        "not_started",
-    };
-    const { data, error } = await ctx.sb.from("parts").insert(row).select().single();
-    if (error) { errors.push({ row: i, reason: error.message }); continue; }
-    inserted.push(data);
   }
 
-<<<<<<< Updated upstream
-  // Automatically generate / update Material Requirements for this project
-  const mrSync = await syncMaterialRequirements(ctx, body.project_id);
-=======
+  const toInsert = Array.from(pendingInsertMap.values());
+  const toUpdate = Array.from(pendingUpdateMap.values());
+
   // -------------------------------------------------------------------------
-  // Auto-create assemblies from imported parts
+  // QUERIES 2…K — Batch UPSERT new parts in INSERT_CHUNK-row chunks.
+  // One round-trip per chunk; typically just 1 query for a normal BOM.
+  // Using upsert with onConflict on (company_id, project_id, part_mark) provides
+  // an additional layer of protection against race conditions and duplicates.
   // -------------------------------------------------------------------------
-  // Collect unique assembly_marks from ALL parts in this project (not just
-  // this import batch) to get accurate total_parts & completed_parts counts.
-  const assemblyMarks = new Set<string>();
-  for (const lookup of lookups) {
-    const asm = pickFrom(lookup, "assembly_mark");
-    if (asm) assemblyMarks.add(asm);
+  const insertedRows: Record<string, unknown>[] = [];
+  for (let i = 0; i < toInsert.length; i += INSERT_CHUNK) {
+    const chunk = toInsert.slice(i, i + INSERT_CHUNK);
+    const { data, error } = await ctx.sb.from("parts")
+      .upsert(chunk, {
+        onConflict: "company_id,project_id,part_mark",
+        ignoreDuplicates: false,
+      })
+      .select();
+    if (error) {
+      console.error("Batch upsert parts error:", error);
+      errors.push({ row: i, reason: error.message });
+    } else if (data) {
+      insertedRows.push(...(data as Record<string, unknown>[]));
+    }
   }
 
-  let assembliesCreated = 0;
-  let assembliesUpdated = 0;
+  // -------------------------------------------------------------------------
+  // QUERIES K+1…M — Batch UPDATE existing parts.
+  // Supabase JS doesn't support multi-row UPDATE with different per-row values
+  // natively, so we parallelise them in chunks of UPDATE_CHUNK using
+  // Promise.all — still far fewer round-trips than the old one-at-a-time loop.
+  // -------------------------------------------------------------------------
+  const updatedRows: Record<string, unknown>[] = [];
+  for (let i = 0; i < toUpdate.length; i += UPDATE_CHUNK) {
+    const chunk = toUpdate.slice(i, i + UPDATE_CHUNK);
+    const results = await Promise.all(
+      chunk.map(({ id, patch }) =>
+        ctx.sb.from("parts").update(patch).eq("id", id).select().single()
+      ),
+    );
+    for (const { data } of results) {
+      if (data) updatedRows.push(data as Record<string, unknown>);
+    }
+  }
 
-  for (const asm_mark of assemblyMarks) {
-    // Count parts for this assembly in the project
-    const { count: totalParts } = await ctx.sb.from("parts")
-      .select("*", { count: "exact", head: true })
-      .eq("project_id", body.project_id)
-      .eq("assembly_mark", asm_mark);
-
-    const { count: completedParts } = await ctx.sb.from("parts")
-      .select("*", { count: "exact", head: true })
-      .eq("project_id", body.project_id)
-      .eq("assembly_mark", asm_mark)
-      .in("status", ["complete", "shipped"]);
-
-    // Sum weights for this assembly
-    const { data: weightRows } = await ctx.sb.from("parts")
-      .select("weight,quantity")
-      .eq("project_id", body.project_id)
-      .eq("assembly_mark", asm_mark);
-
-    const totalWeight = (weightRows || []).reduce((sum, p) => {
-      const w = Number(p.weight) || 0;
-      const q = Number(p.quantity) || 1;
-      return sum + (w * q);
-    }, 0);
-
-    // Get the phase/sequence from one of the parts in this assembly
-    const { data: samplePart } = await ctx.sb.from("parts")
-      .select("phase,profile")
-      .eq("project_id", body.project_id)
-      .eq("assembly_mark", asm_mark)
-      .limit(1)
-      .maybeSingle();
-
-    // Check if assembly already exists
-    const { data: existingAsm } = await ctx.sb.from("assemblies")
-      .select("id")
+  // -------------------------------------------------------------------------
+  // QUERY M+1 — Load all project parts with pagination to compute assembly
+  // aggregates in-memory. Replaces 6 queries × N unique assembly marks.
+  // -------------------------------------------------------------------------
+  const allProjectParts = await fetchAllRows<{
+    assembly_mark: string | null;
+    profile: string | null;
+    weight: number | null;
+    quantity: number | null;
+    status: string | null;
+  }>((from, to) =>
+    ctx.sb.from("parts")
+      .select("assembly_mark, profile, weight, quantity, status")
       .eq("company_id", ctx.user.company_id)
       .eq("project_id", body.project_id)
-      .eq("assembly_mark", asm_mark)
-      .maybeSingle();
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
 
-    const total = totalParts ?? 0;
-    const completed = completedParts ?? 0;
-    const asmStatus = total > 0 && completed >= total ? "complete"
-                    : completed > 0 ? "in_progress"
-                    : "not_started";
+  // Aggregate assembly stats entirely in-memory
+  interface AsmStats {
+    total: number;
+    completed: number;
+    totalWeight: number;
+    sampleProfile: string;
+  }
+  const asmStatsMap = new Map<string, AsmStats>();
+  for (const p of allProjectParts ?? []) {
+    const asm = p.assembly_mark ? String(p.assembly_mark).trim() : null;
+    if (!asm) continue;
+    const stats = asmStatsMap.get(asm) ?? { total: 0, completed: 0, totalWeight: 0, sampleProfile: "" };
+    const qty = Number(p.quantity) || 1;
+    stats.total += qty;
+    if (["complete", "shipped"].includes(String(p.status ?? ""))) {
+      stats.completed += qty;
+    }
+    stats.totalWeight += (Number(p.weight) || 0) * qty;
+    if (!stats.sampleProfile && p.profile) stats.sampleProfile = String(p.profile);
+    asmStatsMap.set(asm, stats);
+  }
 
-    if (existingAsm) {
-      // Update existing assembly with fresh counts
-      await ctx.sb.from("assemblies").update({
-        total_parts:     total,
-        completed_parts: completed,
-        total_weight:    Math.round(totalWeight * 100) / 100,
-        status:          asmStatus,
-      }).eq("id", existingAsm.id);
-      assembliesUpdated++;
-    } else {
-      // Create new assembly
-      const asmRow = {
-        company_id:      ctx.user.company_id,
-        project_id:      body.project_id,
-        assembly_mark:   asm_mark,
-        description:     samplePart?.profile
-                           ? `${samplePart.profile} assembly`
-                           : `Assembly ${asm_mark}`,
-        total_weight:    Math.round(totalWeight * 100) / 100,
-        total_parts:     total,
-        completed_parts: completed,
-        status:          asmStatus,
-      };
-      const { error: asmErr } = await ctx.sb.from("assemblies").insert(asmRow);
-      if (!asmErr) assembliesCreated++;
+  // Build upsert rows for assemblies
+  const assemblyUpsertRows = Array.from(asmStatsMap.entries()).map(([asm_mark, stats]) => {
+    const asmStatus = stats.total > 0 && stats.completed >= stats.total ? "complete"
+      : stats.completed > 0 ? "in_progress"
+        : "not_started";
+    return {
+      company_id: ctx.user.company_id,
+      project_id: body.project_id,
+      assembly_mark: asm_mark,
+      description: stats.sampleProfile
+        ? `${stats.sampleProfile} assembly`
+        : `Assembly ${asm_mark}`,
+      total_weight: Math.round(stats.totalWeight * 100) / 100,
+      total_parts: stats.total,
+      completed_parts: stats.completed,
+      status: asmStatus,
+    };
+  });
+
+  // -------------------------------------------------------------------------
+  // QUERY M+2 — Fetch existing assembly marks to count creates vs updates,
+  // then QUERY M+3 — upsert assemblies in one batch.
+  // -------------------------------------------------------------------------
+  let assembliesCreated = 0;
+  let assembliesUpdated = 0;
+  if (assemblyUpsertRows.length > 0) {
+    const { data: existingAsms } = await ctx.sb.from("assemblies")
+      .select("assembly_mark")
+      .eq("company_id", ctx.user.company_id)
+      .eq("project_id", body.project_id)
+      .in("assembly_mark", assemblyUpsertRows.map((r) => r.assembly_mark));
+
+    const existingAsmSet = new Set((existingAsms ?? []).map((a) => String(a.assembly_mark)));
+    for (const r of assemblyUpsertRows) {
+      if (existingAsmSet.has(r.assembly_mark)) assembliesUpdated++;
+      else assembliesCreated++;
+    }
+
+    for (let i = 0; i < assemblyUpsertRows.length; i += INSERT_CHUNK) {
+      await ctx.sb.from("assemblies")
+        .upsert(assemblyUpsertRows.slice(i, i + INSERT_CHUNK), {
+          onConflict: "company_id,project_id,assembly_mark",
+          ignoreDuplicates: false,
+        });
     }
   }
 
   // -------------------------------------------------------------------------
-  // Auto-create drawings from imported parts
+  // Drawings: derive refs from assembly marks in-memory (no extra query).
   // -------------------------------------------------------------------------
-  // Drawing references come from parts that have assembly_marks.
-  // Group parts by assembly_mark prefix (letter portion) as drawing sheets.
-  // E.g. assembly marks A-101, A-102, A-103 → Drawing "A" sheet.
-  // Also pick up any explicit drawing info from the 'name' column.
   const drawingRefs = new Map<string, { parts_count: number; title: string }>();
-
   for (const lookup of lookups) {
     const asm = pickFrom(lookup, "assembly_mark");
     if (!asm) continue;
-
-    // Extract drawing number: use the assembly prefix letter(s) + first digits
-    // E.g. "A-204" → drawing "A-200 Series", "B-108" → "B-100 Series"
+    // Extract drawing number from assembly mark prefix:
+    // "A-204" → "A-SERIES", "B-108" → "B-SERIES"
     const match = asm.match(/^([A-Z]+)-?(\d)/i);
     if (match) {
       const drawingNum = `${match[1].toUpperCase()}-SERIES`;
@@ -389,7 +535,6 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
       const profile = pickFrom(lookup, "profile") || "";
       const name = pickFrom(lookup, "name") || "";
       const desc = name || profile || asm;
-
       if (existing) {
         existing.parts_count++;
       } else {
@@ -401,105 +546,98 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // QUERY M+4 — Fetch existing drawing numbers, then QUERY M+5 — upsert
+  // drawings in one batch. Total queries for the entire import: ~6 + chunks.
+  // -------------------------------------------------------------------------
   let drawingsCreated = 0;
+  if (drawingRefs.size > 0) {
+    const drawingUpsertRows = Array.from(drawingRefs.entries()).map(([drawingNumber, info]) => ({
+      company_id: ctx.user.company_id,
+      project_id: body.project_id,
+      drawing_number: drawingNumber,
+      revision: "A",
+      title: info.title,
+      type: "shop",
+      status: "in_progress",
+      current_revision: true,
+      parts_count: info.parts_count,
+    }));
 
-  for (const [drawingNumber, info] of drawingRefs) {
-    // Check if drawing already exists
-    const { data: existingDwg } = await ctx.sb.from("drawings")
-      .select("id")
+    const { data: existingDwgs } = await ctx.sb.from("drawings")
+      .select("drawing_number")
       .eq("company_id", ctx.user.company_id)
       .eq("project_id", body.project_id)
-      .eq("drawing_number", drawingNumber)
-      .maybeSingle();
+      .in("drawing_number", drawingUpsertRows.map((r) => r.drawing_number));
 
-    if (existingDwg) {
-      // Update parts count
-      await ctx.sb.from("drawings").update({
-        parts_count: info.parts_count,
-      }).eq("id", existingDwg.id);
-    } else {
-      const dwgRow = {
-        company_id:      ctx.user.company_id,
-        project_id:      body.project_id,
-        drawing_number:  drawingNumber,
-        revision:        "A",
-        title:           info.title,
-        type:            "shop",
-        status:          "in_progress",
-        current_revision: true,
-        parts_count:     info.parts_count,
-      };
-      const { error: dwgErr } = await ctx.sb.from("drawings").insert(dwgRow);
-      if (!dwgErr) drawingsCreated++;
+    const existingDwgSet = new Set((existingDwgs ?? []).map((d) => String(d.drawing_number)));
+    drawingsCreated = drawingUpsertRows.filter((r) => !existingDwgSet.has(r.drawing_number)).length;
+
+    for (let i = 0; i < drawingUpsertRows.length; i += INSERT_CHUNK) {
+      await ctx.sb.from("drawings")
+        .upsert(drawingUpsertRows.slice(i, i + INSERT_CHUNK), {
+          onConflict: "company_id,project_id,drawing_number,revision",
+          ignoreDuplicates: false,
+        });
     }
   }
->>>>>>> Stashed changes
+
+  // -------------------------------------------------------------------------
+  // Material Requirements sync (internally batched — 2 bulk queries)
+  // -------------------------------------------------------------------------
+  const mrSync = await syncMaterialRequirements(ctx, body.project_id);
 
   await writeAudit(ctx, {
     action: "import",
     table_name: "parts",
     new_values: {
       project_id: body.project_id,
-      inserted: inserted.length,
+      inserted: insertedRows.length,
       skipped: skipped.length,
       errors: errors.length,
-<<<<<<< Updated upstream
+      assemblies_created: assembliesCreated,
+      assemblies_updated: assembliesUpdated,
+      drawings_created: drawingsCreated,
       mr_created: mrSync.created,
       mr_updated: mrSync.updated,
     },
   });
   await writeActivity(ctx, {
-    action: `imported ${inserted.length} parts, updated ${updated.length} from CSV · ${mrSync.created} MRs created, ${mrSync.updated} updated`,
-=======
-      assemblies_created: assembliesCreated,
-      assemblies_updated: assembliesUpdated,
-      drawings_created: drawingsCreated,
-    },
-  });
-  await writeActivity(ctx, {
-    action: `imported ${inserted.length} parts, updated ${updated.length}, created ${assembliesCreated} assemblies & ${drawingsCreated} drawings`,
->>>>>>> Stashed changes
+    action: `imported ${insertedRows.length} parts, updated ${updatedRows.length}, created ${assembliesCreated} assemblies & ${drawingsCreated} drawings, ${mrSync.created} MRs created, ${mrSync.updated} updated`,
     entity_type: "projects",
     entity_id: body.project_id,
     entity_label: project.name as string,
     metadata: {
       units,
-      inserted: inserted.length,
-      updated: updated.length,
+      inserted: insertedRows.length,
+      updated: updatedRows.length,
       skipped: skipped.length,
       errors: errors.length,
-<<<<<<< Updated upstream
       mr_created: mrSync.created,
       mr_updated: mrSync.updated,
-=======
       assemblies_created: assembliesCreated,
       assemblies_updated: assembliesUpdated,
       drawings_created: drawingsCreated,
->>>>>>> Stashed changes
     },
   });
 
   return ok({
     summary: {
-      inserted: inserted.length,
-      updated: updated.length,
+      inserted: insertedRows.length,
+      updated: updatedRows.length,
       skipped: skipped.length,
       errors: errors.length,
-<<<<<<< Updated upstream
       mr_created: mrSync.created,
       mr_updated: mrSync.updated,
-      units,
-=======
       units,
       assemblies_created: assembliesCreated,
       assemblies_updated: assembliesUpdated,
       drawings_created: drawingsCreated,
->>>>>>> Stashed changes
     },
     skipped,
     errors,
     mapping: {
-      matched_fields:   Array.from(matchedFields).sort(),
+      matched_fields: Array.from(matchedFields).sort(),
       unmapped_headers: Array.from(unmappedHeaders).sort(),
     },
   });
@@ -512,14 +650,24 @@ export async function importCsv(ctx: Ctx): Promise<Response> {
  */
 export async function syncMaterialRequirements(ctx: Ctx, projectId: string): Promise<{ created: number; updated: number }> {
   try {
-    const { data: allParts, error: partsErr } = await ctx.sbAdmin
-      .from("parts")
-      .select("profile, name, grade, length, quantity, part_mark")
-      .eq("company_id", ctx.user.company_id)
-      .eq("project_id", projectId);
+    const allParts = await fetchAllRows<{
+      profile: string | null;
+      name: string | null;
+      grade: string | null;
+      length: string | null;
+      quantity: number | null;
+      part_mark: string | null;
+    }>((from, to) =>
+      ctx.sbAdmin
+        .from("parts")
+        .select("profile, name, grade, length, quantity, part_mark")
+        .eq("company_id", ctx.user.company_id)
+        .eq("project_id", projectId)
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
 
-    if (partsErr || !allParts) {
-      console.error("Failed to fetch parts for MR sync:", partsErr);
+    if (!allParts || allParts.length === 0) {
       return { created: 0, updated: 0 };
     }
 
@@ -566,19 +714,28 @@ export async function syncMaterialRequirements(ctx: Ctx, projectId: string): Pro
       }
     }
 
-    const { data: existingMrs, error: mrErr } = await ctx.sbAdmin
-      .from("material_requirements")
-      .select("id, profile, name, grade, length, quantity, status, notes")
-      .eq("company_id", ctx.user.company_id)
-      .eq("project_id", projectId);
+    const existingMrs = await fetchAllRows<{
+      id: string;
+      profile: string | null;
+      name: string | null;
+      grade: string | null;
+      length: string | null;
+      quantity: number | null;
+      status: string;
+      notes: string | null;
+    }>((from, to) =>
+      ctx.sbAdmin
+        .from("material_requirements")
+        .select("id, profile, name, grade, length, quantity, status, notes")
+        .eq("company_id", ctx.user.company_id)
+        .eq("project_id", projectId)
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
 
-    if (mrErr || !existingMrs) {
-      console.error("Failed to fetch existing MRs for sync:", mrErr);
-      return { created: 0, updated: 0 };
-    }
-
-    let createdCount = 0;
-    let updatedCount = 0;
+    const toDelete: string[] = [];
+    const toUpdate: { id: string; patch: { quantity: number; notes: string | null } }[] = [];
+    const toInsert: { group: GroupData; unmetDemand: number; notes: string | null }[] = [];
 
     for (const group of groups.values()) {
       const matchingMrs = existingMrs.filter((m) => {
@@ -600,7 +757,7 @@ export async function syncMaterialRequirements(ctx: Ctx, projectId: string): Pro
       // Unmet incremental demand
       const unmetDemand = Math.max(0, group.totalQty - coveredQty);
 
-      let notes: string | undefined = undefined;
+      let notes: string | null = null;
       if (group.marksSet.size > 0) {
         const fullMarks = Array.from(group.marksSet).join(", ");
         notes = fullMarks.length > 490 ? `${fullMarks.slice(0, 470)}… (${group.marksSet.size} marks)` : fullMarks;
@@ -608,51 +765,95 @@ export async function syncMaterialRequirements(ctx: Ctx, projectId: string): Pro
 
       if (unmetDemand > 0) {
         if (openMr) {
-          if (Number(openMr.quantity) !== unmetDemand || openMr.notes !== (notes ?? null)) {
-            await ctx.sbAdmin
-              .from("material_requirements")
-              .update({
-                quantity: unmetDemand,
-                notes: notes ?? null,
-              })
-              .eq("id", openMr.id);
-            updatedCount++;
+          if (Number(openMr.quantity) !== unmetDemand || openMr.notes !== notes) {
+            toUpdate.push({
+              id: openMr.id,
+              patch: { quantity: unmetDemand, notes },
+            });
           }
         } else {
-          const { data: seq, error: seqErr } = await ctx.sbAdmin.rpc("next_sequence_number", {
-            p_company_id: ctx.user.company_id,
-            p_table_name: "material_requirements",
-            p_prefix: "MR",
-            p_width: 4,
-          });
-
-          if (seqErr) {
-            console.error("Failed to generate MR sequence number:", seqErr);
-            continue;
-          }
-
-          const { error: insErr } = await ctx.sbAdmin.from("material_requirements").insert({
-            company_id: ctx.user.company_id,
-            project_id: projectId,
-            mr_number: seq,
-            profile: group.profile,
-            name: group.name,
-            grade: group.grade,
-            quantity: unmetDemand,
-            length: group.length,
-            notes: notes ?? null,
-            status: "open",
-          });
-
-          if (insErr) {
-            console.error("Failed to insert material requirement:", insErr);
-            continue;
-          }
-
-          createdCount++;
+          toInsert.push({ group, unmetDemand, notes });
         }
       } else if (openMr && unmetDemand === 0) {
-        await ctx.sbAdmin.from("material_requirements").delete().eq("id", openMr.id);
+        toDelete.push(openMr.id);
+      }
+    }
+
+    // 1. Batch DELETE open MRs that are no longer needed (unmetDemand dropped to 0)
+    if (toDelete.length > 0) {
+      const { error: delErr } = await ctx.sbAdmin.from("material_requirements").delete().in("id", toDelete);
+      if (delErr) console.error("Failed to delete stale MRs:", delErr);
+    }
+
+    // 2. Parallel chunked UPDATE for existing open MRs
+    let updatedCount = 0;
+    for (let i = 0; i < toUpdate.length; i += UPDATE_CHUNK) {
+      const chunk = toUpdate.slice(i, i + UPDATE_CHUNK);
+      const results = await Promise.all(
+        chunk.map(({ id, patch }) =>
+          ctx.sbAdmin.from("material_requirements").update(patch).eq("id", id)
+        )
+      );
+      for (const res of results) {
+        if (!res.error) updatedCount++;
+        else console.error("Error updating material requirement:", res.error);
+      }
+    }
+
+    // 3. Batch sequence generation & INSERT for new MRs
+    let createdCount = 0;
+    if (toInsert.length > 0) {
+      const seqResults: (string | null)[] = [];
+      const SEQ_CONCURRENCY = 25;
+      for (let i = 0; i < toInsert.length; i += SEQ_CONCURRENCY) {
+        const chunk = toInsert.slice(i, i + SEQ_CONCURRENCY);
+        const chunkRes = await Promise.all(
+          chunk.map(() =>
+            ctx.sbAdmin.rpc("next_sequence_number", {
+              p_company_id: ctx.user.company_id,
+              p_table_name: "material_requirements",
+              p_prefix: "MR",
+              p_width: 4,
+            })
+          )
+        );
+        for (const r of chunkRes) {
+          if (r.data && typeof r.data === "string") {
+            seqResults.push(r.data);
+          } else {
+            console.error("Failed to generate MR sequence number:", r.error);
+            seqResults.push(null);
+          }
+        }
+      }
+
+      const insertRows: Record<string, unknown>[] = [];
+      for (let i = 0; i < toInsert.length; i++) {
+        const seq = seqResults[i];
+        if (!seq) continue;
+        const item = toInsert[i]!;
+        insertRows.push({
+          company_id: ctx.user.company_id,
+          project_id: projectId,
+          mr_number: seq,
+          profile: item.group.profile,
+          name: item.group.name,
+          grade: item.group.grade,
+          quantity: item.unmetDemand,
+          length: item.group.length,
+          notes: item.notes,
+          status: "open",
+        });
+      }
+
+      for (let i = 0; i < insertRows.length; i += INSERT_CHUNK) {
+        const chunk = insertRows.slice(i, i + INSERT_CHUNK);
+        const { error: insErr } = await ctx.sbAdmin.from("material_requirements").insert(chunk);
+        if (insErr) {
+          console.error("Failed to batch insert material requirements:", insErr);
+        } else {
+          createdCount += chunk.length;
+        }
       }
     }
 
@@ -662,4 +863,3 @@ export async function syncMaterialRequirements(ctx: Ctx, projectId: string): Pro
     return { created: 0, updated: 0 };
   }
 }
-
