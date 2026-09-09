@@ -16,7 +16,8 @@ import {
 import { useCsvExport } from "@/hooks/useCsvExport";
 import { useGlobalProject } from "@/hooks/useGlobalProject";
 import { FabAPI, getRole, type CreatePoFromPartsResult } from "@/lib/api";
-import { Plus, Search, Loader2, X, ShoppingCart } from "lucide-react";
+import { Plus, Search, Loader2, X, ShoppingCart, FileSpreadsheet } from "lucide-react";
+import { ImportTeklaModal } from "@/components/import/ImportTeklaModal";
 
 interface Part {
   id: string;
@@ -49,6 +50,7 @@ export default function PartsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [showNew, setShowNew] = useState(false);
+  const [showImportTekla, setShowImportTekla] = useState(false);
   const [showCreatePo, setShowCreatePo] = useState(false);
   const [editing, setEditing] = useState<Part | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -192,6 +194,13 @@ export default function PartsPage() {
               <ShoppingCart size={14} /> Create PO
             </button>
           )}
+          <button
+            className="btn"
+            onClick={() => setShowImportTekla(true)}
+            title="Import BOM from Tekla Structures, SDS2, KISS (.kss), CSV, or Excel (.xlsx)"
+          >
+            <FileSpreadsheet size={14} /> Import Tekla / BOM
+          </button>
           <button className="btn btn-primary" onClick={() => setShowNew(true)}>
             <Plus size={14} /> New Part
           </button>
@@ -221,7 +230,7 @@ export default function PartsPage() {
         columns={cols}
         loading={list.isLoading}
         error={list.error}
-        empty={{ title: "No parts yet", subtitle: "Import a Tekla / SDS2 CSV or XLSX, or add manually." }}
+        empty={{ title: "No parts yet", subtitle: "Import a Tekla / SDS2 BOM (KISS, CSV, XLSX), or add manually." }}
         rowKey={(r) => r.id}
         onRowClick={(r) => setEditing(r)}
         selectable={{ selected, onChange: setSelected }}
@@ -270,6 +279,16 @@ export default function PartsPage() {
           onClose={() => setShowCreatePo(false)}
           onCreated={() => {
             setShowCreatePo(false);
+            list.refetch();
+          }}
+        />
+      )}
+      {showImportTekla && (
+        <ImportTeklaModal
+          open={showImportTekla}
+          onClose={() => setShowImportTekla(false)}
+          initialProjectId={selectedProjectId}
+          onSuccess={() => {
             list.refetch();
           }}
         />

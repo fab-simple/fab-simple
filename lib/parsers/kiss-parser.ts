@@ -147,6 +147,7 @@ export function parseKissFile(text: string, filename: string): ParsedBomResult {
             qty = parseFloat(fields[5] ?? "1") || 1;
             matType = (fields[6] ?? "").toUpperCase();
             size = fields[7] ?? "";
+            grade = fields[8] ?? "";
             let rawLengthStr = fields[9] ?? "0";
             lengthRaw = parseLengthToInches(rawLengthStr);
 

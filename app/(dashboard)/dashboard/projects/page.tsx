@@ -7,7 +7,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { useResourceList, useCreate } from "@/hooks/useResource";
 import { useCsvExport } from "@/hooks/useCsvExport";
 import { formatCurrency } from "@/lib/utils";
-import { Plus, Loader2, AlertCircle, Calendar } from "lucide-react";
+import { Plus, Loader2, AlertCircle, Calendar, X } from "lucide-react";
 
 interface Project {
   id: string;
@@ -144,10 +144,13 @@ function NewProjectModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.5)" }} onClick={onClose}>
-      <div className="card" style={{ width: 480 }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.5)" }}>
+      <div className="card" style={{ width: 480 }}>
         <div className="card-header">
           <div className="card-title">New project</div>
+          <button type="button" onClick={onClose} className="btn btn-sm" style={{ padding: 6, height: 28, width: 28, justifyContent: "center" }}>
+            <X size={14} />
+          </button>
         </div>
         <form
           className="card-body"

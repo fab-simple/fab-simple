@@ -18,7 +18,7 @@ export function AttachmentsDrawer({ open, onClose, entityType, entityId, bucket,
   if (!open) return null;
   return (
     <>
-      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40" />
       <aside
         className="fixed right-0 top-0 bottom-0 z-50 flex flex-col"
         style={{
