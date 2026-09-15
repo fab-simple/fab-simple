@@ -83,15 +83,6 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
     items: [
       // Estimation: Owner Full · Estimator Full · PM View
       { key: "estimating",    label: "Estimation",    href: "/dashboard/estimating",      icon: Calculator,   roles: [...OWNER_ESTIMATOR_PM] },
-      // Projects: Owner Full · Estimator View · PM Full · Foreman View · QC View · Accounting View
-      { key: "projects",      label: "Projects",      href: "/dashboard/projects",        icon: FolderKanban, roles: [...ALL_NON_WORKER] },
-      // Change Orders: Owner Full · PM Full · Accounting View
-      { key: "change-orders", label: "Change Orders", href: "/dashboard/change-orders",   icon: FileDiff,     roles: [...OWNER_PM_ACCT], projectScoped: true },
-      // RFIs: Owner Full · PM Full · Foreman View · QC View
-      { key: "rfis",          label: "RFI Log",       href: "/dashboard/rfis",            icon: FileText,     roles: [...OWNER_PM_FOREMAN_QC], projectScoped: true },
-      // Drawing Log: Owner Full · PM Full · Foreman View · QC View · Worker View
-      // (Worker accesses drawings inside the mobile worker view, not the sidebar.)
-      { key: "drawings",      label: "Drawing Log",   href: "/dashboard/drawings",        icon: FileText,     roles: [...OWNER_PM_FOREMAN_QC], projectScoped: true },
     ],
   },
   {
@@ -129,6 +120,19 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       { key: "heat-numbers",    label: "Heat Numbers",       href: "/dashboard/heat-numbers",    icon: FlameKindling,   roles: [...OWNER_PM_FOREMAN_QC] },
       // Material Traceability: Full reverse chain (Part -> Heat -> Lot -> PO -> Vendor -> MTR)
       { key: "traceability",    label: "Material Traceability", href: "/dashboard/traceability", icon: GitBranch,      roles: [...OWNER_PM_FOREMAN_QC] },
+    ],
+  },
+  {
+    label: "Projects",
+    items: [
+      // Projects: Owner Full · Estimator View · PM Full · Foreman View · QC View · Accounting View
+      { key: "projects",      label: "Projects",      href: "/dashboard/projects",        icon: FolderKanban, roles: [...ALL_NON_WORKER] },
+      // Change Orders: Owner Full · PM Full · Accounting View
+      { key: "change-orders", label: "Change Orders", href: "/dashboard/change-orders",   icon: FileDiff,     roles: [...OWNER_PM_ACCT], projectScoped: true },
+      // RFIs: Owner Full · PM Full · Foreman View · QC View
+      { key: "rfis",          label: "RFI Log",       href: "/dashboard/rfis",            icon: FileText,     roles: [...OWNER_PM_FOREMAN_QC], projectScoped: true },
+      // Drawing Log: Owner Full · PM Full · Foreman View · QC View · Worker View
+      { key: "drawings",      label: "Drawing Log",   href: "/dashboard/drawings",        icon: FileText,     roles: [...OWNER_PM_FOREMAN_QC], projectScoped: true },
     ],
   },
   {

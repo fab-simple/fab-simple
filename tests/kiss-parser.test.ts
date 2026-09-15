@@ -119,5 +119,209 @@ D,D-102,B,C20,c201,2,C,HSS10X10X1/2,A500,20-00-00,1234.00,NONE,COLUMN 20
     expect(mapping.weight).toBe("Part Weight");
     expect(mapping.assembly_mark).toBe("Assembly Mark");
   });
+
+  describe("Fabrication Industry Reference Specification Tests", () => {
+    it("handles D angle record with AISC calculated weight instead of length", () => {
+      // D,2000A9,0,2000A9,2000A9,132,L,3X3X1/4,A36,606.42,SHOP PRIMER,ANGLE
+      const kissText = `
+KISS,1.0,SDS2
+H,JOB2000,FAB SAMPLE,CLIENT,2026-09-15,12:00:00,M
+D,2000A9,0,2000A9,2000A9,132,L,3X3X1/4,A36,606.42,SHOP PRIMER,ANGLE
+`.trim();
+
+      const parsed = parseKissFile(kissText, "sample_angle.kss");
+      expect(parsed.members).toHaveLength(1);
+
+      const m = parsed.members[0]!;
+      expect(m.pieceMark).toBe("2000A9");
+      expect(m.assemblyMark).toBe("2000A9");
+      expect(m.quantity).toBe(132);
+      expect(m.category).toBe("Angle");
+      expect(m.section).toBe("L3X3X1/4");
+      expect(m.grade).toBe("A36");
+      expect(m.finish).toBe("SHOP PRIMER");
+      expect(m.notes).toContain("ANGLE");
+
+      // Length is 606.42 mm -> formatted exactly as 1'-11 7/8" (23.875 inches = 1.9896 feet)
+      expect(m.length).toBeCloseTo(23.875, 2);
+      expect(m.lengthFormatted).toBe("1'-11 7/8\"");
+
+      // Weight rule: Length 606.42 must NOT be treated as weight!
+      // Unit weight of L3X3X1/4 is 4.8914 lbs/ft. Piece weight is 9.73 lbs.
+      expect(m.weight).not.toBe(606.42);
+      expect(m.weight).toBeCloseTo(9.73, 2);
+
+      // Total line weight: 132 * 9.73187 = exact 1285 lbs!
+      expect(m.totalWeight).toBe(1285);
+
+      const aggregated = aggregateBom(parsed);
+      const angleGroup = aggregated.materials_breakdown.find((g) => g.shape === "Angle");
+      expect(angleGroup).toBeDefined();
+      expect(angleGroup?.tons).toBeCloseTo(0.64, 2);
+    });
+
+    it("identifies HS bolt records from D line and excludes them from structural members & tonnage", () => {
+      // D,2000A9,0,2000A9,,132,HS,1/2X2,A325,50.80,,Field
+      const kissText = `
+KISS,1.0,SDS2
+H,JOB2000,FAB SAMPLE,CLIENT,2026-09-15,12:00:00,M
+D,2000A9,0,2000A9,,132,HS,1/2X2,A325,50.80,,Field
+`.trim();
+
+      const parsed = parseKissFile(kissText, "sample_bolt.kss");
+      // Must NOT be in structural members
+      expect(parsed.members).toHaveLength(0);
+
+      // Must be parsed into bolts
+      expect(parsed.bolts).toHaveLength(1);
+      const b = parsed.bolts[0]!;
+      expect(b.quantity).toBe(132);
+      expect(b.diameter).toBe("1/2");
+      expect(b.length).toBe(2);
+      expect(b.grade).toBe("A325");
+      expect(b.installation).toBe("Field");
+      expect(b.assemblyMark).toBe("2000A9");
+
+      // Aggregated estimate structural tons should be 0, but bolt line items are generated
+      const aggregated = aggregateBom(parsed);
+      expect(aggregated.materials_breakdown).toHaveLength(0);
+    });
+
+    it("handles L hole and weld operations without confusing holes as bolts", () => {
+      // L,Holes,8,20.64,9.53,Round
+      // L,weld,1,1879.60,6.35,W10
+      const kissText = `
+KISS,1.0,SDS2
+H,JOB2000,FAB SAMPLE,CLIENT,2026-09-15,12:00:00,M
+D,2000A9,0,2000A9,2000A9,1,L,3X3X1/4,A36,606.42,SHOP PRIMER,ANGLE
+L,Holes,8,20.64,9.53,Round
+L,weld,1,1879.60,6.35,W10
+`.trim();
+
+      const parsed = parseKissFile(kissText, "operations.kss");
+      expect(parsed.members).toHaveLength(1);
+      const m = parsed.members[0]!;
+
+      // Holes must be attached to member, NOT converted into bolts!
+      expect(m.holes).toBeDefined();
+      expect(m.holes).toHaveLength(1);
+      expect(m.holes![0]!.count).toBe(8);
+      expect(m.holes![0]!.diameter).toBe("20.64");
+      expect(m.holes![0]!.depth).toBe("9.53");
+      expect(m.holes![0]!.shape).toBe("Round");
+
+      // Bolts array must be empty (holes are NOT bolts)
+      expect(parsed.bolts).toHaveLength(0);
+
+      // Weld must be recorded
+      expect(m.welds).toBeDefined();
+      expect(m.welds).toHaveLength(1);
+      expect(m.welds![0]!.weldLength).toBe(1879.60);
+      expect(m.welds![0]!.weldSize).toBe("6.35");
+      expect(m.welds![0]!.weldType).toBe("W10");
+      expect(parsed.welds).toHaveLength(1);
+    });
+
+    it("ignores S,1,1 control/status records without adding parts, weight, or quantity", () => {
+      const kissText = `
+KISS,1.0,SDS2
+H,JOB2000,FAB SAMPLE,CLIENT,2026-09-15,12:00:00,M
+D,2000A9,0,2000A9,2000A9,132,L,3X3X1/4,A36,606.42,SHOP PRIMER,ANGLE
+S,1,1
+`.trim();
+
+      const parsed = parseKissFile(kissText, "control_status.kss");
+      // S,1,1 must NOT create a 2nd part or add extra weight
+      expect(parsed.members).toHaveLength(1);
+      expect(parsed.bolts).toHaveLength(0);
+      expect(parsed.members[0]!.quantity).toBe(132);
+    });
+
+    it("correctly parses a complete reference file combining D, L, S, * records", () => {
+      const kissText = `
+KISS,1.0,SDS2
+H,2000A9,FAB PROJECT,ACME FAB,2026-09-15,18:00:00,M
+* ==========================================
+* STRUCTURAL MEMBERS
+* ==========================================
+D,2000A9,0,2000A9,2000A9,132,L,3X3X1/4,A36,606.42,SHOP PRIMER,ANGLE
+L,Holes,8,20.64,9.53,Round
+L,weld,1,1879.60,6.35,W10
+S,1,1
+* ==========================================
+* HARDWARE & BOLTS
+* ==========================================
+D,2000A9,0,2000A9,,132,HS,1/2X2,A325,50.80,,Field
+* END OF FILE
+`.trim();
+
+      const parsed = parseKissFile(kissText, "complete_reference.kss");
+      expect(parsed.errors).toHaveLength(0);
+
+      // Only 1 structural member (the angle)
+      expect(parsed.members).toHaveLength(1);
+      expect(parsed.members[0]!.pieceMark).toBe("2000A9");
+      expect(parsed.members[0]!.quantity).toBe(132);
+
+      // 1 bolt group (the HS field bolts)
+      expect(parsed.bolts).toHaveLength(1);
+      expect(parsed.bolts[0]!.diameter).toBe("1/2");
+      expect(parsed.bolts[0]!.length).toBe(2);
+      expect(parsed.bolts[0]!.quantity).toBe(132);
+      expect(parsed.bolts[0]!.installation).toBe("Field");
+
+      // Total estimate aggregation
+      const aggregated = aggregateBom(parsed);
+      expect(aggregated.materials_breakdown).toHaveLength(1);
+      expect(aggregated.materials_breakdown[0]!.shape).toBe("Angle");
+      expect(aggregated.materials_breakdown[0]!.tons).toBeCloseTo(0.64, 1);
+    });
+
+    it("correctly evaluates hybrid KISS files with INCH header flag and mm dimensions without ballooning weight to 32633 lbs", () => {
+      // CAD exports often set H-flag to INCH (due to AISC imperial profile catalog), but output mm lengths (606.42).
+      const kissText = `
+KISS,1.0,TEKLA
+H,2000A9,FAB PROJECT,ACME FAB,2026-09-15,18:00:00,INCH
+D,2000A9,0,2000A9,2000A9,132,L,3X3X1/4,A36,606.42,SHOP PRIMER,ANGLE
+D,2000A9,0,2000A9,,132,HS,1/2X2,A325,50.80,,Field
+`.trim();
+
+      const parsed = parseKissFile(kissText, "hybrid_tekla.kss");
+      expect(parsed.members).toHaveLength(1);
+
+      const m = parsed.members[0]!;
+      expect(m.pieceMark).toBe("2000A9");
+      // Must NOT be 606.42 inches (50.5 ft)
+      expect(m.length).toBeCloseTo(23.875, 2);
+      expect(m.lengthFormatted).toBe("1'-11 7/8\"");
+
+      // Must NOT be 32,633 lbs! Must be 1285 lbs (0.64 tons)
+      expect(m.totalWeight).not.toBe(32633);
+      expect(m.totalWeight).toBe(1285);
+      expect(m.weight).toBeCloseTo(9.73, 2);
+
+      const aggregated = aggregateBom(parsed);
+      const angle = aggregated.materials_breakdown.find((x) => x.shape === "Angle");
+      expect(angle).toBeDefined();
+      expect(angle!.tons).toBeCloseTo(0.64, 2);
+
+      // Bolt must also be 2 inches (from 50.80 mm), not 50.8 inches
+      expect(parsed.bolts).toHaveLength(1);
+      expect(parsed.bolts[0]!.length).toBe(2);
+    });
+
+    it("supports explicit forceUnits options (metric override vs imperial override)", () => {
+      const kissText = `
+KISS,1.0,TEKLA
+H,2000A9,FAB PROJECT,ACME FAB,2026-09-15,18:00:00
+D,2000A9,0,2000A9,2000A9,132,L,3X3X1/4,A36,606.42,SHOP PRIMER,ANGLE
+`.trim();
+
+      const parsedMetric = parseKissFile(kissText, "test.kss", { forceUnits: "metric" });
+      expect(parsedMetric.members[0]!.totalWeight).toBe(1285);
+      expect(parsedMetric.members[0]!.lengthFormatted).toBe("1'-11 7/8\"");
+    });
+  });
 });
+
 

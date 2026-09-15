@@ -144,7 +144,7 @@ export function ImportTeklaModal({
     }
   }, [initialProjectId, projectId]);
 
-  const handleFileChange = useCallback(async (f: File | null) => {
+  const handleFileChange = useCallback(async (f: File | null, overrideUnits?: "auto" | "imperial" | "metric") => {
     setFile(f);
     setParseError(null);
     setHeaders([]);
@@ -154,7 +154,8 @@ export function ImportTeklaModal({
 
     setParsing(true);
     try {
-      const rows = await parseSheetFile(f);
+      const targetUnits = overrideUnits ?? units;
+      const rows = await parseSheetFile(f, targetUnits);
       if (rows.length === 0) {
         throw new Error("No rows found in file. Check that the file contains data rows or valid KISS detail lines.");
       }
@@ -167,7 +168,7 @@ export function ImportTeklaModal({
     } finally {
       setParsing(false);
     }
-  }, []);
+  }, [units]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -382,7 +383,13 @@ export function ImportTeklaModal({
               <select
                 className="input"
                 value={units}
-                onChange={(e) => setUnits(e.target.value as "auto" | "imperial" | "metric")}
+                onChange={(e) => {
+                  const val = e.target.value as "auto" | "imperial" | "metric";
+                  setUnits(val);
+                  if (file) {
+                    handleFileChange(file, val);
+                  }
+                }}
                 style={{ marginTop: 4 }}
                 disabled={importing}
               >

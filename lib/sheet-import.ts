@@ -141,7 +141,7 @@ export async function parseExcelRows(file: File): Promise<Record<string, string>
 
 export function membersToRows(members: ParsedMember[]): Record<string, string>[] {
   return members.map((m) => {
-    const lengthDisplay = m.length ? formatFeetInches(m.length) : "";
+    const lengthDisplay = m.lengthFormatted || (m.length ? formatFeetInches(m.length) : "");
     return {
       "Part Mark": m.pieceMark || "",
       "Quantity": String(m.quantity || 1),
@@ -150,6 +150,7 @@ export function membersToRows(members: ParsedMember[]): Record<string, string>[]
       "Length": lengthDisplay,
       "Grade": m.grade || "",
       "Part Weight": m.weight > 0 ? String(m.weight) : "",
+      "Total Weight": m.totalWeight ? String(m.totalWeight) : (m.weight && m.quantity ? String(Math.round(m.weight * m.quantity)) : ""),
       "Assembly Mark": m.assemblyMark || "",
       "Drawing No": m.drawingNo || "",
       "Phase / Lot": m.sequence || "",
@@ -158,9 +159,12 @@ export function membersToRows(members: ParsedMember[]): Record<string, string>[]
   });
 }
 
-export async function parseKissRows(file: File): Promise<Record<string, string>[]> {
+export async function parseKissRows(
+  file: File,
+  units?: "auto" | "imperial" | "metric",
+): Promise<Record<string, string>[]> {
   const text = await file.text();
-  const parsed = parseKissFile(text, file.name);
+  const parsed = parseKissFile(text, file.name, { forceUnits: units });
   if (parsed.errors.length > 0 && parsed.members.length === 0) {
     throw new Error(`Failed to parse KISS file: ${parsed.errors.join("; ")}`);
   }
@@ -188,9 +192,12 @@ export async function parseCsvRows(file: File): Promise<Record<string, string>[]
 }
 
 /** Parse any supported sheet file (KISS .kss, EJE .eje, Excel .xlsx, CSV/TSV) into header-keyed rows. */
-export async function parseSheetFile(file: File): Promise<Record<string, string>[]> {
+export async function parseSheetFile(
+  file: File,
+  units?: "auto" | "imperial" | "metric",
+): Promise<Record<string, string>[]> {
   if (isKissFile(file)) {
-    return parseKissRows(file);
+    return parseKissRows(file, units);
   }
   if (isEjeFile(file)) {
     return parseEjeRows(file);
@@ -203,7 +210,7 @@ export async function parseSheetFile(file: File): Promise<Record<string, string>
   const text = await file.text();
   const firstLine = text.split(/\r?\n/)[0]?.trim().toUpperCase() ?? "";
   if (firstLine.startsWith("KISS")) {
-    const parsed = parseKissFile(text, file.name);
+    const parsed = parseKissFile(text, file.name, { forceUnits: units });
     return membersToRows(parsed.members);
   }
 

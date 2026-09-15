@@ -41,29 +41,39 @@ export function classifyShape(materialType: string): ShapeCategory {
   return "Misc Metal";
 }
 
-/** Classifies a full AISC profile string (e.g. "W18X40", "HSS6X6X3/8") to a ShapeCategory. */
+/** Classifies a full AISC profile string (e.g. "W18X40", "HSS6X6X3/8", "L3X3X1/4") to a ShapeCategory. */
 export function classifyProfile(profile: string): ShapeCategory {
   const p = profile.toUpperCase().replace(/\s+/g, "");
 
   if (/^W\d/.test(p) || /^S\d/.test(p) || /^M\d/.test(p) || /^HP\d/.test(p)) return "Wide Flange";
   if (/^HSS/.test(p) || /^TS/.test(p) || /^RHS/.test(p) || /^SHS/.test(p)) return "HSS / Tube";
-  if (/^L\d/.test(p) || /^L\s/.test(p)) return "Angle";
+  if (/^L\d/.test(p) || /^L\s/.test(p) || /^L[A-Z0-9]/.test(p)) return "Angle";
   if (/^PL/.test(p) || /^FL/.test(p) || /^PLT/.test(p) || /^FB/.test(p) || /^BAR/.test(p)) return "Plate";
   if (/^C\d/.test(p) || /^MC\d/.test(p)) return "Channel";
   if (/^WT\d/.test(p) || /^MT\d/.test(p) || /^ST\d/.test(p)) return "Tee";
   if (/^PIPE/.test(p)) return "Pipe";
+
+  // Three-part dimension like 3X3X1/4 or 4X4X3/8 without prefix
+  const parts = p.split(/[Xx×]/);
+  if (parts.length === 3) {
+    const p3 = parts[2] ?? "";
+    if (p3.includes("/") || parseFloat(p3) <= 1.5) {
+      return "Angle";
+    }
+  }
 
   return "Misc Metal";
 }
 
 /**
  * Combines materialType and size into a clean, canonical AISC profile section string
- * (e.g. "W18X40", "PL1/2X12", "HSS6X6X3/8", "L4X4X3/8") without corrupting size
+ * (e.g. "W18X40", "PL1/2X12", "HSS6X6X3/8", "L4X4X3/8", "L3X3X1/4") without corrupting size
  * when materialType is a member role code like "B", "C", "M", "F", "D", "S".
  */
-export function buildCleanSection(matType: string, size: string): { section: string; category: ShapeCategory } {
+export function buildCleanSection(matType: string, size: string, description?: string): { section: string; category: ShapeCategory } {
   const mType = (matType || "").trim().toUpperCase();
   const rawSize = (size || "").trim();
+  const desc = (description || "").trim().toUpperCase();
 
   // If size ALREADY contains a recognized shape profile prefix (W, S, HP, M, C, MC, WT, MT, ST, L, HSS, TS, RHS, SHS, PIPE, PL, PLT, FB, FL)
   const profileMatch = rawSize.match(/^(W|S|HP|M|C|MC|WT|MT|ST|L|HSS|TS|RHS|SHS|PIPE|PL|PLT|FB|FL)\s*\d/i)
@@ -75,8 +85,15 @@ export function buildCleanSection(matType: string, size: string): { section: str
     return { section: cleanSection, category: classifyProfile(cleanSection) };
   }
 
+  // Check if mType is Angle or description states ANGLE
+  if (mType === "L" || mType === "ANGLE" || desc === "ANGLE" || desc.includes("ANGLE")) {
+    const cleanSize = rawSize.toUpperCase().replace(/\s+/g, "").replace(/^L/i, "");
+    const combined = `L${cleanSize}`;
+    return { section: combined, category: "Angle" };
+  }
+
   // Check if mType is a valid shape category code
-  if (mType && /^(W|S|HP|M|C|MC|WT|MT|ST|L|HSS|TS|RHS|SHS|PIPE|PL|PLT|FB|FL)$/i.test(mType)) {
+  if (mType && /^(W|S|HP|M|C|MC|WT|MT|ST|HSS|TS|RHS|SHS|PIPE|PL|PLT|FB|FL)$/i.test(mType)) {
     const combined = `${mType}${rawSize}`.toUpperCase().replace(/\s+/g, "");
     return { section: combined, category: classifyProfile(combined) };
   }
@@ -89,7 +106,16 @@ export function buildCleanSection(matType: string, size: string): { section: str
   } else if (/^\d+\/\d+[Xx×]\d+/.test(inferredSection)) {
     inferredSection = `PL${inferredSection}`;
   } else if (/^\d+[Xx×]\d+[Xx×]\d+/.test(inferredSection)) {
-    inferredSection = `HSS${inferredSection}`;
+    if (desc.includes("ANGLE")) {
+      inferredSection = `L${inferredSection}`;
+    } else {
+      const parts = inferredSection.split(/[Xx×]/);
+      if (parts.length === 3 && (parts[2]?.includes("/") || parseFloat(parts[2] ?? "0") <= 0.75)) {
+        inferredSection = `L${inferredSection}`;
+      } else {
+        inferredSection = `HSS${inferredSection}`;
+      }
+    }
   }
 
   const category = classifyProfile(inferredSection);
@@ -108,14 +134,24 @@ export interface ParsedProject {
   date: string;
 }
 
+export interface ParsedHole {
+  count: number;
+  diameter: string;        // e.g. "20.64" (mm) or "13/16"
+  depth?: string;           // e.g. "9.53" (mm) or "3/8"
+  shape?: string;           // "Round", "Slot", "Oversize"
+}
+
 export interface ParsedMember {
   pieceMark: string;
   assemblyMark: string;
-  section: string;         // profile/size string — "W18X40", "PL 1/2X12"
-  materialType: string;    // raw type code: "W", "PL", "HSS", "SB", etc.
+  section: string;         // profile/size string — "W18X40", "PL 1/2X12", "L3X3X1/4"
+  materialType: string;    // raw type code: "W", "PL", "HSS", "L", "SB", etc.
   grade: string;
-  length: number;          // inches
-  weight: number;          // lbs per piece
+  length: number;          // inches (decimal)
+  lengthFormatted?: string;// formatted fabrication length, e.g. "1'-11 7/8\""
+  lengthMm?: number;       // original length in mm if metric
+  weight: number;          // lbs per piece (e.g. 9.73)
+  totalWeight?: number;    // total line weight in lbs (e.g. 1285)
   quantity: number;
   finish: string;
   notes: string;
@@ -125,6 +161,8 @@ export interface ParsedMember {
   drawingRev?: string;
   weightSource?: "file" | "calculated";
   unitWeightLbsPerFt?: number;
+  holes?: ParsedHole[];
+  welds?: ParsedWeld[];
 }
 
 export interface ParsedPlate {
@@ -138,16 +176,19 @@ export interface ParsedPlate {
 }
 
 export interface ParsedBolt {
-  diameter: string;        // "3/4", "7/8", "1"
+  diameter: string;        // "1/2", "3/4", "7/8", "1"
   length: number;          // inches
   grade: string;           // "A325", "A490"
   finish: string;
   quantity: number;
+  installation?: string;   // "Field", "Shop", etc.
+  drawingNo?: string;
+  assemblyMark?: string;
 }
 
 export interface ParsedWeld {
-  weldType: string;        // "FILLET", "CJP", "PJP"
-  weldSize: string;        // "5/16", "3/8"
+  weldType: string;        // "FILLET", "CJP", "PJP", "W10"
+  weldSize: string;        // "5/16", "3/8", "6.35"
   weldLength: number;      // inches
 }
 
@@ -208,12 +249,21 @@ export interface AggregatedMaterial {
   price_per_ton: number;   // default pricing applied
   pieceCount: number;      // total pieces (qty × unique marks)
   uniqueMarks: number;
+  /** True when this category is excluded from structural steel tonnage (e.g. Misc Metal, hardware) */
+  isExcluded?: boolean;
 }
 
 export interface AggregatedEstimate {
   project_name: string;
   gc_name: string;
+  /** Structural steel shape groups (Misc Metal is EXCLUDED — see misc_metals below) */
   materials_breakdown: AggregatedMaterial[];
+  /**
+   * Misc Metal / hardware items (Misc Metal category members — washers, heavy hex nuts,
+   * miscellaneous plates, etc.). These are intentionally excluded from structural steel
+   * tonnage and cost calculations.
+   */
+  misc_metals: AggregatedMaterial[];
   unique_piece_marks: number;
   connection_complexity: string;
   additional_costs: AdditionalCost[];
@@ -224,7 +274,10 @@ export interface AggregatedEstimate {
     member_count: number;
     plate_count: number;
     bolt_count: number;
+    /** Structural steel weight only — Misc Metal is excluded */
     total_weight_lbs: number;
+    /** Misc Metal / hardware weight (separate from structural steel) */
+    misc_metal_weight_lbs: number;
   };
 }
 
@@ -243,13 +296,71 @@ export function parseFraction(s: string): number {
 }
 
 /**
- * Parses any length representation (feet-inches-sixteenths, feet-inches, decimal inches, metric mm)
- * into a accurate total number of inches.
+ * Detects if a numeric length value is a millimeter dimension in disguise.
+ * In structural steel fabrication:
+ * - A value > 1000 without imperial symbols is always mm.
+ * - When num / 25.4 converts to a standard 16th fractional inch (e.g. 606.42 -> 23.875" = 23 7/8",
+ *   50.80 -> 2.0", 20.64 -> 13/16", 1879.60 -> 74") within 0.005", but num itself is NOT
+ *   an imperial sixteenth fraction (.0625, .125, .1875, .25, etc.), it is definitively in millimeters.
  */
-export function parseLengthToInches(val: string | number): number {
+export function isMillimeterValue(num: number): boolean {
+  if (isNaN(num) || num <= 0) return false;
+  if (num > 1000) return true;
+
+  const asInches = num / 25.4;
+  const nominal16 = Math.round(asInches * 16) / 16;
+  const distFrom16Inches = Math.abs(asInches - nominal16);
+
+  const numNominal16 = Math.round(num * 16) / 16;
+  const distFrom16Direct = Math.abs(num - numNominal16);
+
+  // If num / 25.4 matches an exact 16th inch (e.g. 23.875", 2.0", 0.8125") while num itself does not
+  if (distFrom16Inches < 0.005 && distFrom16Direct > 0.01) {
+    return true;
+  }
+
+  // Common CAD 2-decimal mm values > 50 (e.g. 606.42)
+  if (num > 50 && distFrom16Inches < 0.02 && distFrom16Direct > 0.01) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Parses any length representation (feet-inches-sixteenths, feet-inches, decimal inches, metric mm)
+ * into an accurate total number of inches.
+ *
+ * @param val  Length string or number
+ * @param isMetric  Explicit flag if file/context is known to be metric (mm)
+ */
+export function parseLengthToInches(val: string | number, isMetric?: boolean): number {
+  if (isMetric === true) {
+    const num = typeof val === "number" ? val : parseFloat(String(val).trim());
+    if (isNaN(num) || num <= 0) return 0;
+    const rawInches = num / 25.4;
+    const nominal16 = Math.round(rawInches * 16) / 16;
+    if (Math.abs(rawInches - nominal16) < 0.02) {
+      return nominal16;
+    }
+    return rawInches;
+  }
+
   if (typeof val === "number") {
     if (isNaN(val) || val <= 0) return 0;
-    if (val > 1000) return val / 25.4; // Metric mm -> inches
+    if (isMetric === false) {
+      if (isMillimeterValue(val)) {
+        const rawInches = val / 25.4;
+        const nominal16 = Math.round(rawInches * 16) / 16;
+        return Math.abs(rawInches - nominal16) < 0.02 ? nominal16 : rawInches;
+      }
+      return val;
+    }
+    if (val > 1000 || isMillimeterValue(val)) {
+      const rawInches = val / 25.4;
+      const nominal16 = Math.round(rawInches * 16) / 16;
+      return Math.abs(rawInches - nominal16) < 0.02 ? nominal16 : rawInches;
+    }
     return val;
   }
 
@@ -316,20 +427,66 @@ export function parseLengthToInches(val: string | number): number {
 
   const num = parseFloat(s);
   if (!isNaN(num) && num > 0) {
-    if (num > 1000) return num / 25.4; // Likely mm
+    // If detected as a millimeter dimension in disguise (e.g. 606.42, 50.80)
+    if (isMillimeterValue(num)) {
+      const rawInches = num / 25.4;
+      // Snap metric conversion to nearest 1/16" if within 0.02 inches (e.g. 606.42 mm -> 23.875" = 23-7/8")
+      const nominal16 = Math.round(rawInches * 16) / 16;
+      if (Math.abs(rawInches - nominal16) < 0.02) {
+        return nominal16;
+      }
+      return rawInches;
+    }
     return num;
   }
 
   return 0;
 }
 
+/**
+ * Formats fractional inches to the nearest 1/16" (e.g. 11.875 -> 11 7/8", 6.5 -> 6 1/2", 0 -> 0").
+ */
+function formatInchesFraction(inches: number): string {
+  const rounded16 = Math.round(inches * 16) / 16;
+  const whole = Math.floor(rounded16);
+  const remainder = rounded16 - whole;
+  const sixteenths = Math.round(remainder * 16);
+
+  if (sixteenths === 0) {
+    return whole === 0 ? '0"' : `${whole}"`;
+  }
+  if (sixteenths === 16) {
+    return `${whole + 1}"`;
+  }
+
+  let num = sixteenths;
+  let den = 16;
+  while (num % 2 === 0 && den % 2 === 0) {
+    num /= 2;
+    den /= 2;
+  }
+
+  const frac = `${num}/${den}"`;
+  return whole === 0 ? frac : `${whole} ${frac}`;
+}
+
+/**
+ * Formats a length in inches as standard structural fabrication notation:
+ * Feet-Inches-Sixteenths (e.g. 23.875" -> 1'-11 7/8", 240" -> 20', 246.5" -> 20'-6 1/2").
+ */
 export function formatFeetInches(inches: number): string {
   if (!inches || inches <= 0) return '0"';
-  const feet = Math.floor(inches / 12);
-  const remInches = Math.round((inches % 12) * 100) / 100;
-  if (feet === 0) return `${remInches}"`;
-  if (remInches === 0) return `${feet}'`;
-  return `${feet}'-${remInches}"`;
+  const totalRounded16 = Math.round(inches * 16) / 16;
+  const feet = Math.floor(totalRounded16 / 12);
+  const remInches = totalRounded16 % 12;
+
+  if (feet === 0) {
+    return formatInchesFraction(remInches);
+  }
+  if (Math.round(remInches * 16) === 0) {
+    return `${feet}'`;
+  }
+  return `${feet}'-${formatInchesFraction(remInches)}`;
 }
 
 /**
@@ -349,22 +506,22 @@ export function calculateAiscWeight(
     const unitWt = parseFloat(wflangeMatch[1]!);
     if (unitWt > 0) {
       const wt = (lengthInches / 12) * unitWt;
-      return { weightLbs: Math.round(wt * 10) / 10, unitWeightLbsPerFt: unitWt, isEstimated: false };
+      return { weightLbs: Math.round(wt * 100) / 100, unitWeightLbsPerFt: unitWt, isEstimated: false };
     }
   }
 
-  // 2. Angles: "L4X4X3/8", "4X4X3/8", "L3-1/2X3-1/2X1/4"
-  if (category === "Angle" || /^L\d/i.test(sec)) {
-    const parts = sec.replace(/^L/i, "").split(/[Xx×]/);
+  // 2. Angles: "L4X4X3/8", "4X4X3/8", "L3X3X1/4", "3X3X1/4", "L3-1/2X3-1/2X1/4"
+  if (category === "Angle" || /^L\d/i.test(sec) || /^L/i.test(sec) || (category === "Misc Metal" && sec.split(/[Xx×]/).length === 3)) {
+    const parts = sec.replace(/^L\s*/i, "").split(/[Xx×]/);
     if (parts.length >= 3) {
       const leg1 = parseFraction(parts[0]!);
       const leg2 = parseFraction(parts[1]!);
       const t = parseFraction(parts[2]!);
       if (leg1 > 0 && leg2 > 0 && t > 0) {
         const area = (leg1 + leg2 - t) * t;
-        const unitWt = area * 3.403;
+        const unitWt = area * 3.4028;
         const wt = (lengthInches / 12) * unitWt;
-        return { weightLbs: Math.round(wt * 10) / 10, unitWeightLbsPerFt: Math.round(unitWt * 100) / 100, isEstimated: false };
+        return { weightLbs: Math.round(wt * 100) / 100, unitWeightLbsPerFt: Math.round(unitWt * 1000) / 1000, isEstimated: false };
       }
     }
   }
@@ -377,9 +534,9 @@ export function calculateAiscWeight(
       const t = parseFraction(parts[0]!);
       const w = parseFraction(parts[1]!);
       if (t > 0 && w > 0) {
-        const unitWt = t * w * 3.403;
-        const wt = t * w * lengthInches * 0.2836;
-        return { weightLbs: Math.round(wt * 10) / 10, unitWeightLbsPerFt: Math.round(unitWt * 100) / 100, isEstimated: false };
+        const unitWt = t * w * 3.4028;
+        const wt = t * w * lengthInches * 0.28356;
+        return { weightLbs: Math.round(wt * 100) / 100, unitWeightLbsPerFt: Math.round(unitWt * 1000) / 1000, isEstimated: false };
       }
     }
   }
@@ -393,9 +550,9 @@ export function calculateAiscWeight(
       const t = parseFraction(parts[2]!);
       if (b > 0 && h > 0 && t > 0) {
         const area = 2 * (b + h - 2 * t) * t;
-        const unitWt = area * 3.403;
+        const unitWt = area * 3.4028;
         const wt = (lengthInches / 12) * unitWt;
-        return { weightLbs: Math.round(wt * 10) / 10, unitWeightLbsPerFt: Math.round(unitWt * 100) / 100, isEstimated: false };
+        return { weightLbs: Math.round(wt * 100) / 100, unitWeightLbsPerFt: Math.round(unitWt * 1000) / 1000, isEstimated: false };
       }
     }
   }

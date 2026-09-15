@@ -72,13 +72,16 @@ function boltUnitPrice(diameter: string): number {
 /**
  * Parse any supported file format and return a unified ParsedBomResult.
  */
-export async function parseFile(file: File): Promise<ParsedBomResult> {
+export async function parseFile(
+  file: File,
+  options?: { forceUnits?: "metric" | "imperial" | "auto" },
+): Promise<ParsedBomResult> {
   const name = file.name.toLowerCase();
 
   // KISS file (.kss)
   if (name.endsWith(".kss") || name.endsWith(".kis")) {
     const text = await file.text();
-    return parseKissFile(text, file.name);
+    return parseKissFile(text, file.name, options);
   }
 
   // EJE file (.eje)
@@ -98,7 +101,7 @@ export async function parseFile(file: File): Promise<ParsedBomResult> {
     const text = await file.text();
     const firstLine = text.split(/\r?\n/)[0]?.trim().toUpperCase() ?? "";
     if (firstLine.startsWith("KISS")) {
-      return parseKissFile(text, file.name);
+      return parseKissFile(text, file.name, options);
     }
     return parseCsvXlsxToBom(file, "csv");
   }
@@ -271,32 +274,45 @@ export function aggregateBom(parsed: ParsedBomResult): AggregatedEstimate {
       pieceWeight = calc.weightLbs;
     }
 
-    const memberWeight = pieceWeight * m.quantity;
+    const memberWeight = m.totalWeight ?? (pieceWeight * m.quantity);
 
     g.totalWeightLbs += memberWeight;
     g.pieceCount += m.quantity;
     g.uniqueMarks.add(m.pieceMark);
   }
 
-  // Build materials_breakdown
+  // Build materials_breakdown (structural steel only) and misc_metals (excluded)
   const materials_breakdown: AggregatedMaterial[] = [];
+  const misc_metals: AggregatedMaterial[] = [];
   let totalWeightLbs = 0;
+  let miscMetalWeightLbs = 0;
 
   for (const [cat, data] of groups) {
     const tons = data.totalWeightLbs / 2000;
-    totalWeightLbs += data.totalWeightLbs;
+    const isMisc = cat === "Misc Metal";
 
-    materials_breakdown.push({
+    const entry: AggregatedMaterial = {
       shape: cat,
       tons: Math.round(tons * 100) / 100,
       price_per_ton: DEFAULT_PRICING[cat as ShapeCategory] ?? 1500,
       pieceCount: data.pieceCount,
       uniqueMarks: data.uniqueMarks.size,
-    });
+      isExcluded: isMisc,
+    };
+
+    if (isMisc) {
+      // Keep Misc Metal in its own bucket — not included in structural steel tonnage
+      misc_metals.push(entry);
+      miscMetalWeightLbs += data.totalWeightLbs;
+    } else {
+      materials_breakdown.push(entry);
+      totalWeightLbs += data.totalWeightLbs;
+    }
   }
 
-  // Sort: heaviest categories first
+  // Sort: heaviest structural categories first; misc metals sorted separately
   materials_breakdown.sort((a, b) => b.tons - a.tons);
+  misc_metals.sort((a, b) => b.tons - a.tons);
 
   // Count total unique piece marks across all categories
   const allMarks = new Set<string>();
@@ -319,12 +335,14 @@ export function aggregateBom(parsed: ParsedBomResult): AggregatedEstimate {
     plate_count: parsed.plates.length,
     bolt_count: parsed.bolts.reduce((sum, b) => sum + b.quantity, 0),
     total_weight_lbs: Math.round(totalWeightLbs),
+    misc_metal_weight_lbs: Math.round(miscMetalWeightLbs),
   };
 
   return {
     project_name: parsed.project.jobName || parsed.project.jobNumber || "",
     gc_name: parsed.project.customer || "",
     materials_breakdown,
+    misc_metals,
     unique_piece_marks: allMarks.size,
     connection_complexity: complexity,
     additional_costs: additionalCosts,
@@ -410,11 +428,14 @@ function buildAdditionalCosts(parsed: ParsedBomResult): AdditionalCost[] {
 /**
  * Complete pipeline: parse a file and aggregate into estimate format.
  */
-export async function importFileForEstimate(file: File): Promise<{
+export async function importFileForEstimate(
+  file: File,
+  options?: { forceUnits?: "metric" | "imperial" | "auto" },
+): Promise<{
   parsed: ParsedBomResult;
   aggregated: AggregatedEstimate;
 }> {
-  const parsed = await parseFile(file);
+  const parsed = await parseFile(file, options);
   const aggregated = aggregateBom(parsed);
   return { parsed, aggregated };
 }

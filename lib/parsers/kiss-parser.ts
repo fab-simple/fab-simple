@@ -2,31 +2,114 @@
 // KISS (.kss) file parser
 //
 // KISS (Keep It Simple Steel) is a comma-delimited, line-based ASCII format
-// used to exchange BOM and fabrication data between CAD software (SDS2, Tekla)
+// established by FabTrol Systems to exchange BOM, assembly, material, and
+// fabrication data between CAD software (Tekla Structures, SDS2, Advance Steel)
 // and fabrication MIS/ERP systems.
 //
 // Line identifiers:
 //   KISS  — file header (version, generating software)
 //   H     — project header (job#, name, customer, date, time, units)
-//   D     — detail/material line (drawing#, rev, assembly, mark, qty, type, size, grade, length, finish, notes)
-//   L     — labor line (function, count, size, description) — attached to preceding D
+//   D     — detail/material line (dwg#, rev, asmMark, partMark, qty, type, size, grade, length, finish, description)
+//   L     — labor/operations line (holes, welds) — attached to preceding D
+//   S     — control/status/sequence record (e.g. S,1,1) — NOT a part, bolt, or weight
 //   W     — sequence/work order (v1.1)
 //   M     — misc data (v1.1)
+//   *     — group separator / comment line
 //
-// References:
-//   - KISS v1.0/v1.1 specification (public domain)
-//   - SDS2 KISS export documentation
-//   - FabStation KISS format reference
+// Weight calculation rule:
+//   The Length field in a D record is length (mm or inches/feet), NEVER weight.
+//   Total weight = Quantity × Length × Profile Unit Weight (AISC standard).
+//
+// Fastener rule:
+//   Bolts (HS, B, SB, FB, AB, etc.) are routed to bolts/hardware and excluded
+//   from structural steel members & tonnage.
 // =============================================================================
 
-import type { ParsedBomResult, ParsedMember, ParsedBolt, ParsedWeld } from "./types";
-import { classifyShape, calculateAiscWeight, parseLengthToInches, buildCleanSection } from "./types";
+import type { ParsedBomResult, ParsedMember, ParsedBolt, ParsedWeld, ParsedHole } from "./types";
+import { classifyProfile, calculateAiscWeight, parseLengthToInches, buildCleanSection, formatFeetInches, isMillimeterValue } from "./types";
 
 interface KissLabor {
   function: string;
   count: number;
-  size: string;
-  description: string;
+  f3: string;
+  f4: string;
+  f5: string;
+}
+
+export interface ParseKissOptions {
+  forceUnits?: "metric" | "imperial" | "auto";
+}
+
+/**
+ * Pre-scan lines to determine if the KISS file uses Metric units (mm)
+ * or Imperial units (in/ft).
+ *
+ * NOTE: Tekla Structures / SDS2 exports often put "INCH" in the H record
+ * to signify AISC Imperial shape catalog (e.g. L 3X3X1/4), but output
+ * the actual dimensional lengths in millimeters (e.g. 606.42, 50.80).
+ * We inspect the actual line data so we never misinterpret mm dimensions as inches.
+ */
+export function detectFileUnits(lines: string[], headerUnitsFlag?: string): boolean {
+  const flag = (headerUnitsFlag || "").trim().toUpperCase();
+  if (/^(M|METRIC|MM|T)$/i.test(flag)) return true;
+
+  let metricEvidence = 0;
+  let imperialEvidence = 0;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("*")) continue;
+    const fields = splitKissLine(line);
+    const type = (fields[0] ?? "").toUpperCase().replace(/[^A-Z]/g, "");
+
+    if (type === "D") {
+      const lengthStr = (fields[9] ?? "").trim();
+      if (!lengthStr) continue;
+
+      // Definite imperial formats (contain dashes, foot marks, inch marks, or fractions)
+      if (
+        lengthStr.includes("'") ||
+        lengthStr.includes('"') ||
+        lengthStr.includes("/") ||
+        /^\d+\s*-\s*\d+/.test(lengthStr)
+      ) {
+        imperialEvidence++;
+        continue;
+      }
+
+      const num = parseFloat(lengthStr);
+      if (!isNaN(num) && num > 0) {
+        if (isMillimeterValue(num)) {
+          metricEvidence += 2;
+        } else if (num >= 80 && Number.isInteger(num)) {
+          imperialEvidence++;
+        }
+      }
+    }
+
+    if (type === "L") {
+      const f3 = parseFloat(fields[3] ?? "");
+      if (!isNaN(f3) && f3 > 0) {
+        if (isMillimeterValue(f3)) {
+          metricEvidence++;
+        }
+      }
+    }
+  }
+
+  // Strong metric evidence:
+  if (metricEvidence > 0 && imperialEvidence === 0) {
+    return true;
+  }
+  if (metricEvidence > imperialEvidence * 2) {
+    return true;
+  }
+
+  if (/^(I|INCH|IMPERIAL|F)$/i.test(flag)) {
+    return false;
+  }
+
+  return metricEvidence > 0;
 }
 
 /**
@@ -34,9 +117,14 @@ interface KissLabor {
  *
  * @param text  Raw file content (ASCII text)
  * @param filename  Original filename for metadata
+ * @param options  Optional settings such as forcing unit system ("metric" | "imperial" | "auto")
  * @returns ParsedBomResult with members, plates, bolts, welds extracted
  */
-export function parseKissFile(text: string, filename: string): ParsedBomResult {
+export function parseKissFile(
+  text: string,
+  filename: string,
+  options?: ParseKissOptions,
+): ParsedBomResult {
   const result: ParsedBomResult = {
     source: "kiss",
     filename,
@@ -56,19 +144,47 @@ export function parseKissFile(text: string, filename: string): ParsedBomResult {
   let currentLabors: KissLabor[] = [];
   let lineNum = 0;
 
+  // 1. Initial pass to find header units flag if present
+  let headerUnits = "";
+  for (const line of lines.slice(0, 20)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("H,") || trimmed.startsWith("H\t")) {
+      const f = splitKissLine(trimmed);
+      headerUnits = f[6] ?? "";
+      break;
+    }
+  }
+
+  // 2. Determine metric vs imperial context
+  const force = options?.forceUnits;
+  const isMetric = force === "metric" ? true : force === "imperial" ? false : detectFileUnits(lines, headerUnits);
+
   for (const rawLine of lines) {
     lineNum++;
     const line = rawLine.trim();
     if (!line) continue;
+
+    // Skip comment / separator lines starting with '*'
+    if (line.startsWith("*")) {
+      continue;
+    }
 
     // Determine line type from first field
     const fields = splitKissLine(line);
     const rawType = (fields[0] ?? "").toUpperCase();
     let lineType = rawType.replace(/[^A-Z]/g, "");
 
-    // If first field is not standard KISS header/detail code, check if line contains a structural shape profile
+    // Fallback detection for lines missing line-type marker but containing a shape profile
     let isFallbackDetail = false;
-    if (lineType !== "KISS" && lineType !== "H" && lineType !== "D" && lineType !== "L" && lineType !== "W" && lineType !== "M") {
+    if (
+      lineType !== "KISS" &&
+      lineType !== "H" &&
+      lineType !== "D" &&
+      lineType !== "L" &&
+      lineType !== "S" &&
+      lineType !== "W" &&
+      lineType !== "M"
+    ) {
       const shapeIdx = fields.findIndex((f) => /^(W|S|HP|M|C|MC|WT|L|HSS|TS|PIPE|PL|PLT|FB)\d/i.test(f) || /\d+X\d+/i.test(f));
       if (shapeIdx >= 0 && fields.length >= 3) {
         isFallbackDetail = true;
@@ -79,7 +195,7 @@ export function parseKissFile(text: string, filename: string): ParsedBomResult {
     try {
       switch (lineType) {
         case "KISS": {
-          // KISS,1.0,Tekla Structures
+          // KISS,Version,Software (e.g. KISS,1.0,SDS2)
           if (fields[1]) {
             result.project.revision = fields[1];
           }
@@ -92,8 +208,16 @@ export function parseKissFile(text: string, filename: string): ParsedBomResult {
           result.project.jobName = fields[2] ?? "";
           result.project.customer = fields[3] ?? "";
           result.project.date = fields[4] ?? "";
-          if (fields[6]) {
-            result.project.revision = `${result.project.revision ? result.project.revision + " " : ""}Units:${fields[6]}`.trim();
+          const units = fields[6] || (isMetric ? "METRIC" : "IMPERIAL");
+          result.project.revision = `${result.project.revision ? result.project.revision + " " : ""}Units:${units}`.trim();
+          break;
+        }
+
+        case "S": {
+          // S = KSS control/status record (e.g. S,1,1).
+          // Crucial: Must NEVER be treated as a part, weight, steel item, or bolt.
+          if (currentMember && fields[1]) {
+            currentMember.sequence = fields[1];
           }
           break;
         }
@@ -102,6 +226,8 @@ export function parseKissFile(text: string, filename: string): ParsedBomResult {
           // Flush previous member
           if (currentMember) {
             finalizeMember(currentMember, currentLabors, result);
+            currentMember = null;
+            currentLabors = [];
           }
 
           let drawingNo = "";
@@ -112,26 +238,22 @@ export function parseKissFile(text: string, filename: string): ParsedBomResult {
           let matType = "";
           let size = "";
           let grade = "";
-          let lengthRaw = 0;
-          let explicitWeight = 0;
+          let rawLengthStr = "0";
           let finish = "";
-          let notes = "";
+          let description = "";
 
           if (isFallbackDetail) {
-            // Flexible position matching for non-standard KISS / report CSVs
             const shapeIdx = fields.findIndex((f) => /^(W|S|HP|M|C|MC|WT|L|HSS|TS|PIPE|PL|PLT|FB)\d/i.test(f) || /\d+X\d+/i.test(f));
             size = fields[shapeIdx] ?? "";
             pieceMark = fields[0] ?? "";
             assemblyMark = fields[0] ?? "";
 
-            // Find Qty & Length among numbers
             for (let k = 1; k < fields.length; k++) {
               if (k === shapeIdx) continue;
               const val = parseFloat(fields[k] ?? "");
               if (!isNaN(val) && val > 0) {
                 if (val <= 100 && qty === 1) qty = val;
-                else if (val > 100 && lengthRaw === 0) lengthRaw = val;
-                else if (val > 0 && explicitWeight === 0) explicitWeight = val;
+                else if (val > 100 && rawLengthStr === "0") rawLengthStr = fields[k] ?? "0";
               } else if (fields[k] && !grade) {
                 if (/^(A36|A992|A500|A572|350W|GRADE|GR)/i.test(fields[k]!)) {
                   grade = fields[k]!;
@@ -139,93 +261,157 @@ export function parseKissFile(text: string, filename: string): ParsedBomResult {
               }
             }
           } else {
-            // Standard KISS D-line
+            // Standard KISS D-line:
+            // D,DrawingNo,Rev,AssemblyMark,PartMark,Quantity,MatType,Size,Grade,Length,Finish,Description
             drawingNo = fields[1] ?? "";
             drawingRev = fields[2] ?? "";
             assemblyMark = fields[3] ?? "";
             pieceMark = fields[4] ?? "";
             qty = parseFloat(fields[5] ?? "1") || 1;
-            matType = (fields[6] ?? "").toUpperCase();
-            size = fields[7] ?? "";
-            grade = fields[8] ?? "";
-            let rawLengthStr = fields[9] ?? "0";
-            lengthRaw = parseLengthToInches(rawLengthStr);
+            matType = (fields[6] ?? "").trim().toUpperCase();
+            size = (fields[7] ?? "").trim();
+            grade = (fields[8] ?? "").trim();
+            rawLengthStr = fields[9] ?? "0";
 
             const f10 = (fields[10] ?? "").trim();
             const f11 = (fields[11] ?? "").trim();
             const f12 = (fields[12] ?? "").trim();
 
             const f10Num = parseFloat(f10);
-            const f11Num = parseFloat(f11);
-
             if (!isNaN(f10Num) && f10Num > 0 && !/[A-Z]/i.test(f10)) {
-              explicitWeight = f10Num;
+              // Field 10 is numeric weight (some CAD systems append explicit weight)
               finish = f11;
-              notes = f12;
+              description = f12 || f11;
             } else {
+              // Standard KISS: Field 10 is Finish, Field 11 is Description
               finish = f10;
-              if (!isNaN(f11Num) && f11Num > 0 && !/[A-Z]/i.test(f11)) {
-                explicitWeight = f11Num;
-                notes = f12;
-              } else {
-                notes = f11 || f12;
-              }
+              description = f11 || f12;
             }
           }
 
-          let lengthInches = lengthRaw;
+          // Check if size is a structural shape
+          const hasStructuralProfile =
+            /^(W|S|HP|M|C|MC|WT|MT|ST|L|HSS|TS|RHS|SHS|PIPE|PL|PLT|FB|FL)\s*\d/i.test(size) ||
+            /^(PL|PLT|PLATE|FB|FL|BAR)\s*\d/i.test(size) ||
+            /^(PIPE|RND)\s*\d/i.test(size) ||
+            (matType === "L" && /^\d+[Xx×]\d+[Xx×]\d+/.test(size));
 
-          const { section, category } = buildCleanSection(matType, size);
+          // FASTENER DETECTION:
+          // Check if this D record represents bolts, anchors, or connection hardware.
+          const isFastener =
+            !hasStructuralProfile && (
+              /^(HS|SB|FB|BOLT|AB|ANCHOR|STUD|ROD|NUT|WASHER|FASTENER|HDW|HARDWARE)$/i.test(matType) ||
+              /^(HS|SB|FB|BOLT|AB|ANCHOR|STUD|ROD|NUT|WASHER|FASTENER)$/i.test(size) ||
+              /\b(A325|A490|A307|F3125)\b/i.test(grade) ||
+              /\b(A325|A490|A307|F3125)\b/i.test(size) ||
+              /\b(FIELD BOLT|SHOP BOLT|ANCHOR BOLT|HEX NUT|FLAT WASHER)\b/i.test(description) ||
+              ((matType === "B" || description.toUpperCase() === "FIELD") && !/^(W|S|HP|M|C|MC|L|HSS|TS|PL)/i.test(size))
+            );
+
+          if (isFastener) {
+            // Extract bolt diameter & length
+            const bolt = parseBoltRecord({
+              matType,
+              size,
+              grade,
+              rawLengthStr,
+              finish,
+              description,
+              qty,
+              drawingNo,
+              assemblyMark,
+              isMetric,
+            });
+            result.bolts.push(bolt);
+            // DO NOT create member or add to structural steel tonnage
+            currentMember = null;
+            currentLabors = [];
+            break;
+          }
+
+          // STRUCTURAL STEEL MEMBER:
+          // Clean section and category
+          const { section, category } = buildCleanSection(matType, size, description);
+
+          // Convert length to inches
+          const lengthInches = parseLengthToInches(rawLengthStr, isMetric);
+          const lengthMm = isMetric ? (parseFloat(rawLengthStr) || undefined) : undefined;
+
+          // Calculate AISC standard weight:
+          // The Length field in the D record is NOT weight! Total line weight = unitWeight × (length/12) × qty.
+          const calc = calculateAiscWeight(section, lengthInches, category);
+          const unitWeightLbsPerFt = calc.unitWeightLbsPerFt;
+          const totalWeightExact = unitWeightLbsPerFt * (lengthInches / 12) * qty;
+          const totalWeight = Math.round(totalWeightExact);
+          const weight = qty > 0 ? Math.round((totalWeightExact / qty) * 100) / 100 : calc.weightLbs;
+          const lengthFormatted = formatFeetInches(lengthInches);
+
+          // If pieceMark is blank (sometimes happens on single-part assemblies), inherit assemblyMark
+          const finalPieceMark = pieceMark || assemblyMark || `MARK_${result.members.length + 1}`;
+          const finalAssemblyMark = assemblyMark || pieceMark || `ASM_${result.members.length + 1}`;
 
           currentMember = {
-            pieceMark: pieceMark || assemblyMark || `MARK_${result.members.length + 1}`,
-            assemblyMark: assemblyMark || pieceMark || `ASM_${result.members.length + 1}`,
+            pieceMark: finalPieceMark,
+            assemblyMark: finalAssemblyMark,
             section,
             materialType: matType,
             grade: grade || "A36",
             length: lengthInches,
-            weight: explicitWeight,
-            weightSource: explicitWeight > 0 ? "file" : "calculated",
+            lengthFormatted,
+            lengthMm,
+            weight,
+            totalWeight,
+            weightSource: "calculated",
+            unitWeightLbsPerFt,
             quantity: qty,
             finish,
-            notes: `${drawingNo ? `Dwg: ${drawingNo}` : ""}${drawingRev ? ` Rev ${drawingRev}` : ""}${notes ? ` — ${notes}` : ""}`.trim(),
+            notes: `${drawingNo ? `Dwg: ${drawingNo}` : ""}${drawingRev ? ` Rev ${drawingRev}` : ""}${description ? ` — ${description}` : ""}`.trim(),
             category,
             drawingNo: drawingNo || undefined,
             drawingRev: drawingRev || undefined,
+            holes: [],
+            welds: [],
           };
           currentLabors = [];
           break;
         }
 
         case "L": {
-          // L,Function,Count,Size,Description
-          // L,HOLE,4,13/16,SHOP BOLT
-          // L,WELD,1,5/16,FILLET WELD 12"
+          // L = Additional operation/labor record attached to the previous D record.
+          // Examples:
+          //   Holes: L,Holes,8,20.64,9.53,Round
+          //   Welds: L,weld,1,1879.60,6.35,W10
           if (!currentMember) {
-            result.warnings.push(`Line ${lineNum}: L-line without preceding D-line, skipped.`);
+            // L-line without preceding D-line (e.g. attached to fastener or preamble), skip safely
             break;
           }
+
+          const func = (fields[1] ?? "").trim().toUpperCase();
+          const count = parseFloat(fields[2] ?? "1") || 1;
+          const f3 = fields[3] ?? "";
+          const f4 = fields[4] ?? "";
+          const f5 = fields[5] ?? "";
+
           currentLabors.push({
-            function: (fields[1] ?? "").toUpperCase(),
-            count: parseFloat(fields[2] ?? "0") || 0,
-            size: fields[3] ?? "",
-            description: fields[4] ?? "",
+            function: func,
+            count,
+            f3,
+            f4,
+            f5,
           });
           break;
         }
 
         case "W":
         case "M": {
-          // v1.1 sequence/misc lines — skip for estimation purposes
+          // v1.1 sequence / work order / misc lines — skip for BOM estimation
           break;
         }
 
         default: {
-          // Unknown line type — could be an address line or comment
-          if (lineNum <= 5) {
-            // First few lines may be preamble/address — silently skip
-          } else {
-            result.warnings.push(`Line ${lineNum}: Unknown line type "${lineType}", skipped.`);
+          // Unrecognized or preamble line — skip without polluting warnings if early in file
+          if (lineNum > 5 && lineType !== "") {
+            result.warnings.push(`Line ${lineNum}: Unrecognized record type "${fields[0]}", skipped.`);
           }
           break;
         }
@@ -240,7 +426,7 @@ export function parseKissFile(text: string, filename: string): ParsedBomResult {
     finalizeMember(currentMember, currentLabors, result);
   }
 
-  // Set project name from job name if available
+  // Set project name from job number if blank
   if (!result.project.jobName && result.project.jobNumber) {
     result.project.jobName = result.project.jobNumber;
   }
@@ -249,80 +435,96 @@ export function parseKissFile(text: string, filename: string): ParsedBomResult {
 }
 
 /**
- * Finalize a member: compute weight if missing, extract bolt/weld data from labor lines,
- * and add to the appropriate result arrays.
+ * Parses a fastener / bolt record from a KISS D-line.
+ */
+function parseBoltRecord(opts: {
+  matType: string;
+  size: string;
+  grade: string;
+  rawLengthStr: string;
+  finish: string;
+  description: string;
+  qty: number;
+  drawingNo: string;
+  assemblyMark: string;
+  isMetric: boolean;
+}): ParsedBolt {
+  const { size, grade, rawLengthStr, finish, description, qty, drawingNo, assemblyMark, isMetric } = opts;
+
+  // Extract diameter & length from size (e.g. "1/2X2" -> diameter="1/2", length=2)
+  let diameter = "3/4";
+  let lengthInches = 0;
+
+  const sizeParts = size.split(/[Xx×]/);
+  if (sizeParts.length >= 2) {
+    diameter = extractBoltDiameter(sizeParts[0]!);
+    lengthInches = parseFraction(sizeParts[1]!);
+  } else if (sizeParts.length === 1 && sizeParts[0]) {
+    diameter = extractBoltDiameter(sizeParts[0]);
+  }
+
+  // If length was not in size string, parse from rawLengthStr field
+  if (lengthInches === 0 && rawLengthStr) {
+    lengthInches = parseLengthToInches(rawLengthStr, isMetric);
+  }
+
+  return {
+    diameter,
+    length: lengthInches,
+    grade: grade || "A325",
+    finish: finish || "",
+    quantity: qty,
+    installation: description || "Shop",
+    drawingNo: drawingNo || undefined,
+    assemblyMark: assemblyMark || undefined,
+  };
+}
+
+/**
+ * Finalize a member: attach L hole and weld operations, add plates,
+ * and push to the parsed members list.
  */
 function finalizeMember(
   member: ParsedMember,
   labors: KissLabor[],
   result: ParsedBomResult,
 ): void {
-  // Extract bolts from labor lines
+  // Process attached labor operations
   for (const labor of labors) {
-    if (labor.function === "HOLE" || labor.function === "BOLT" || labor.function === "SB" || labor.function === "FB") {
-      // Shop bolts and field bolts
-      const bolt: ParsedBolt = {
-        diameter: labor.size || "3/4",
-        length: 0,
-        grade: labor.description.includes("A490") ? "A490" : "A325",
-        finish: "",
-        quantity: (labor.count || 1) * member.quantity,
-      };
-      result.bolts.push(bolt);
-    }
+    const func = labor.function;
 
-    if (labor.function === "WELD") {
-      const weld: ParsedWeld = {
-        weldType: labor.description.includes("CJP") ? "CJP" :
-                  labor.description.includes("PJP") ? "PJP" : "FILLET",
-        weldSize: labor.size || "5/16",
-        weldLength: labor.count || 0,
+    if (func.includes("HOLE")) {
+      // Holes: L,Holes,Count,Size,Depth,Shape
+      // Example: L,Holes,8,20.64,9.53,Round
+      // Crucial: Holes are drilling/punching operations, NOT bolts!
+      const hole: ParsedHole = {
+        count: labor.count,
+        diameter: labor.f3,
+        depth: labor.f4 || undefined,
+        shape: labor.f5 || "Round",
       };
+      member.holes = member.holes || [];
+      member.holes.push(hole);
+    } else if (func.includes("WELD")) {
+      // Welds: L,weld,Count,Length,Size,Type
+      // Example: L,weld,1,1879.60,6.35,W10
+      const weldLengthRaw = parseFloat(labor.f3) || 0;
+      const weldLength = weldLengthRaw > 0 ? weldLengthRaw : 0;
+      const weldSize = labor.f4 || "1/4";
+      const weldType = labor.f5 || "FILLET";
+
+      const weld: ParsedWeld = {
+        weldType,
+        weldSize,
+        weldLength,
+      };
+      member.welds = member.welds || [];
+      member.welds.push(weld);
       result.welds.push(weld);
     }
   }
 
-  // Classify: if materialType or section indicates a bolt/hardware record, add to bolts/hardware and EXCLUDE from members & steel weight
-  const isBoltOrHardware =
-    /^(SB|FB|BOLT|NUT|WASHER|HDW|HARDWARE|ANCHOR|AB|STUD|ROD|FASTENER)$/i.test(member.materialType) ||
-    /^(SB|FB|BOLT|NUT|WASHER|HDW|HARDWARE|ANCHOR|AB|STUD|ROD|FASTENER)$/i.test(member.section) ||
-    /\b(A325|A490|A307|F3125)\b/i.test(member.section) ||
-    /\b(SHOP BOLT|FIELD BOLT|ANCHOR BOLT|HEX NUT|FLAT WASHER)\b/i.test(member.notes);
-
-  if (isBoltOrHardware) {
-    const bolt: ParsedBolt = {
-      diameter: extractBoltDiameter(member.section),
-      length: member.length,
-      grade: member.grade || (member.section.includes("A490") ? "A490" : "A325"),
-      finish: member.finish,
-      quantity: member.quantity,
-    };
-    result.bolts.push(bolt);
-    return; // EXCLUDED FROM MEMBERS & STEEL TONNAGE
-  }
-
-  // Calculate AISC standard weight for reference / fallback
-  const calc = calculateAiscWeight(member.section, member.length, member.category);
-  member.unitWeightLbsPerFt = calc.unitWeightLbsPerFt;
-
-  if (!member.weight || member.weight <= 0) {
-    member.weight = calc.weightLbs;
-    member.weightSource = "calculated";
-  } else if (calc.weightLbs > 0) {
-    // Check if the weight in the file was total line weight rather than per-piece weight
-    const diffPerPiece = Math.abs(member.weight - calc.weightLbs);
-    const diffTotalLine = Math.abs(member.weight - (calc.weightLbs * member.quantity));
-    if (member.quantity > 1 && diffTotalLine < diffPerPiece * 0.5) {
-      // File weight was total line weight — convert to per-piece weight
-      member.weight = Math.round((member.weight / member.quantity) * 10) / 10;
-    } else if (member.weight > calc.weightLbs * 2.5) {
-      // File weight was inflated or invalid — fallback to AISC calculated weight
-      member.weight = calc.weightLbs;
-      member.weightSource = "calculated";
-    }
-  }
-
-  // Classify: if materialType is PL (plate), add to plates
+  // If category is Plate, record in plates
   if (member.category === "Plate") {
     const plateDims = parsePlateDimensions(member.section);
     result.plates.push({
@@ -336,7 +538,7 @@ function finalizeMember(
     });
   }
 
-  // Deduplicate exact duplicate member rows (e.g. assembly header line identical to main member detail line)
+  // Deduplicate exact duplicate member rows
   const isDuplicate = result.members.some(
     (m) =>
       m.assemblyMark === member.assemblyMark &&
@@ -351,7 +553,7 @@ function finalizeMember(
 }
 
 /**
- * Split a KISS comma-delimited line, handling quoted fields.
+ * Split a KISS comma-delimited line, handling quotes and alternative delimiters.
  */
 function splitKissLine(line: string): string[] {
   let delim = ",";
@@ -379,22 +581,19 @@ function splitKissLine(line: string): string[] {
 }
 
 /**
- * Extract bolt diameter from a KISS size field like "3/4X3" or "7/8".
+ * Extract bolt diameter from a KISS size field like "1/2X2" or "3/4" or "HS 1/2".
  */
 function extractBoltDiameter(sizeField: string): string {
-  const match = sizeField.match(/^(\d+\/\d+|\d+\.?\d*)/);
-  return match ? match[1] : sizeField;
+  const clean = sizeField.replace(/^(HS|B|SB|FB|BOLT)\s*/i, "").trim();
+  const match = clean.match(/^(\d+\/\d+|\d+\.?\d*)/);
+  return match ? match[1]! : clean;
 }
 
 /**
  * Parse plate dimensions from a KISS size field like "1/2X12-3/8" or "3/4X18".
- * Returns thickness, width, and optionally length in inches.
  */
 function parsePlateDimensions(sizeField: string): { thickness: number; width: number; length: number } {
-  // Remove "PL" prefix if present
   const s = sizeField.replace(/^(PL|PLT|PLATE)\s*/i, "").trim();
-
-  // Try to parse "thickness X width" or "thickness X width - length"
   const parts = s.split(/[Xx×]/);
   const thickness = parseFraction(parts[0] ?? "0");
 
@@ -402,10 +601,8 @@ function parsePlateDimensions(sizeField: string): { thickness: number; width: nu
   let length = 0;
 
   if (parts[1]) {
-    // parts[1] might be "12-3/8" (width with fraction) or "12"
     const widthParts = parts[1].split("-");
     if (widthParts.length === 2 && widthParts[1]?.includes("/")) {
-      // "12-3/8" → width = 12 + 3/8
       width = parseFloat(widthParts[0] ?? "0") + parseFraction(widthParts[1] ?? "0");
     } else {
       width = parseFraction(parts[1]);
@@ -426,18 +623,15 @@ function parseFraction(s: string): number {
   const trimmed = s.trim();
   if (!trimmed) return 0;
 
-  // Handle "1-1/2" (mixed number with dash)
   const mixedMatch = trimmed.match(/^(\d+)\s*-\s*(\d+)\/(\d+)$/);
   if (mixedMatch) {
     return parseInt(mixedMatch[1]!, 10) + parseInt(mixedMatch[2]!, 10) / parseInt(mixedMatch[3]!, 10);
   }
 
-  // Handle "3/4" (simple fraction)
   const fracMatch = trimmed.match(/^(\d+)\/(\d+)$/);
   if (fracMatch) {
     return parseInt(fracMatch[1]!, 10) / parseInt(fracMatch[2]!, 10);
   }
 
-  // Plain number
   return parseFloat(trimmed) || 0;
 }

@@ -41,18 +41,21 @@ export function BomEstimateImport({ onClose, onImport }: BomEstimateImportProps)
 
   // Editable pricing on Step 2
   const [editableMaterials, setEditableMaterials] = useState<AggregatedMaterial[]>([]);
-  const [reviewTab, setReviewTab] = useState<"summary" | "members">("summary");
+  const [reviewTab, setReviewTab] = useState<"summary" | "members" | "misc">("summary");
   const [memberSearch, setMemberSearch] = useState("");
+  const [units, setUnits] = useState<"auto" | "imperial" | "metric">("auto");
 
-  const handleFile = useCallback(async (f: File) => {
+  const handleFile = useCallback(async (f: File, overrideUnits?: "auto" | "imperial" | "metric") => {
     setFile(f);
     setParseError(null);
     setParsing(true);
 
     try {
-      const result = await importFileForEstimate(f);
+      const targetUnits = overrideUnits ?? units;
+      const result = await importFileForEstimate(f, { forceUnits: targetUnits });
       setParsed(result.parsed);
       setAggregated(result.aggregated);
+      // Only structural steel categories are editable — misc metals excluded from pricing grid
       setEditableMaterials(result.aggregated.materials_breakdown.map((m) => ({ ...m })));
       setStep(2);
     } catch (e) {
@@ -60,7 +63,7 @@ export function BomEstimateImport({ onClose, onImport }: BomEstimateImportProps)
     } finally {
       setParsing(false);
     }
-  }, []);
+  }, [units]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -176,6 +179,27 @@ export function BomEstimateImport({ onClose, onImport }: BomEstimateImportProps)
           {/* Step 1: Upload */}
           {step === 1 && (
             <div>
+              <div className="flex items-center justify-between mb-2 px-0.5">
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                  Dimension Units
+                </span>
+                <select
+                  className="input input-sm text-xs py-1 px-2 h-7"
+                  style={{ width: 190 }}
+                  value={units}
+                  onChange={(e) => {
+                    const val = e.target.value as "auto" | "imperial" | "metric";
+                    setUnits(val);
+                    if (file) handleFile(file, val);
+                  }}
+                  disabled={parsing}
+                >
+                  <option value="auto">Auto-detect (Smart mm/in)</option>
+                  <option value="metric">Force Metric (mm / kg)</option>
+                  <option value="imperial">Force Imperial (in / lb)</option>
+                </select>
+              </div>
+
               <div
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                 onDragLeave={() => setDragOver(false)}
@@ -294,13 +318,31 @@ export function BomEstimateImport({ onClose, onImport }: BomEstimateImportProps)
                   </span>
                   <span className="text-[12px] font-medium" style={{ color: "var(--text)" }}>{parsed.filename}</span>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-sm text-[11px]"
-                  onClick={() => { setStep(1); setFile(null); setParsed(null); setAggregated(null); }}
-                >
-                  Choose different file
-                </button>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 text-xs">
+                    <span className="text-[11px] text-slate-400">Units:</span>
+                    <select
+                      className="input input-sm text-xs py-0.5 px-2 h-7"
+                      value={units}
+                      onChange={(e) => {
+                        const val = e.target.value as "auto" | "imperial" | "metric";
+                        setUnits(val);
+                        if (file) handleFile(file, val);
+                      }}
+                    >
+                      <option value="auto">Auto-detect</option>
+                      <option value="metric">Metric (mm / kg)</option>
+                      <option value="imperial">Imperial (in / lb)</option>
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm text-[11px]"
+                    onClick={() => { setStep(1); setFile(null); setParsed(null); setAggregated(null); }}
+                  >
+                    Choose different file
+                  </button>
+                </div>
               </div>
 
               {/* Project info */}
@@ -351,8 +393,17 @@ export function BomEstimateImport({ onClose, onImport }: BomEstimateImportProps)
                     className={`btn btn-sm text-xs ${reviewTab === "members" ? "btn-primary" : "btn-outline"}`}
                     onClick={() => setReviewTab("members")}
                   >
-                    <ListFilter size={13} /> Itemized Members ({parsed.members.length} items)
+                    <ListFilter size={13} /> Itemized Members ({parsed.members.filter(m => m.category !== "Misc Metal").length} items)
                   </button>
+                  {aggregated.misc_metals.length > 0 && (
+                    <button
+                      type="button"
+                      className={`btn btn-sm text-xs ${reviewTab === "misc" ? "btn-primary" : "btn-outline"}`}
+                      onClick={() => setReviewTab("misc")}
+                    >
+                      <Wrench size={13} /> Misc / Hardware ({aggregated.misc_metals.reduce((s, m) => s + m.pieceCount, 0)} pcs)
+                    </button>
+                  )}
                 </div>
                 {reviewTab === "members" && (
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-xs">
@@ -470,7 +521,7 @@ export function BomEstimateImport({ onClose, onImport }: BomEstimateImportProps)
                             m.section.toLowerCase().includes(memberSearch.toLowerCase()),
                           )
                           .map((m, idx) => {
-                            const lineWtLbs = m.weight * m.quantity;
+                            const lineWtLbs = m.totalWeight ?? Math.round(m.weight * m.quantity);
                             return (
                               <tr key={idx}>
                                 <td className="font-semibold font-mono">{m.pieceMark || m.assemblyMark || "—"}</td>
@@ -503,6 +554,79 @@ export function BomEstimateImport({ onClose, onImport }: BomEstimateImportProps)
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+
+              {/* Misc Metals / Hardware tab */}
+              {reviewTab === "misc" && (
+                <div className="card" style={{ border: "1px solid rgba(245,158,11,0.3)" }}>
+                  <div className="card-header py-2.5 px-4 flex items-center justify-between" style={{ background: "rgba(245,158,11,0.06)" }}>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "#F59E0B" }}>
+                      ⚠ Misc Metals & Hardware — Excluded from Structural Steel Tonnage
+                    </div>
+                    {aggregated.import_summary.misc_metal_weight_lbs > 0 && (
+                      <div className="text-[11px] font-mono" style={{ color: "var(--muted)" }}>
+                        {aggregated.import_summary.misc_metal_weight_lbs.toLocaleString()} lbs misc
+                      </div>
+                    )}
+                  </div>
+                  <div className="tbl-wrap" style={{ borderRadius: "0 0 6px 6px" }}>
+                    <table style={{ margin: 0 }}>
+                      <thead>
+                        <tr>
+                          <th>Category</th>
+                          <th style={{ textAlign: "right" }}>Marks</th>
+                          <th style={{ textAlign: "right" }}>Pieces</th>
+                          <th style={{ textAlign: "right" }}>Est. Weight</th>
+                          <th style={{ textAlign: "center" }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {aggregated.misc_metals.map((m) => (
+                          <tr key={m.shape}>
+                            <td className="font-semibold text-xs">{m.shape}</td>
+                            <td className="text-right font-mono text-xs">{m.uniqueMarks}</td>
+                            <td className="text-right font-mono text-xs">{m.pieceCount}</td>
+                            <td className="text-right font-mono text-xs">
+                              {m.tons > 0 ? `${m.tons.toFixed(2)} tons` : "—"}
+                            </td>
+                            <td className="text-center">
+                              <span
+                                className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase"
+                                style={{
+                                  background: "rgba(245,158,11,0.15)",
+                                  color: "#F59E0B",
+                                  border: "1px solid rgba(245,158,11,0.35)",
+                                }}
+                              >
+                                Excluded
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Misc members detail */}
+                  {parsed.members.filter(m => m.category === "Misc Metal").length > 0 && (
+                    <div className="px-4 py-3 border-t border-slate-800">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--muted)" }}>
+                        Misc Metal Items
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {parsed.members
+                          .filter(m => m.category === "Misc Metal")
+                          .map((m, idx) => (
+                            <div key={idx} className="flex items-center gap-1.5 px-2 py-1 rounded text-xs" style={{ background: "var(--bg-muted)", border: "1px solid var(--border)" }}>
+                              <span className="font-mono text-amber-400">{m.pieceMark}</span>
+                              <span style={{ color: "var(--muted)" }}>·</span>
+                              <span>{m.section}</span>
+                              <span style={{ color: "var(--muted)" }}>×{m.quantity}</span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

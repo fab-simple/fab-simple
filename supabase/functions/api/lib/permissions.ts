@@ -196,11 +196,11 @@ export const TABLES: Record<string, TableConfig> = {
     sequence: { prefix: "L", field: "ticket_number" },
     activity: { entity_type: "shipping_tickets", label_field: "ticket_number" },
   },
-  // Estimating: Owner Full · Estimator Full · PM View · Accounting (needs to bill)
+  // Estimating: Owner Full · Estimator Full · PM Full · Accounting (needs to bill)
   estimates: {
     table: "estimates",
-    insertable: ["owner", "estimator"],
-    updatable: ["owner", "estimator"],
+    insertable: ["owner", "estimator", "pm"],
+    updatable: ["owner", "estimator", "pm"],
     deletable: ["owner"],
     readable: ["owner", "estimator", "pm", "accounting"],
     hasCompanyId: true,
@@ -209,9 +209,9 @@ export const TABLES: Record<string, TableConfig> = {
   },
   estimate_line_items: {
     table: "estimate_line_items",
-    insertable: ["owner", "estimator"],
-    updatable: ["owner", "estimator"],
-    deletable: ["owner", "estimator"],
+    insertable: ["owner", "estimator", "pm"],
+    updatable: ["owner", "estimator", "pm"],
+    deletable: ["owner", "estimator", "pm"],
     readable: ["owner", "estimator", "pm", "accounting"],
     hasCompanyId: true,
   },

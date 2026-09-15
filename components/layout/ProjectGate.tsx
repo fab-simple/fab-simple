@@ -19,6 +19,7 @@ interface Project {
 const STATUS_COLORS: Record<string, string> = {
   active: "#16A34A",
   on_hold: "#EAB308",
+  awarded_setup: "#F59E0B",
   completed: "#3B82F6",
   archived: "#94A3B8",
 };
@@ -39,14 +40,13 @@ export function ProjectGate({ children }: { children: React.ReactNode }) {
     dir: "asc",
   });
 
-  // Determine if the current path is project-scoped.
+  // Determine if the current route is project-scoped.
   const isProjectScoped = useMemo(() => {
+    if (!pathname) return false;
     for (const section of NAV_SECTIONS) {
       for (const item of section.items) {
-        if (item.projectScoped) {
-          if (pathname === item.href || pathname.startsWith(item.href + "/")) {
-            return true;
-          }
+        if (item.projectScoped && pathname.startsWith(item.href)) {
+          return true;
         }
       }
     }
@@ -58,9 +58,7 @@ export function ProjectGate({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  const allProjects = (projects.data ?? []).filter(
-    (p) => p.status !== "awarded_setup"
-  );
+  const allProjects = projects.data ?? [];
   const filtered = allProjects.filter(
     (p) =>
       !search ||

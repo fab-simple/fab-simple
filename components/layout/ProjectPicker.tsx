@@ -66,13 +66,12 @@ export function ProjectPicker({ forceOpen, onForceOpenHandled }: {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
-  const filtered = (projects.data ?? [])
-    .filter((p) => p.status !== "awarded_setup")
-    .filter((p) =>
+  const filtered = (projects.data ?? []).filter(
+    (p) =>
       !search ||
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       (p.number ?? "").toLowerCase().includes(search.toLowerCase())
-    );
+  );
 
   const hasProject = !!selectedProjectId;
 
@@ -149,16 +148,22 @@ export function ProjectPicker({ forceOpen, onForceOpenHandled }: {
                 >
                   <div className="sidebar-picker-item-info">
                     <div className="sidebar-picker-item-name">{p.name}</div>
-                    {p.number && (
-                      <div className="sidebar-picker-item-num">
-                        #{p.number}
-                        {p.status && p.status !== "active" && (
-                          <span style={{ marginLeft: 6, textTransform: "capitalize", opacity: 0.7 }}>
-                            · {p.status}
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    <div className="sidebar-picker-item-num">
+                      {p.number ? (
+                        <>
+                          #{p.number}
+                          {p.status && p.status !== "active" && (
+                            <span style={{ marginLeft: 6, textTransform: "capitalize", opacity: 0.7 }}>
+                              · {p.status.replace("_", " ")}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span style={{ color: "#f59e0b", opacity: 0.9 }}>
+                          Pending Job # {p.status ? `· ${p.status.replace("_", " ")}` : ""}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {isSelected && <Check size={12} style={{ color: "var(--primary)", flexShrink: 0 }} />}
                 </button>
